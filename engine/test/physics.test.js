@@ -26,7 +26,7 @@ test('free fall from 1 m takes sqrt(2h/g) within 1%', () => {
 });
 
 test('a spinning body keeps its angular velocity and its quaternion stays unit length', () => {
-  const W = new P.World({ gravity: 0, floor: false }), b = P.makeBox({ size: [0.12, 0.12, 0.12], p: [0, 0, 1] });
+  const W = new P.World({ gravity: 0, floor: false }), b = P.makeBox({ size: [0.12, 0.12, 0.12], p: [0, 0, 1], angularDamping: 0 });
   b.w = [0, 0, 3]; W.add(b);
   for (let i = 0; i < 10000; i++) W.step(1 / 240);
   near(Math.hypot(...b.q), 1, 1e-9, 'unit quaternion');
@@ -127,4 +127,39 @@ test('a frame hitch of 0.2 s does not tunnel or make NaN', () => {
   W.step(0.2); W.step(0.2);
   assert.ok(b.p.every(Number.isFinite) && b.q.every(Number.isFinite));
   assert.ok(b.p[2] > H - 0.01, `z ${b.p[2]}`);
+});
+
+// ---- rest, damping and sleep (task 3)
+const upAxisTilt = (b) => { const up = [0, 1, 2].map((i) => P.quat.rotate(b.q, [i === 0, i === 1, i === 2].map(Number))[2]); return Math.acos(Math.min(1, Math.max(...up.map(Math.abs)))) * 180 / Math.PI; };
+
+test('dropped on a corner it is lying on a face within 3 s, within 2 degrees', () => {
+  const W = new P.World(), b = cube({ p: [0, 0, 0.5], q: P.quat.mul(P.quat.fromAxisAngle([1, 0.3, 0], 0.08), CORNER_DOWN) }); W.add(b);
+  run(W, b, 3);
+  assert.ok(upAxisTilt(b) < 2, `tilt ${upAxisTilt(b)}`);
+  near(b.p[2], H, 0.002, 'on its face');
+});
+
+test('it falls asleep within 2 s of settling and does not move after', () => {
+  const W = new P.World(), b = cube({ p: [0, 0, 0.3] }); W.add(b);
+  run(W, b, 3);
+  assert.strictEqual(b.asleep, true);
+  const p0 = b.p.slice(); run(W, b, 1);
+  assert.ok(Math.hypot(b.p[0] - p0[0], b.p[1] - p0[1], b.p[2] - p0[2]) < 0.001);
+});
+
+test('setRoom and wake bring a sleeping body back; a moving body never sleeps', () => {
+  const W = new P.World(), b = cube({ p: [0, 0, 0.3] }); W.add(b); run(W, b, 3);
+  assert.strictEqual(b.asleep, true);
+  W.setRoom(tableRoom()); assert.strictEqual(b.asleep, false);
+  run(W, b, 3); assert.strictEqual(b.asleep, true);
+  W.wake(b); assert.strictEqual(b.asleep, false);
+  const m = cube({ p: [0, 0, H] }); m.v = [1, 0, 0]; const V = new P.World(); V.add(m); run(V, m, 0.4);
+  assert.strictEqual(m.asleep, false);
+});
+
+test('a cube with its middle past a table edge tips off and rests on the floor', () => {
+  const W = new P.World({ room: tableRoom() }), b = cube({ p: [2.04, 0.5, 0.7 + H] }); W.add(b);
+  run(W, b, 3);
+  near(b.p[2], H, 0.003, 'on the floor');
+  assert.ok(upAxisTilt(b) < 2, 'on a face');
 });

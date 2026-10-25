@@ -27,10 +27,10 @@
   };
 
   // size: full edge lengths. Inertia is the box's, in its own axes.
-  function makeBox({ size, density = 1050, restitution = 0.45, friction = { s: 0.45, k: 0.4 }, p, q = [0, 0, 0, 1] } = {}) {
+  function makeBox({ size, density = 1050, restitution = 0.45, friction = { s: 0.45, k: 0.4 }, angularDamping = 0.05, rollingResistance = 0.02, p, q = [0, 0, 0, 1] } = {}) {
     const [sx, sy, sz] = size, mass = density * sx * sy * sz;
     return { size: [sx, sy, sz], mass, inv: 1 / mass, inertia: [(mass / 12) * (sy * sy + sz * sz), (mass / 12) * (sx * sx + sz * sz), (mass / 12) * (sx * sx + sy * sy)],
-      p: (p || [0, 0, sz / 2]).slice(), q: q.slice(), v: [0, 0, 0], w: [0, 0, 0], restitution, friction: Object.assign({}, friction), asleep: false, held: null };
+      p: (p || [0, 0, sz / 2]).slice(), q: q.slice(), v: [0, 0, 0], w: [0, 0, 0], restitution, friction: Object.assign({}, friction), angularDamping, rollingResistance, calm: 0, asleep: false, held: null };
   }
   // the 8 corners in the world
   function corners(b) {
@@ -42,7 +42,7 @@
     return out;
   }
 
-  const MAX_DT = 0.05, MARGIN = 0.02, ITER = 12, MAX_MOVE = 0.005, SLOP = 0.0005, PEN_LIMIT = 0.06, REST_SPEED = 0.5, EDGE_STEP = 0.03, STATIC_SLIP = 0.02;
+  const MAX_DT = 0.05, MARGIN = 0.02, ITER = 12, MAX_MOVE = 0.005, SLOP = 0.0005, PEN_LIMIT = 0.06, REST_SPEED = 0.5, SLEEP_V = 0.01, SLEEP_W = 0.05, SLEEP_AFTER = 0.5, EDGE_STEP = 0.03, STATIC_SLIP = 0.02;
   const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
   const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
   const add = (a, b, k = 1) => [a[0] + b[0] * k, a[1] + b[1] * k, a[2] + b[2] * k];
@@ -79,7 +79,8 @@
     }
     add(b) { if (!this.bodies.includes(b)) this.bodies.push(b); return b; }
     remove(b) { const i = this.bodies.indexOf(b); if (i >= 0) this.bodies.splice(i, 1); }
-    setRoom(room) { this.room = room || null; }
+    setRoom(room) { this.room = room || null; for (const b of this.bodies) this.wake(b); }
+    wake(b) { b.asleep = false; b.calm = 0; }
     step(dt) {
       if (!(dt > 0)) return;
       dt = Math.min(dt, MAX_DT);
@@ -151,7 +152,13 @@
       for (const b of this.bodies) {
         if (b.asleep) continue;
         b.v[2] -= this.gravity * h;
-        const cs = this.contacts(b);
+        const cs = this.contacts(b), touching = cs.some((c) => c.gap < 0.005);
+        const damp = Math.exp(-b.angularDamping * h);                  // (angularDamping: 1/s)
+        b.w = mulv(b.w, damp);
+        if (touching) {                                                // rolling resistance: a steady slowing of the spin while it rests on something
+          const sp = Math.hypot(...b.w), dec = ((b.rollingResistance * this.gravity) / (Math.min(...b.size) / 2)) * h;
+          if (sp > 0) b.w = mulv(b.w, Math.max(0, sp - dec) / sp);
+        }
         for (const c of cs) {
           c.ra = sub(c.r, b.p);
           c.Kn = b.inv + dot(cross(invI(b, cross(c.ra, c.n)), c.ra), c.n);
@@ -180,6 +187,7 @@
         const fix = [0, 0, 0];                                                    // (out of what it is in: the deepest push along each axis)
         for (const c of this.contacts(b)) if (c.gap < -SLOP) for (let i = 0; i < 3; i++) { const d = c.n[i] * 0.5 * Math.min(PEN_LIMIT, -c.gap - SLOP); if (Math.abs(d) > Math.abs(fix[i])) fix[i] = d; }
         b.p = add(b.p, fix);
+        if (touching && Math.hypot(...b.v) < SLEEP_V && Math.hypot(...b.w) < SLEEP_W) { b.calm += h; if (b.calm >= SLEEP_AFTER) { b.asleep = true; b.v = [0, 0, 0]; b.w = [0, 0, 0]; } } else b.calm = 0;
       }
     }
     _apply(b, ra, J) { b.v = add(b.v, J, b.inv); b.w = add(b.w, invI(b, cross(ra, J))); }
