@@ -48,7 +48,7 @@ small copy of the room; **Show hand IRL** shows your hand full size where it rea
   the log line counts those frames ("physics cut short in N frames"). That count and the frame times are the pile's result now.
 - The simulation is in the common frame, so every page's boxes are turned the same way whatever its line-up. Alone, or before lining up,
   the common frame is the page's own.
-- Not here: `tools/stress.js` (PLAN.md 3.1, Node only, no headset) and the camera row.
+- Not here: the camera row. (The Node stress test `tools/stress.js` was dropped, 2026-10-26.)
 
 | File | What it is |
 |---|---|

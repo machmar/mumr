@@ -50,7 +50,7 @@ headset (section 4 says what is missing); **not started**. Rows are in the order
 | 13 | Feet as shoes from body tracking (`feet: 'off' \| 'show' \| 'kick'`), legs removed | **built**: off by default and in the cube; the other modes never ran (Marek: "pretty sure those work") |
 | 14 | **Physics** (`engine/client/physics.js`, design `docs/superpowers/specs/2026-10-26-physics-design.md`): the cube falls, bounces like hard plastic, tumbles, slides with friction, comes to rest on a face, turns with the hand that holds it and is thrown with the hand's speed; hands are kinematic spheres and a plate; packet 16 carries orientation and spin | **built** 2026-10-26: Node tests against the numbers (bounce height, slide distance, slope angle, no tunnelling) and a browser rehearsal on the PC; **not yet on a headset** (section 4). The lab (`apps/lab`) is on it too since the same day: boxes touch each other, stacks stand, heaps tumble and sleep; a heap of 30 costs about 19 ms per frame in Node while it falls, so on a Quest the pile run will say how many boxes one page can take (the log counts frames where the physics hit its 6 ms budget) |
 | 14b | **Jolt Physics on the PC host** (2026-10-26, Marek: "go with Jolt"; branch `jolt-physics`): `engine/client/physics-jolt.js`, `M.physics.JoltWorld`, the same `World` interface on the C++ engine as WebAssembly (the `jolt-physics` npm package, the repo's first dependency, host only). The lab host runs the pile and the island on it; the cube host too (`Cube(cfg, Engine)`). Hands are kinematic bodies with the hand's own smoothed speed (a quick hand no longer launches the cubes) and no bounce. The lab's Cubes box has - and + (10 at a time) and **no limit**: a heap that lands and settles costs on average 0.7 ms a frame at 50 cubes, 4 ms at 200, 12 ms at 500, 28 ms at 1000 (built-in: 3-5 ms at 50) | **built**; the lab on Jolt was played through on two headsets ("feels good", 10-26); the cube on Jolt and 200+ cubes **not yet on a headset** (section 4) |
-| 5 | **Many bodies**: an entity-list packet with a per-entry token check on the hub; sleeping bodies; contact islands (one token for a touching group); cube-to-cube contact | **partly done by 14b**: sleeping bodies and cube-to-cube contact come with Jolt, and the lab's pile is one packet of at most 64 boxes (the longest-waiting first). Not done: the entry-list packet with a per-entry token check, islands. Was: **not started**: the experiment pages of section 3.1 come first and decide its shape |
+| 5 | **Many bodies**: an entity-list packet with a per-entry token check on the hub; sleeping bodies; contact islands (one token for a touching group); cube-to-cube contact | **done** 2026-10-26 (Marek: Jolt covers many bodies). Sleeping bodies and cube-to-cube contact come with Jolt on the PC host, and the lab's pile is one packet of at most 64 boxes (the longest-waiting first). The entry-list packet with a per-entry token check and the token islands were not built: with the host simulating the pile there is one holder for the heap |
 | 7 | Nudgy on MUMR (section 5) | **not now** (Marek, 2026-10-22) |
 | 8 | Direct lane between headsets (WebRTC behind `link`) | not needed so far (Nudgy probe 10-15: same median, no long silences) |
 | - | Automatic line-up from the `shared` reference space | not usable yet: granted on both headsets but never got a UUID (2026-10-22); the touched spots stay |
@@ -61,12 +61,12 @@ after a run in which the PC view is open (section 4).
 ## 3. Next, in this order
 
 1. **One headset session for section 4** (about 15 minutes, one headset is enough for most of it; the list says which items need two). Also check the cube still loads and plays after the engine/ move.
-2. **The experiment pages (3.1)**, then Marek runs them: they decide phase 5.
-3. **Phase 5, many bodies (3.2)**, shaped by what the experiments measured.
+2. **The experiment pages (3.1)**: built as `apps/lab`; Marek runs them for the numbers. They no longer gate phase 5, which is closed.
+3. ~~**Phase 5, many bodies (3.2)**~~ done 2026-10-26: Jolt on the host covers it.
 4. **Camera row** of the line-up menu, when a webcam page is wanted.
 5. **Phase 7** only when Marek says so.
 
-### 3.1 Experiment and stress pages (to build)
+### 3.1 Experiment pages (built as `apps/lab`; the Node stress test `tools/stress.js` is dropped, Marek 2026-10-26: not needed)
 
 Each is an app in `apps/` built on `createApp`, with its numbers in the life log (so `mumr-server.log` has them after the run, with
 nothing to copy off the headset) and on its menu. Every page has a rehearsal mode on the PC (`?name=A&frame=...&room=demo`) and a Node
@@ -77,9 +77,8 @@ test of its logic with pretend headsets, as the cube has. Start the server and c
 | `apps/pile` (?n=10/20/30/50) | Quest frame time with N bodies simulated; later, hand-over jitter | N cubes on the floor in a grid, a button that drops them into one pile. **Needs cube-to-cube contact first** (cube.js only knows hands and the room): boxes as turned squares, support from the highest box under the footprint (as the room's `support`, NOTES 30), push-out between boxes in the same 1 cm steps. Before phase 5 every cube is simulated on every page with no sharing (the measurement is the page's own cost). The page logs every 5 s: frames per second, frame time p50/p95 (ms), simulation time per frame (ms), N, how many cubes are moving | One headset: run n = 10, 20, 30, 50; poke the pile. Pass: frame time p95 under 13.9 ms (72 Hz) at 30 cubes, the pile comes to rest. The result says how many bodies one page can simulate, and so whether sleeping bodies (phase 5) are needed or only nice |
 | `apps/drift` | How far the line-up drifts over 10 minutes: one headset against the room, two headsets against each other | Uses the line-up's check mark (spot 3) as it is: a printed cross, a timer that every minute says "touch the cross", and on the touch logs where the fingertip is against where the line-up says the cross is (mm, and the mm between the two players when both touch). Ten rows in the log; a menu shows the last and the largest | Alone: line up, then 10 minutes walking about, touching the cross each minute. Two: both do it on the same cross. Pass: under 2 cm after 10 minutes; if not, the anchor keeper needs a re-check timer (anchor.js) |
 | `apps/island` (after `pile` has contact) | What happens to a stack when two players touch it at once | A stack of 3-5 cubes; one player pushes the bottom while the other lifts the top. With today's one token per body each cube changes hands on touch; the page logs token hand-overs per second, jumps of a cube (> 2 cm between two drawn frames) and whether the stack stayed together | Two headsets. First run shows today's failure (the baseline). Phase 5's islands (one token for a touching group) pass when the stack moves as one with no jumps |
-| `tools/stress.js` (Node, no headset) | Hub and network load for many players and bodies | Starts N pretend players (`tools/standin.js` does one) that send presence at 45/s and own M moving bodies each, against the real server; logs packets/s in and out, the hub's CPU, and the delay from send to receive | PC only: 4 players x 30 bodies. Pass: no queue growth, delay under 30 ms on localhost. Run again over Wi-Fi with two machines when phase 5 has its packet |
 
-### 3.2 Phase 5 (when the experiments are in)
+### 3.2 Phase 5 (closed 2026-10-26: Jolt on the host covers it; kept as the design if one host stops being enough)
 
 A packet `E` = list of `(id u16, state)`, the holder implied by the hub's table: the hub checks each entry against its token and drops
 the ones the sender does not hold (today it checks whole packets by type). Only moving entries are sent; the hub keeps the newest per id
@@ -143,7 +142,7 @@ session with the server log running first (loco, balls, marks, room, settings, m
 
 - The engine works on its own: its tests pass without Nudgy's files. **(done: 101 Node, 48 Python on 2026-10-25)**
 - `apps/cube` runs with two tabs and on two headsets. **(done 2026-10-22/23)**
-- The experiments of 3.1 have been run and phase 5 is built or decided against.
+- Phase 5 is settled: Jolt on the host covers many bodies **(done 2026-10-26)**. The experiments of 3.1 are built; running them for numbers is still open.
 - Nothing in section 4 is left untested.
 - Nudgy runs on MUMR with its tests green and one two-headset session as before, **or** Marek decided it stays as it is.
 - ARCHITECTURE.md and HOWTO-NEW-APP.md are current, and Nudgy's `CLAUDE.md` points at them.
