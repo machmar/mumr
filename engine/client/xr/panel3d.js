@@ -83,7 +83,7 @@ function drawLayer(g, lay, look, card) {
   }
   for (const b of lay.buttons) {
     if (b.arrow || b.logo) continue;
-    const text = !b.id || b.off || b.text, dk = dark.has(b.id) && !text, k = Math.min(1, b.h / 120), px = b.left ? 0 : wrist ? 24 : 18;
+    const text = (!b.id || b.off || b.text) && !b.plate, dk = dark.has(b.id) && !text, k = Math.min(1, b.h / 120), px = b.left ? 0 : wrist ? 24 : 18;
     if (b.ghost) {                                       // (a button drawn as a frame only: what is under it shows)
       if (dk) { g.fillStyle = 'rgba(17,17,17,0.28)'; g.fillRect(b.x, b.y, b.w, b.h); }
       g.lineWidth = b.active ? 12 : 6; g.strokeStyle = b.active ? COL.dark : COL.line; g.strokeRect(b.x, b.y, b.w, b.h);
@@ -96,10 +96,12 @@ function drawLayer(g, lay, look, card) {
     } else if (b.ghost) {
       g.textAlign = 'center'; g.fillStyle = COL.text; g.font = `600 ${Math.round(26)}px ${FONT}`; g.fillText(fit(g, b.label, b.w - 16), b.x + b.w / 2, b.y + b.h * 0.36);
       g.fillStyle = COL.dim; g.font = `500 22px ${FONT}`; g.fillText(fit(g, String(b.value || ''), b.w - 16), b.x + b.w / 2, b.y + b.h * 0.7);
+    } else if (b.center) {                               // (a small button in a plate: its sign, centred)
+      g.textAlign = 'center'; g.font = `600 ${Math.round(b.h * 0.8)}px ${FONT}`; g.fillText(b.label || '', b.x + b.w / 2, b.y + b.h / 2);
     } else if (b.value !== undefined && b.value !== '') {
       g.textAlign = 'left'; const lf = Math.round((text ? 36 : 44) * k * (wrist ? 1 : 0.85)), sf = Math.round(28 * k * (wrist ? 1 : 0.85)), lx = wrist ? left : b.x + px;
-      g.font = `600 ${lf}px ${FONT}`; g.fillText(fit(g, b.label || '', b.w - 2 * px - 8), lx, b.y + b.h * 0.38);
-      g.fillStyle = sub; g.font = `500 ${sf}px ${FONT}`; g.fillText(fit(g, String(b.value), b.w - 2 * px - 8), lx, b.y + b.h * 0.7);
+      g.font = `600 ${lf}px ${FONT}`; g.fillText(fit(g, b.label || '', b.w - 2 * px - 8 - (b.inset || 0)), lx, b.y + b.h * 0.38);
+      g.fillStyle = sub; g.font = `500 ${sf}px ${FONT}`; g.fillText(fit(g, String(b.value), b.w - 2 * px - 8 - (b.inset || 0)), lx, b.y + b.h * 0.7);
     } else {
       g.textAlign = 'left'; g.font = `600 ${Math.round((text ? 36 : 44) * k * (wrist ? 1 : 0.85))}px ${FONT}`;
       g.fillText(fit(g, b.label || '', b.w - 2 * px - 8), wrist ? left : b.x + px, b.y + b.h / 2);

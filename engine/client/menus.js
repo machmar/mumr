@@ -14,7 +14,9 @@
   const PAD = 14, TITLE_H = 60, ROW_H = 96;
 
   // spec: { w (px, 1024), titleH (px, 60; 0: no title bar), rowH (px, 96), title, top: [{ id, label, active }] (buttons in the title bar, from the right), rows: [[{ id, label, value,
-  // active, off, span }]] }
+  // active, off, span, plate, sub }]] }
+  // A cell may be a `plate` (no id: drawn like a button, but not one) with `sub` buttons inside it, from the left, at its right edge: [{ id, label, off }]
+  // (a count with - and + in it). They are small, drawn centred, and the plate's text keeps clear of them (`inset`).
   function grid(spec) {
     const W = spec.w || 1024, rows = spec.rows || [], rowH = spec.rowH || ROW_H, TH = spec.titleH === undefined ? TITLE_H : spec.titleH;
     const H = TH + rows.length * (rowH + PAD) + PAD, buttons = [];
@@ -30,7 +32,12 @@
       let cx = PAD;
       for (const c of row) {
         const cw = unit * (c.span || 1) + PAD * ((c.span || 1) - 1);
-        buttons.push(Object.assign({ value: '', active: false, off: false }, c, { x: cx, y: TH + PAD / 2 + r * (rowH + PAD), w: cw, h: rowH }));
+        const cy = TH + PAD / 2 + r * (rowH + PAD), subs = c.sub || [], sh = Math.round(rowH * 0.62), sw = Math.round(sh * 1.25), SG = 10;
+        const inset = subs.length ? subs.length * sw + (subs.length - 1) * SG + PAD + SG : 0;
+        const cell = Object.assign({ value: '', active: false, off: false }, c, { x: cx, y: cy, w: cw, h: rowH });
+        delete cell.sub; if (inset) cell.inset = inset;
+        buttons.push(cell);
+        subs.forEach((s, i) => buttons.push(Object.assign({ value: '', active: false, off: false, center: true, small: true }, s, { x: cx + cw - PAD - (subs.length - i) * sw - (subs.length - 1 - i) * SG, y: cy + (rowH - sh) / 2, w: sw, h: sh })));
         cx += cw + PAD;
       }
     });

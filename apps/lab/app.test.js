@@ -129,11 +129,27 @@ test('perf: p50 and p95 of the frames in a window', () => {
 test('the menu: the mode button cycles, the count only shows in the pile', () => {
   assert.strictEqual(L.press('mode', { mode: 'pile', n: 10 }).mode, 'island');
   assert.strictEqual(L.press('mode', { mode: 'drift', n: 10 }).mode, 'pile');
-  assert.strictEqual(L.press('n', { mode: 'pile', n: 50 }).n, 10);
+  assert.strictEqual(L.press('nPlus', { mode: 'pile', n: 50 }).n, 60, 'plus adds 10');
+  assert.strictEqual(L.press('nMinus', { mode: 'pile', n: 50 }).n, 40, 'minus takes away 10');
+  assert.strictEqual(L.press('nMinus', { mode: 'pile', n: 10 }).n, 10, 'not below 10');
+  assert.strictEqual(L.press('nPlus', { mode: 'pile', n: L.MAX_BOXES }).n, L.MAX_BOXES, 'not above the most');
+  assert.strictEqual(L.press('n', { mode: 'pile', n: 50 }), null, 'the Cubes box itself is not a button');
   assert.strictEqual(L.press('other', {}), null);
   const ids = (st) => L.menu(st, {}).buttons.map((x) => x.id);
-  assert.ok(ids({ mode: 'pile', n: 10 }).includes('dropPile') && ids({ mode: 'pile', n: 10 }).includes('n'));
-  assert.ok(ids({ mode: 'drift', n: 10 }).includes('driftStart') && !ids({ mode: 'drift', n: 10 }).includes('n'));
+  assert.ok(ids({ mode: 'pile', n: 10 }).includes('dropPile') && ids({ mode: 'pile', n: 10 }).includes('nPlus') && ids({ mode: 'pile', n: 10 }).includes('nMinus'));
+  assert.ok(ids({ mode: 'drift', n: 10 }).includes('driftStart') && !ids({ mode: 'drift', n: 10 }).includes('nPlus'));
+});
+
+test('the Cubes box: a plate that shows the count and cannot be pressed, with a - and a + inside it', () => {
+  const lay = L.menu({ mode: 'pile', n: 30 }, {}), plate = lay.buttons.find((b) => b.plate), minus = lay.buttons.find((b) => b.id === 'nMinus'), plus = lay.buttons.find((b) => b.id === 'nPlus');
+  assert.ok(plate && !plate.id && plate.label === 'Cubes' && plate.value === '30');
+  for (const b of [minus, plus]) assert.ok(b.x >= plate.x && b.x + b.w <= plate.x + plate.w && b.y >= plate.y && b.y + b.h <= plate.y + plate.h, `${b.id} lies inside the plate`);
+  assert.ok(minus.x + minus.w <= plus.x, '- is left of +'); assert.ok(plate.inset > 0 && plus.w < plate.w / 2, 'smaller than the plate; the text keeps clear');
+  const at = (b) => M.menus.hit(lay, (b.x + b.w / 2) / lay.w, (b.y + b.h / 2) / lay.h);
+  assert.strictEqual(at(minus), 'nMinus'); assert.strictEqual(at(plus), 'nPlus');
+  assert.strictEqual(M.menus.hit(lay, (plate.x + 20) / lay.w, (plate.y + plate.h / 2) / lay.h), null, 'the plate is not a button');
+  assert.ok(L.menu({ mode: 'pile', n: 10 }, {}).buttons.find((b) => b.id === 'nMinus').off, '- is off at 10');
+  assert.ok(L.menu({ mode: 'pile', n: L.MAX_BOXES }, {}).buttons.find((b) => b.id === 'nPlus').off, '+ is off at the most');
 });
 
 test('a box steered from the room model follows its target, and takes the others with it', () => {

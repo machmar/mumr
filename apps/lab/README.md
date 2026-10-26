@@ -11,7 +11,7 @@ node --test "apps/lab/*.test.js"
 
 | Experiment | What to do | What is logged | Pass (PLAN.md) |
 |---|---|---|---|
-| **pile** | Pick 10, 20, 30, 50 cubes (button *Cubes*), press *Drop the pile*, poke it, leave it | every 5 s: fps, frame time p50/p95 (ms), simulation ms per frame, how many cubes are moving | p95 under 13.9 ms (72 Hz) at 30 cubes; the pile comes to rest |
+| **pile** | Set the number of cubes with the - and + in the *Cubes* box (10 at a time, 10 to 200), press *Drop the pile*, poke it, leave it | every 5 s: fps, frame time p50/p95 (ms), simulation ms per frame, how many cubes are moving | p95 under 13.9 ms (72 Hz) at 30 cubes; the pile comes to rest |
 | **island** | Two headsets. *Reset* builds a stack of 5 (each cube has its own token, today's rule). One player pushes the bottom, the other lifts the top. A cube's colour is the player who simulates it | every second something happened: token hand-overs, jumps of a cube (> 2 cm), stack together or BROKEN | this is the baseline: it shows today's failure. Phase 5's islands pass when the stack moves as one with no jumps |
 | **drift** | Mark a cross on the floor (a printed one). Line up, press *Start drift*, touch the cross with the index finger (rest it there 1.5 s) when the page says so: once a minute, ten times. Two players: both touch the same cross | every touch: mm from the first touch (dx, dy), the largest so far, and mm from the other player's touch of the same round; a missed round says so | under 2 cm after 10 minutes; if not, the anchor keeper needs a re-check timer (`engine/client/anchor.js`) |
 

@@ -55,7 +55,7 @@ async function load() {
       const bp = new J.BroadPhaseLayerInterfaceTable(2, 2);
       bp.MapObjectToBroadPhaseLayer(STATIC, new J.BroadPhaseLayer(0)); bp.MapObjectToBroadPhaseLayer(MOVING, new J.BroadPhaseLayer(1));
       s.mObjectLayerPairFilter = ol; s.mBroadPhaseLayerInterface = bp; s.mObjectVsBroadPhaseLayerFilter = new J.ObjectVsBroadPhaseLayerFilterTable(bp, 2, ol, 2);
-      s.mMaxBodies = 1024; s.mMaxBodyPairs = 4096; s.mMaxContactConstraints = 4096;
+      s.mMaxBodies = 1024; s.mMaxBodyPairs = 16384; s.mMaxContactConstraints = 8192;     // (a heap of 200 cubes has thousands of contacts)
       this.jolt = new J.JoltInterface(s); J.destroy(s);
       this.sys = this.jolt.GetPhysicsSystem(); this.bi = this.sys.GetBodyInterface();
       const ps = this.sys.GetPhysicsSettings();
