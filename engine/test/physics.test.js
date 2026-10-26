@@ -278,3 +278,50 @@ test('the same drop twice ends the same way, and one cube with a hitch near a ta
   const ms = Number(process.hrtime.bigint() - t0) / 1e6 / 72;
   assert.ok(ms < 1.5, `${ms.toFixed(2)} ms per frame`);
 });
+
+// ---- boxes against boxes (the lab's piles and stacks)
+const stackOf = (n, dx = 0) => Array.from({ length: n }, (_, i) => cube({ p: [dx * i, 0, H + i * 0.12] }));
+const worldWith = (bodies, o) => { const W = new P.World(o); bodies.forEach((b) => W.add(b)); return W; };
+const supported = (b, all) => b.p[2] < H + 0.004 || all.some((o) => o !== b && Math.abs(o.p[0] - b.p[0]) < 0.12 && Math.abs(o.p[1] - b.p[1]) < 0.12 && b.p[2] - o.p[2] > 0.114 && b.p[2] - o.p[2] < 0.126);
+
+test('a cube dropped on another lands on it and both come to rest', () => {
+  const a = cube({ p: [0, 0, H] }), b = cube({ p: [0.02, 0.01, 0.5] }), W = worldWith([a, b]);
+  for (let i = 0; i < 240 * 4; i++) W.step(1 / 240);
+  near(a.p[2], H, 0.003, 'the lower one stays'); near(b.p[2], 3 * H, 0.004, 'the upper one rests on it');
+  assert.ok(a.asleep && b.asleep, 'both asleep');
+});
+
+test('a stack of five stands, and sleeps', () => {
+  const s = stackOf(5), W = worldWith(s);
+  for (let i = 0; i < 240 * 4; i++) W.step(1 / 240);
+  s.forEach((b, i) => near(b.p[2], H + i * 0.12, 0.006, `box ${i}`));
+  assert.ok(s.every((b) => b.asleep && Math.hypot(b.p[0], b.p[1]) < 0.01), 'asleep and still in a column');
+});
+
+test('two cubes thrown at each other bounce apart and keep the momentum', () => {
+  const a = cube({ p: [-0.3, 0, 1] }), b = cube({ p: [0.3, 0, 1] }); a.v = [2, 0, 0]; b.v = [-2, 0, 0];
+  const W = worldWith([a, b], { gravity: 0, floor: false });
+  for (let i = 0; i < 120; i++) W.step(1 / 240);
+  near(a.v[0], -0.9, 0.15, 'A bounced back'); near(b.v[0], 0.9, 0.15, 'B bounced back'); near(a.v[0] + b.v[0], 0, 0.05, 'momentum');
+});
+
+test('a cube that hits a sleeping stack wakes it, and nothing is left floating', () => {
+  const s = stackOf(3), hit = cube({ p: [-1, 0, H] }); hit.v = [3, 0, 0];
+  const W = worldWith(s.concat(hit));
+  for (let i = 0; i < 240 * 3; i++) W.step(1 / 240);
+  const all = s.concat(hit);
+  assert.ok(all.every((b) => b.asleep), 'all asleep again');
+  assert.ok(all.every((b) => supported(b, all)), `floating: ${all.map((b) => b.p.map((v) => v.toFixed(2)).join(',')).join(' | ')}`);
+  assert.ok(Math.hypot(s[0].p[0], s[0].p[1]) > 0.01 || Math.hypot(s[2].p[0], s[2].p[1]) > 0.01, 'the stack was moved');
+});
+
+test('a pile of 30 dropped cubes settles, sleeps and has no cube inside another', () => {
+  const bodies = Array.from({ length: 30 }, (_, i) => { const a = i * 2.4, r = 0.05 + 0.045 * (i % 7); return cube({ p: [Math.cos(a) * r, Math.sin(a) * r, H + 0.05 + i * 0.07] }); });
+  const W = worldWith(bodies);
+  const t0 = process.hrtime.bigint();
+  for (let f = 0; f < 72 * 10; f++) W.step(1 / 72);
+  const ms = Number(process.hrtime.bigint() - t0) / 1e6 / (72 * 10);
+  assert.ok(bodies.every((b) => b.asleep), `still moving: ${bodies.filter((b) => !b.asleep).length}`);
+  for (let i = 0; i < 30; i++) for (let j = i + 1; j < 30; j++) assert.ok(Math.hypot(...bodies[i].p.map((v, k) => v - bodies[j].p[k])) > 0.1, `${i} and ${j} are inside each other`);
+  assert.ok(ms < 4, `${ms.toFixed(2)} ms per frame over 10 s`);
+});

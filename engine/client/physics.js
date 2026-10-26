@@ -27,9 +27,10 @@
   };
 
   // size: full edge lengths. Inertia is the box's, in its own axes.
+  let nextId = 0;
   function makeBox({ size, density = 1050, restitution = 0.45, friction = { s: 0.45, k: 0.4 }, angularDamping = 0.05, rollingResistance = 0.02, p, q = [0, 0, 0, 1] } = {}) {
     const [sx, sy, sz] = size, mass = density * sx * sy * sz;
-    return { size: [sx, sy, sz], mass, inv: 1 / mass, inertia: [(mass / 12) * (sy * sy + sz * sz), (mass / 12) * (sx * sx + sz * sz), (mass / 12) * (sx * sx + sy * sy)],
+    return { id: ++nextId, size: [sx, sy, sz], mass, inv: 1 / mass, inertia: [(mass / 12) * (sy * sy + sz * sz), (mass / 12) * (sx * sx + sz * sz), (mass / 12) * (sx * sx + sy * sy)],
       p: (p || [0, 0, sz / 2]).slice(), q: q.slice(), v: [0, 0, 0], w: [0, 0, 0], restitution, friction: Object.assign({}, friction), angularDamping, rollingResistance, calm: 0, asleep: false, held: null };
   }
   // the 8 corners in the world
@@ -42,7 +43,7 @@
     return out;
   }
 
-  const MAX_DT = 0.05, MARGIN = 0.02, ITER = 12, MAX_MOVE = 0.005, SLOP = 0.0005, PEN_LIMIT = 0.06, REST_SPEED = 0.5, V_MAX = 30, W_MAX = 100, MAX_SUB = 64, HAND_MAX = 4, PLATE_DEPTH = 0.03, HOLD_W = 10, SLEEP_V = 0.01, SLEEP_W = 0.05, SLEEP_AFTER = 0.5, EDGE_STEP = 0.03, STATIC_SLIP = 0.02;
+  const MAX_DT = 0.05, MARGIN = 0.02, ITER = 12, ITER_PAIRS = 30, ROUND_BUDGET = 7000, MAX_MOVE = 0.005, SLOP = 0.0005, PEN_LIMIT = 0.06, REST_SPEED = 0.5, WARM_NEAR = 0.02, WAKE_V = 0.05, WAKE_W = 0.5, V_MAX = 30, W_MAX = 100, MAX_SUB = 64, HAND_MAX = 4, PLATE_DEPTH = 0.03, HOLD_W = 10, SLEEP_V = 0.01, SLEEP_W = 0.05, SLEEP_AFTER = 0.5, EDGE_STEP = 0.03, STATIC_SLIP = 0.02;
   const ZERO = [0, 0, 0];
   const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
   const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
@@ -50,7 +51,13 @@
   const sub = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
   const mulv = (a, k) => [a[0] * k, a[1] * k, a[2] * k];
   // the world-frame inverse inertia applied to a vector
-  const invI = (b, v) => { const l = quat.rotate(quat.conj(b.q), v); return quat.rotate(b.q, [l[0] / b.inertia[0], l[1] / b.inertia[1], l[2] / b.inertia[2]]); };
+  // (b.ax: its three axes in the world, set once per substep by the world: the same turn without two quaternion products per call)
+  const invI = (b, v) => {
+    const a = b.ax;
+    if (!a) { const l = quat.rotate(quat.conj(b.q), v); return quat.rotate(b.q, [l[0] / b.inertia[0], l[1] / b.inertia[1], l[2] / b.inertia[2]]); }
+    const s0 = (a[0][0] * v[0] + a[0][1] * v[1] + a[0][2] * v[2]) / b.inertia[0], s1 = (a[1][0] * v[0] + a[1][1] * v[1] + a[1][2] * v[2]) / b.inertia[1], s2 = (a[2][0] * v[0] + a[2][1] * v[1] + a[2][2] * v[2]) / b.inertia[2];
+    return [a[0][0] * s0 + a[1][0] * s1 + a[2][0] * s2, a[0][1] * s0 + a[1][1] * s1 + a[2][1] * s2, a[0][2] * s0 + a[1][2] * s1 + a[2][2] * s2];
+  };
   function pip(pts, x, y) {
     let c = false;
     for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
@@ -77,6 +84,8 @@
       this.floor = opts.floor !== false;           // the floor at z = 0 (always there unless a test turns it off)
       this.planes = opts.planes || [];             // more half-spaces { n, d }: n . x + d >= 0 is free space (for tests of slopes)
       this.bodies = [];
+      this.budgetMs = opts.budgetMs || 0;          // > 0: a frame that takes longer than this (ms) stops stepping and the world runs slow for that frame (this.lagged)
+      this.lagged = false;
       this.kin = { spheres: [], plates: [] };      // the hands this step: spheres { p, r, v } and plates { centre, normal, axes, half, v }
       this.handPrev = new Map();                   // id + part -> { p, t }: for the hands' speed
     }
@@ -123,7 +132,9 @@
       let fast = 0;
       for (const b of this.bodies) if (!b.asleep) { this._clean(b); fast = Math.max(fast, Math.hypot(...b.v) + Math.hypot(...b.w) * Math.hypot(...b.size) / 2); }
       const n = Math.min(MAX_SUB, Math.max(1, Math.ceil(dt / this.substep - 1e-9), Math.ceil((dt * fast) / MAX_MOVE - 1e-9))), h = dt / n;
-      for (let i = 0; i < n; i++) this._sub(h);
+      const t0 = this.budgetMs ? Date.now() : 0;
+      this.lagged = false;
+      for (let i = 0; i < n; i++) { this._sub(h); if (this.budgetMs && Date.now() - t0 > this.budgetMs && i < n - 1) { this.lagged = true; break; } }
     }
     // Anything a packet or a caller put into a body that is not a state it can be in is put right: a position that is not finite goes back to the
     // last good one, a velocity or spin that is not finite stops and a huge one is cut to V_MAX / W_MAX, an orientation that is not finite or has no
@@ -237,48 +248,141 @@
       }
       return out;
     }
+    // Contacts between two boxes (the axis of least overlap among the six face axes; the other box's face that faces it is clipped to the
+    // reference face): [{ b: the body that receives +n, o: the other, r, n (out of the other, towards b), gap }], or []
+    _boxBox(A, B) {
+      const E = [[1, 0, 0], [0, 1, 0], [0, 0, 1]], ax = [E.map((e) => quat.rotate(A.q, e)), E.map((e) => quat.rotate(B.q, e))], hs = [A.size.map((v) => v / 2), B.size.map((v) => v / 2)];
+      const d = sub(B.p, A.p);
+      let best = null;
+      for (let s = 0; s < 2; s++) for (let k = 0; k < 3; k++) {
+        const u = ax[s][k];
+        let rA = 0, rB = 0;
+        for (let i = 0; i < 3; i++) { rA += hs[0][i] * Math.abs(dot(u, ax[0][i])); rB += hs[1][i] * Math.abs(dot(u, ax[1][i])); }
+        const depth = rA + rB - Math.abs(dot(d, u));
+        if (depth < -MARGIN) return [];
+        if (!best || depth < best.depth - 0.001) best = { depth, s, k };                    // (the first box's axes win a tie: no flipping between two)
+      }
+      const R = best.s === 0 ? A : B, I = best.s === 0 ? B : A, aR = ax[best.s], aI = ax[1 - best.s], hR = hs[best.s], hI = hs[1 - best.s];
+      const cR = R.p, cI = I.p;
+      const sgn = dot(sub(cI, cR), aR[best.k]) >= 0 ? 1 : -1, nR = mulv(aR[best.k], sgn);
+      let j = 0, jd = -1;
+      for (let i = 0; i < 3; i++) { const v = Math.abs(dot(aI[i], nR)); if (v > jd) { jd = v; j = i; } }
+      const sI = dot(aI[j], nR) > 0 ? -1 : 1, fc = add(cI, aI[j], sI * hI[j]), m = (j + 1) % 3, p = (j + 2) % 3;
+      let poly = [[1, 1], [1, -1], [-1, -1], [-1, 1]].map(([a, c]) => add(add(fc, aI[m], a * hI[m]), aI[p], c * hI[p]));
+      const clip = (poly, normal, off) => {                                     // keeps the part with normal . (x - cR) <= off
+        const out = [];
+        for (let i = 0; i < poly.length; i++) {
+          const a = poly[i], c = poly[(i + 1) % poly.length], da = dot(normal, sub(a, cR)) - off, dc = dot(normal, sub(c, cR)) - off;
+          if (da <= 0) out.push(a);
+          if ((da < 0 && dc > 0) || (da > 0 && dc < 0)) out.push(add(a, sub(c, a), da / (da - dc)));
+        }
+        return out;
+      };
+      for (let i = 0; i < 3 && poly.length; i++) if (i !== best.k) { poly = clip(poly, aR[i], hR[i]); poly = poly.length ? clip(poly, mulv(aR[i], -1), hR[i]) : poly; }
+      const fcR = add(cR, nR, hR[best.k]), out = [];
+      for (const v of poly) { const gap = dot(sub(v, fcR), nR); if (gap < MARGIN) out.push({ b: I, o: R, r: v, n: nR, gap }); }
+      return out;
+    }
+    // the speed of the point of a contact on its first body, relative to the other body (or to the surface it is on)
+    _rel(c) {
+      const b = c.b, o = c.o;
+      let v = add(b.v, cross(b.w, c.ra));
+      if (o && !o.asleep) v = sub(v, add(o.v, cross(o.w, c.rb)));
+      return c.vs ? sub(v, c.vs) : v;
+    }
+    _applyC(c, J) { this._apply(c.b, c.ra, J); if (c.o && !c.o.asleep) this._apply(c.o, c.rb, mulv(J, -1)); }
+    _eff(c, dir) {                                                    // 1 / (the mass the contact moves when pushed along dir)
+      let k = c.b.inv + dot(cross(invI(c.b, cross(c.ra, dir)), c.ra), dir);
+      if (c.o && !c.o.asleep) k += c.o.inv + dot(cross(invI(c.o, cross(c.rb, dir)), c.rb), dir);
+      return k;
+    }
     _sub(h) {
       this._h = h;
-      for (const b of this.bodies) {
-        if (b.asleep) continue;
+      const bodies = this.bodies, reach = (a, b) => Math.hypot(...sub(a.p, b.p)) < (Math.hypot(...a.size) + Math.hypot(...b.size)) / 2 + MARGIN;
+      // what a moving body is about to hit wakes up
+      for (const s of bodies) if (s.asleep) for (const b of bodies) if (!b.asleep && (Math.hypot(...b.v) > WAKE_V || Math.hypot(...b.w) > WAKE_W) && reach(s, b)) { this.wake(s); break; }
+      const live = bodies.filter((b) => !b.asleep), all = [];
+      for (const b of live) b.ax = [[1, 0, 0], [0, 1, 0], [0, 0, 1]].map((e) => quat.rotate(b.q, e));
+      let pairs = false;                                                // (boxes on boxes need more rounds to share a load than one box on the room)
+      for (const b of live) {
         b.v[2] -= this.gravity * h;
         if (b.held) this._motor(b);
-        const cs = this.contacts(b), touching = cs.some((c) => c.gap < 0.005);
-        const damp = Math.exp(-b.angularDamping * h);                  // (angularDamping: 1/s)
-        b.w = mulv(b.w, damp);
-        if (touching) {                                                // rolling resistance: a steady slowing of the spin while it rests on something
+        b._touch = false;
+        for (const c of this.contacts(b)) { c.b = b; c.o = null; all.push(c); }
+      }
+      for (let i = 0; i < bodies.length; i++) for (let j = i + 1; j < bodies.length; j++) {
+        const a = bodies[i], b = bodies[j];
+        if ((a.asleep && b.asleep) || !reach(a, b)) continue;
+        for (const c of this._boxBox(a, b)) { all.push(c); pairs = true; }
+      }
+      for (const c of all) if (c.gap < 0.005) { c.b._touch = true; if (c.o) c.o._touch = true; }
+      for (const b of live) {
+        b.w = mulv(b.w, Math.exp(-b.angularDamping * h));              // (angularDamping: 1/s)
+        if (b._touch) {                                                // rolling resistance: a steady slowing of the spin while it rests on something
           const sp = Math.hypot(...b.w), dec = ((b.rollingResistance * this.gravity) / (Math.min(...b.size) / 2)) * h;
           if (sp > 0) b.w = mulv(b.w, Math.max(0, sp - dec) / sp);
         }
-        for (const c of cs) {
-          c.ra = sub(c.r, b.p);
-          c.Kn = b.inv + dot(cross(invI(b, cross(c.ra, c.n)), c.ra), c.n);
-          const vc = sub(add(b.v, cross(b.w, c.ra)), c.vs || ZERO), vn = dot(vc, c.n);
-          c.target = c.gap > 0 ? -c.gap / h : 0;                                                  // (it may close the gap this step, no more)
-          if (vn < -REST_SPEED && -vn * h >= c.gap) c.target = Math.max(c.target, -(c.e !== undefined ? c.e : b.held ? 0 : b.restitution) * vn);
-          c.J = 0; c.Jt = [0, 0, 0];
+      }
+      for (const c of all) {
+        const b = c.b;
+        c.ra = sub(c.r, b.p); if (c.o) c.rb = sub(c.r, c.o.p);
+        c.Kn = this._eff(c, c.n);
+        const vn = dot(this._rel(c), c.n);
+        c.target = c.gap > 0 ? -c.gap / h : 0;                                                  // (it may close the gap this step, no more)
+        if (vn < -REST_SPEED && -vn * h >= c.gap) c.target = Math.max(c.target, -(c.e !== undefined ? c.e : b.held ? 0 : b.restitution) * vn);
+        c.J = 0; c.Jt = [0, 0, 0];
+      }
+      // warm start: a contact that was there a moment ago (the same two bodies, the same place and normal) begins with the force it had, so that the
+      // rounds below only have to correct it (a stack of five cubes does not settle in 12 rounds from nothing)
+      const prev = this._warm || new Map(), next = new Map();
+      for (const c of all) {
+        const key = c.b.id + ':' + (c.o ? c.o.id : 'e');
+        if (!next.has(key)) next.set(key, []);
+        next.get(key).push(c);
+        const list = prev.get(key);
+        if (!list) continue;
+        let best = null, bd = WARM_NEAR;
+        for (const q of list) if (!q.used && dot(q.n, c.n) > 0.9) { const d = Math.hypot(...sub(q.r, c.r)); if (d < bd) { bd = d; best = q; } }
+        if (!best) continue;
+        best.used = true; c.J = best.J * (h / best.h); c.Jt = mulv(best.Jt, h / best.h);
+        this._applyC(c, add(mulv(c.n, c.J), c.Jt));
+      }
+      const rounds = pairs ? Math.max(ITER, Math.min(ITER_PAIRS, Math.round(ROUND_BUDGET / all.length))) : ITER;          // (a big heap gets fewer rounds each: its cost grows with both)
+      for (let it = 0; it < rounds; it++) {
+        for (let ci = 0; ci < all.length; ci++) {
+          const c = all[it % 2 ? all.length - 1 - ci : ci], b = c.b;
+          let vc = this._rel(c);
+          const lam = (c.target - dot(vc, c.n)) / c.Kn, J = Math.max(0, c.J + lam), d = J - c.J;
+          c.J = J; this._applyC(c, mulv(c.n, d));
+          vc = this._rel(c);
+          const vt = sub(vc, mulv(c.n, dot(vc, c.n))), sp = Math.hypot(...vt);
+          if (sp < 1e-9) continue;
+          const t = mulv(vt, 1 / sp), Kt = this._eff(c, t);
+          const cand = add(c.Jt, t, -sp / Kt), mu = sp < STATIC_SLIP ? b.friction.s : b.friction.k, lim = mu * c.J, len = Math.hypot(...cand);
+          const next = len > lim ? mulv(cand, lim / len) : cand;
+          this._applyC(c, sub(next, c.Jt)); c.Jt = next;
         }
-        for (let it = 0; it < ITER; it++) {
-          for (const c of it % 2 ? cs.slice().reverse() : cs) {
-            let vc = sub(add(b.v, cross(b.w, c.ra)), c.vs || ZERO);
-            const lam = (c.target - dot(vc, c.n)) / c.Kn, J = Math.max(0, c.J + lam), d = J - c.J;
-            c.J = J; this._apply(b, c.ra, mulv(c.n, d));
-            vc = sub(add(b.v, cross(b.w, c.ra)), c.vs || ZERO);
-            const vt = sub(vc, mulv(c.n, dot(vc, c.n))), sp = Math.hypot(...vt);
-            if (sp < 1e-9) continue;
-            const t = mulv(vt, 1 / sp), Kt = b.inv + dot(cross(invI(b, cross(c.ra, t)), c.ra), t);
-            const cand = add(c.Jt, t, -sp / Kt), mu = sp < STATIC_SLIP ? b.friction.s : b.friction.k, lim = mu * c.J, len = Math.hypot(...cand);
-            const next = len > lim ? mulv(cand, lim / len) : cand;
-            this._apply(b, c.ra, sub(next, c.Jt)); c.Jt = next;
-          }
-        }
+      }
+      for (const list of next.values()) for (const c of list) c.h = h;
+      this._warm = next;
+      for (const b of live) {
         for (let i = 0; i < 3; i++) b.p[i] += b.v[i] * h;
         const sp = Math.hypot(...b.w);
         if (sp > EPS) b.q = quat.normalize(quat.mul(quat.fromAxisAngle(b.w, sp * h), b.q));
-        const fix = [0, 0, 0];                                                    // (out of what it is in: the deepest push along each axis)
-        if (cs.some((c) => c.gap < 0.002)) for (const c of this.contacts(b)) if (c.gap < -SLOP) for (let i = 0; i < 3; i++) { const d = c.n[i] * 0.5 * Math.min(PEN_LIMIT, -c.gap - SLOP); if (Math.abs(d) > Math.abs(fix[i])) fix[i] = d; }
-        b.p = add(b.p, fix);
-        if (!b.held && touching && Math.hypot(...b.v) < SLEEP_V && Math.hypot(...b.w) < SLEEP_W) { b.calm += h; if (b.calm >= SLEEP_AFTER) { b.asleep = true; b.v = [0, 0, 0]; b.w = [0, 0, 0]; } } else b.calm = 0;
+      }
+      // out of what they are in: along each axis the deepest push, for each body (a pair shares the push)
+      const fix = new Map(live.map((b) => [b, [0, 0, 0]])), push = (b, n, d) => { const f = fix.get(b); if (!f) return; for (let i = 0; i < 3; i++) { const v = n[i] * d; if (Math.abs(v) > Math.abs(f[i])) f[i] = v; } };
+      if (all.some((c) => c.gap < 0.002)) {
+        for (const b of live) for (const c of this.contacts(b)) if (c.gap < -SLOP) push(b, c.n, 0.5 * Math.min(PEN_LIMIT, -c.gap - SLOP));
+        for (let i = 0; i < bodies.length; i++) for (let j = i + 1; j < bodies.length; j++) {
+          const a = bodies[i], b = bodies[j];
+          if ((a.asleep && b.asleep) || !reach(a, b)) continue;
+          for (const c of this._boxBox(a, b)) if (c.gap < -SLOP) { const d = Math.min(PEN_LIMIT, -c.gap - SLOP); push(c.b, c.n, c.o.asleep ? 0.5 * d : 0.25 * d); push(c.o, c.n, -0.25 * d); }
+        }
+      }
+      for (const b of live) {
+        b.p = add(b.p, fix.get(b));
+        if (!b.held && b._touch && Math.hypot(...b.v) < SLEEP_V && Math.hypot(...b.w) < SLEEP_W) { b.calm += h; if (b.calm >= SLEEP_AFTER) { b.asleep = true; b.v = [0, 0, 0]; b.w = [0, 0, 0]; } } else b.calm = 0;
       }
     }
     _motor(b) {
