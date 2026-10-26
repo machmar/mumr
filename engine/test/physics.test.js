@@ -163,3 +163,72 @@ test('a cube with its middle past a table edge tips off and rests on the floor',
   near(b.p[2], H, 0.003, 'on the floor');
   assert.ok(upAxisTilt(b) < 2, 'on a face');
 });
+
+// ---- hands, hold, throw, the flat hand (task 4)
+const frames = (W, secs, each) => { const n = Math.round(secs * 72); for (let i = 0; i < n; i++) { const t = i / 72; each(t, i); W.step(1 / 72); } };
+const tip = (id, p, r = 0.012) => ({ id, spheres: [{ p, r }], plate: null });
+
+test('a fingertip moving into a resting cube sets it moving at about the fingertip speed', () => {
+  const W = new P.World(), b = cube({ p: [0, 0, H] }); W.add(b);
+  frames(W, 0.4, (t) => W.setHands([tip('a', [-0.2 + t * 1, 0, H])], t));
+  near(b.v[0], 1, 0.25, 'cube speed');
+});
+
+test('an off-centre push turns the cube', () => {
+  const W = new P.World(), b = cube({ p: [0, 0, H] }); W.add(b);
+  let spin = 0; frames(W, 0.4, (t) => { W.setHands([tip('a', [-0.2 + t * 1, 0.05, H])], t); spin = Math.max(spin, Math.abs(b.w[2])); });
+  assert.ok(spin > 0.5, `spin ${spin}`);
+});
+
+test('a hand that jumps 5 m in one frame does not launch the cube, and a NaN hand is ignored', () => {
+  const W = new P.World(), b = cube({ p: [0, 0, H] }); W.add(b);
+  W.setHands([tip('a', [-5, 0, H])], 0); W.step(1 / 72);
+  W.setHands([tip('a', [0, 0, H])], 1 / 72); W.step(1 / 72);
+  assert.ok(Math.hypot(...b.v) < 4.6, `speed ${Math.hypot(...b.v)}`);
+  const V = new P.World(), c = cube({ p: [0, 0, H] }); V.add(c);
+  V.setHands([{ id: 'a', spheres: [{ p: [NaN, 0, H], r: 0.012 }, { p: [0, Infinity, 0], r: 0.012 }], plate: null }], 0); V.step(1 / 72);
+  assert.ok(c.p.every(Number.isFinite) && c.v.every(Number.isFinite)); assert.ok(Math.hypot(...c.v) < 0.01 && Math.abs(c.p[0]) < 1e-3, 'unmoved');
+});
+
+test('a held cube follows a moving target and turns with it', () => {
+  const W = new P.World(), b = cube({ p: [0, 0, 0.5] }); W.add(b);
+  frames(W, 1, (t) => { W.hold(b, { p: [0.5 * t, 0, 0.5], q: P.quat.fromAxisAngle([0, 0, 1], (Math.PI / 2) * t) }); });
+  near(b.p[0], 0.5, 0.06, 'x'); near(b.p[2], 0.5, 0.03, 'z');
+  const r = P.quat.rotate(b.q, [1, 0, 0]); near(Math.atan2(r[1], r[0]), Math.PI / 2, 0.1, 'turned a quarter');
+});
+
+test('a hold lets go beyond 0.3 m, and stays on its side of a wall', () => {
+  const W = new P.World(), b = cube({ p: [0, 0, 0.5] }); W.add(b);
+  assert.strictEqual(W.hold(b, { p: [0.1, 0, 0.5], q: [0, 0, 0, 1] }), 'holding');
+  assert.strictEqual(W.hold(b, { p: [1, 0, 0.5], q: [0, 0, 0, 1] }), 'released');
+  assert.strictEqual(b.held, null);
+  const V = new P.World({ room: wallRoom() }), c = cube({ p: [0, 1.85, 1] }); V.add(c);
+  let far = 0, state = ''; frames(V, 1, () => { state = V.hold(c, { p: [0, 2.05, 1], q: [0, 0, 0, 1] }); far = Math.max(far, c.p[1] + H); });
+  assert.ok(far < 2.01, `through the wall: ${far}`); assert.strictEqual(state, 'holding');
+});
+
+test('release keeps the velocity of the hold, which is a throw', () => {
+  const W = new P.World({ gravity: 0 }), b = cube({ p: [0, 0, 1] }); W.add(b);
+  frames(W, 0.5, (t) => { W.hold(b, { p: [2 * t, 0, 1], q: [0, 0, 0, 1], v: [2, 0, 0] }); });
+  W.release(b);
+  const x0 = b.p[0]; near(b.v[0], 2, 0.2, 'throw speed'); frames(W, 0.5, () => {});
+  near(b.p[0] - x0, 1, 0.15, 'it flew on');
+});
+
+test('a cube on a moving flat hand is carried; tilted past atan(mu) it slides off', () => {
+  const plate = (cx, tilt) => { const n = [Math.sin(tilt), 0, Math.cos(tilt)], u = [Math.cos(tilt), 0, -Math.sin(tilt)]; return { centre: [cx, 0, 0.8], normal: n, axes: [u, [0, 1, 0]], half: [0.1, 0.09] }; };
+  const W = new P.World(), b = cube({ p: [0, 0, 0.8 + H] }); W.add(b);
+  frames(W, 1, (t) => W.setHands([{ id: 'h', spheres: [], plate: plate(0.3 * t, 0) }], t));
+  near(b.p[0], 0.3, 0.06, 'carried'); near(b.p[2], 0.8 + H, 0.01, 'on the hand');
+  const tilted = (deg) => { const th = (deg * Math.PI) / 180, V = new P.World(), c = cube({ p: [0, 0, 0.8 + H / Math.cos(th)], q: P.quat.fromAxisAngle([0, 1, 0], th) }); V.add(c);
+    frames(V, 1.5, (t) => V.setHands([{ id: 'h', spheres: [], plate: plate(0, th) }], t)); return c.p[2]; };
+  assert.ok(tilted(35) < 0.3, 'slid off at 35 degrees'); assert.ok(tilted(15) > 0.75, 'stays at 15 degrees');
+});
+
+test('handSpheres takes the points and joints of a source, plate takes a grab.js platform', () => {
+  const s = P.handSpheres({ points: [{ name: 'index', x: 1, y: 2, z: 3 }, { name: 'bad', x: NaN, y: 0, z: 0 }], joints: [[4, 5, 6]] });
+  assert.deepStrictEqual(s.map((q) => q.p), [[1, 2, 3], [4, 5, 6]]); assert.strictEqual(s[0].r, 0.012);
+  const pl = P.plate({ palm: { cx: 1, cy: 2, z: 0.9, nx: 0, ny: 0, nz: 1, ang: 0, hx: 0.1, hy: 0.04 } });
+  assert.deepStrictEqual(pl.centre, [1, 2, 0.9]); near(pl.axes[0][0], 1, 1e-9); near(pl.axes[1][1], 1, 1e-9); assert.deepStrictEqual(pl.half, [0.1, 0.04]);
+  assert.strictEqual(P.plate({ palm: null }), null);
+});

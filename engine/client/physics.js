@@ -42,7 +42,8 @@
     return out;
   }
 
-  const MAX_DT = 0.05, MARGIN = 0.02, ITER = 12, MAX_MOVE = 0.005, SLOP = 0.0005, PEN_LIMIT = 0.06, REST_SPEED = 0.5, SLEEP_V = 0.01, SLEEP_W = 0.05, SLEEP_AFTER = 0.5, EDGE_STEP = 0.03, STATIC_SLIP = 0.02;
+  const MAX_DT = 0.05, MARGIN = 0.02, ITER = 12, MAX_MOVE = 0.005, SLOP = 0.0005, PEN_LIMIT = 0.06, REST_SPEED = 0.5, HAND_MAX = 4, PLATE_DEPTH = 0.03, HOLD_W = 10, SLEEP_V = 0.01, SLEEP_W = 0.05, SLEEP_AFTER = 0.5, EDGE_STEP = 0.03, STATIC_SLIP = 0.02;
+  const ZERO = [0, 0, 0];
   const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
   const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
   const add = (a, b, k = 1) => [a[0] + b[0] * k, a[1] + b[1] * k, a[2] + b[2] * k];
@@ -76,11 +77,46 @@
       this.floor = opts.floor !== false;           // the floor at z = 0 (always there unless a test turns it off)
       this.planes = opts.planes || [];             // more half-spaces { n, d }: n . x + d >= 0 is free space (for tests of slopes)
       this.bodies = [];
+      this.kin = { spheres: [], plates: [] };      // the hands this step: spheres { p, r, v } and plates { centre, normal, axes, half, v }
+      this.handPrev = new Map();                   // id + part -> { p, t }: for the hands' speed
     }
     add(b) { if (!this.bodies.includes(b)) this.bodies.push(b); return b; }
     remove(b) { const i = this.bodies.indexOf(b); if (i >= 0) this.bodies.splice(i, 1); }
     setRoom(room) { this.room = room || null; for (const b of this.bodies) this.wake(b); }
     wake(b) { b.asleep = false; b.calm = 0; }
+    // The hands of this frame (floor plan) at time t (s): [{ id, spheres: [{ p, r }], plate: null | { centre, normal, axes: [u, v], half: [hu, hv] } }].
+    // Their speed comes from the last call (clamped to HAND_MAX; a hand that jumps further than that in a frame is slow, not a launch);
+    // anything not finite is ignored. They are kinematic: a body is pushed by them, they are not pushed back.
+    setHands(list, t) {
+      const fin = (a) => a.every(Number.isFinite), next = new Map(), kin = { spheres: [], plates: [] };
+      const speed = (key, p) => {
+        const q = this.handPrev.get(key); next.set(key, { p, t });
+        if (!q || !(t > q.t)) return [0, 0, 0];
+        const v = mulv(sub(p, q.p), 1 / (t - q.t)), s = Math.hypot(...v);
+        return s > HAND_MAX ? mulv(v, HAND_MAX / s) : v;
+      };
+      for (const hd of list || []) {
+        (hd.spheres || []).forEach((s, i) => { if (s && s.p && fin(s.p) && Number.isFinite(s.r)) kin.spheres.push({ p: s.p.slice(), r: s.r, v: speed(hd.id + ':s' + i, s.p) }); });
+        const pl = hd.plate;
+        if (pl && fin(pl.centre) && fin(pl.normal) && fin(pl.axes[0]) && fin(pl.axes[1]) && fin(pl.half)) kin.plates.push({ centre: pl.centre.slice(), normal: pl.normal, axes: pl.axes, half: pl.half, v: speed(hd.id + ':plate', pl.centre) });
+      }
+      this.kin = kin; this.handPrev = next;
+      for (const b of this.bodies) {
+        if (!b.asleep) continue;
+        const R = Math.hypot(...b.size) / 2 + 0.05;
+        if (kin.spheres.some((s) => Math.hypot(...sub(s.p, b.p)) < R + s.r) || kin.plates.some((q) => Math.hypot(...sub(q.centre, b.p)) < R + Math.hypot(...q.half))) this.wake(b);
+      }
+    }
+    // Hold b towards target { p, q, v?, w? } (a motor: it goes towards the pose at most speed m/s faster than the target's own speed, and
+    // contacts still stop it). -> 'holding', or 'released' when it is further than breakAway from the target.
+    hold(b, target, opts = {}) {
+      const o = Object.assign({ spring: 20, speed: 5, breakAway: 0.3 }, opts);
+      if (!target || !Number.isFinite(target.p[0] + target.p[1] + target.p[2]) || Math.hypot(...sub(target.p, b.p)) > o.breakAway) { b.held = null; return 'released'; }
+      b.held = { p: target.p, q: target.q, v: target.v || [0, 0, 0], w: target.w || [0, 0, 0], spring: o.spring, speed: o.speed, age: 0 };
+      this.wake(b); return 'holding';
+    }
+    // let go: it keeps the velocity and the spin it has (a throw)
+    release(b) { b.held = null; }
     step(dt) {
       if (!(dt > 0)) return;
       dt = Math.min(dt, MAX_DT);
@@ -146,12 +182,32 @@
           }
         }
       }
+      const bq2 = quat.conj(b.q);
+      for (const s of this.kin.spheres) {
+        const l = quat.rotate(bq2, sub(s.p, b.p)), half = b.size.map((v) => v / 2), cl = l.map((v, i) => Math.max(-half[i], Math.min(half[i], v)));
+        const diff = sub(l, cl), dist = Math.hypot(...diff);
+        if (dist > s.r + MARGIN) continue;
+        if (dist > 1e-9) out.push({ r: add(b.p, quat.rotate(b.q, cl)), n: mulv(quat.rotate(b.q, diff), -1 / dist), gap: dist - s.r, vs: s.v, e: 0 });
+        else {                                                                           // (its middle is inside: out through the nearest face)
+          let ax = 0, dm = Infinity; for (let i = 0; i < 3; i++) { const d = half[i] - Math.abs(l[i]); if (d < dm) { dm = d; ax = i; } }
+          const m = [0, 0, 0]; m[ax] = l[ax] >= 0 ? 1 : -1;
+          out.push({ r: s.p, n: mulv(quat.rotate(b.q, m), -1), gap: -(dm + s.r), vs: s.v, e: 0 });
+        }
+      }
+      for (const q of this.kin.plates) {
+        for (const c of cs) {
+          const rel = sub(c, q.centre), lu = dot(rel, q.axes[0]), lv = dot(rel, q.axes[1]), ln = dot(rel, q.normal);
+          if (Math.abs(lu) <= q.half[0] + 0.005 && Math.abs(lv) <= q.half[1] + 0.005 && ln > -PLATE_DEPTH && ln < MARGIN) out.push({ r: c, n: q.normal, gap: ln, vs: q.v, e: 0 });
+        }
+      }
       return out;
     }
     _sub(h) {
+      this._h = h;
       for (const b of this.bodies) {
         if (b.asleep) continue;
         b.v[2] -= this.gravity * h;
+        if (b.held) this._motor(b);
         const cs = this.contacts(b), touching = cs.some((c) => c.gap < 0.005);
         const damp = Math.exp(-b.angularDamping * h);                  // (angularDamping: 1/s)
         b.w = mulv(b.w, damp);
@@ -162,17 +218,17 @@
         for (const c of cs) {
           c.ra = sub(c.r, b.p);
           c.Kn = b.inv + dot(cross(invI(b, cross(c.ra, c.n)), c.ra), c.n);
-          const vc = add(b.v, cross(b.w, c.ra)), vn = dot(vc, c.n);
+          const vc = sub(add(b.v, cross(b.w, c.ra)), c.vs || ZERO), vn = dot(vc, c.n);
           c.target = c.gap > 0 ? -c.gap / h : 0;                                                  // (it may close the gap this step, no more)
-          if (vn < -REST_SPEED && -vn * h >= c.gap) c.target = Math.max(c.target, -b.restitution * vn);
+          if (vn < -REST_SPEED && -vn * h >= c.gap) c.target = Math.max(c.target, -(c.e === undefined ? b.restitution : c.e) * vn);
           c.J = 0; c.Jt = [0, 0, 0];
         }
         for (let it = 0; it < ITER; it++) {
           for (const c of it % 2 ? cs.slice().reverse() : cs) {
-            let vc = add(b.v, cross(b.w, c.ra));
+            let vc = sub(add(b.v, cross(b.w, c.ra)), c.vs || ZERO);
             const lam = (c.target - dot(vc, c.n)) / c.Kn, J = Math.max(0, c.J + lam), d = J - c.J;
             c.J = J; this._apply(b, c.ra, mulv(c.n, d));
-            vc = add(b.v, cross(b.w, c.ra));
+            vc = sub(add(b.v, cross(b.w, c.ra)), c.vs || ZERO);
             const vt = sub(vc, mulv(c.n, dot(vc, c.n))), sp = Math.hypot(...vt);
             if (sp < 1e-9) continue;
             const t = mulv(vt, 1 / sp), Kt = b.inv + dot(cross(invI(b, cross(c.ra, t)), c.ra), t);
@@ -187,11 +243,35 @@
         const fix = [0, 0, 0];                                                    // (out of what it is in: the deepest push along each axis)
         for (const c of this.contacts(b)) if (c.gap < -SLOP) for (let i = 0; i < 3; i++) { const d = c.n[i] * 0.5 * Math.min(PEN_LIMIT, -c.gap - SLOP); if (Math.abs(d) > Math.abs(fix[i])) fix[i] = d; }
         b.p = add(b.p, fix);
-        if (touching && Math.hypot(...b.v) < SLEEP_V && Math.hypot(...b.w) < SLEEP_W) { b.calm += h; if (b.calm >= SLEEP_AFTER) { b.asleep = true; b.v = [0, 0, 0]; b.w = [0, 0, 0]; } } else b.calm = 0;
+        if (!b.held && touching && Math.hypot(...b.v) < SLEEP_V && Math.hypot(...b.w) < SLEEP_W) { b.calm += h; if (b.calm >= SLEEP_AFTER) { b.asleep = true; b.v = [0, 0, 0]; b.w = [0, 0, 0]; } } else b.calm = 0;
       }
+    }
+    _motor(b) {
+      const H = b.held, e = sub(add(H.p, H.v, H.age), b.p), cap = H.speed + Math.hypot(...H.v);
+      let v = add(H.v, e, H.spring); const s = Math.hypot(...v); if (s > cap) v = mulv(v, cap / s);
+      let qe = quat.mul(H.q, quat.conj(b.q)); if (qe[3] < 0) qe = qe.map((c) => -c);
+      let w = add(H.w, [qe[0], qe[1], qe[2]], 2 * H.spring); const ws = Math.hypot(...w); if (ws > HOLD_W) w = mulv(w, HOLD_W / ws);
+      b.v = v; b.w = w; H.age += this._h;                                   // (the target moves on at its own speed while the frame goes on)
     }
     _apply(b, ra, J) { b.v = add(b.v, J, b.inv); b.w = add(b.w, invI(b, cross(ra, J))); }
   }
 
-  M.physics = { quat, makeBox, corners, World };
+  // spheres for a hand source of the engine ({ points: [{ x, y, z }], joints: [[x, y, z]] }, floor plan)
+  function handSpheres(source, margin = 0.012) {
+    const out = [];
+    for (const p of (source && source.points) || []) if ([p.x, p.y, p.z].every(Number.isFinite)) out.push({ p: [p.x, p.y, p.z], r: margin });
+    for (const j of (source && source.joints) || []) if (j.every(Number.isFinite)) out.push({ p: [j[0], j[1], j[2]], r: margin });
+    return out;
+  }
+  // the flat hand of a grab.js grip (grip.palm: centre cx, cy and its top z there, normal nx ny nz, heading ang, half sizes hx hy) as a plate
+  function plate(grip) {
+    const q = grip && grip.palm;
+    if (!q) return null;
+    const s = q.nz < 0 ? -1 : 1, nl = Math.hypot(q.nx, q.ny, q.nz) || 1, n = [s * q.nx / nl, s * q.ny / nl, s * q.nz / nl];
+    const c = Math.cos(q.ang), sn = Math.sin(q.ang);
+    let u = [c, sn, -(n[0] * c + n[1] * sn) / n[2]]; u = mulv(u, 1 / Math.hypot(...u));
+    return { centre: [q.cx, q.cy, q.z], normal: n, axes: [u, cross(n, u)], half: [q.hx, q.hy] };
+  }
+
+  M.physics = { quat, makeBox, corners, World, handSpheres, plate };
 })(typeof module !== 'undefined' ? (module.exports = require('./ns.js')) : (globalThis.MUMR = globalThis.MUMR || {}));
