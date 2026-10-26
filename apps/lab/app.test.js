@@ -4,6 +4,7 @@ const assert = require('node:assert');
 const M = require('../../engine/client/index.js');
 const { Hub } = require('../../engine/test/hubfake.js');
 const L = require('./boxes.js');
+require('../../engine/client/physics-jolt.js');       // (as engine/client/host.js does)
 
 const settle = (w, secs, hands = []) => { for (let t = 0; t < secs; t += 1 / 72) w.step(1 / 72, t, hands); };
 // a pretend fingertip: a single point source at (x, y, z)

@@ -1,6 +1,6 @@
 # Physics for MUMR: design
 
-Status: proposed 2026-10-26, from a talk with Marek. Nothing in it is built. "Marek said" marks what he decided; "my call" marks what I chose and he has not seen.
+Status: proposed 2026-10-26, from a talk with Marek. **Built the same day on the hand-made module (`physics.js`), then moved to Jolt on the PC host (see "Jolt" at the end: it replaces "own solver, no library").** "Marek said" marks what he decided; "my call" marks what I chose and he has not seen.
 
 ## Why
 
@@ -125,3 +125,19 @@ File layout inside `engine/client/` and `engine/test/`, the iteration counts and
 ## What Marek checks on a headset afterwards
 
 Drop the cube from head height and from a table; push it with one finger; throw it; put it on a flat hand and tilt; hold it at an angle and let go; watch it from the other headset (a tumble that rests the same way on both); the PC view.
+
+## Jolt (Marek, 2026-10-26: "go with Jolt")
+
+What changed, and why: the hand-made solver was too slow and too soft for piles (a heap of 30 cost 19 ms a frame while it fell), and Marek moved all the simulation to the PC ("the headsets only send finger tracking"). With the simulation in one Node process the headset constraint that ruled a library out ("no build step, no install on the headsets") is gone, so the call "own solver, no library" is replaced: Jolt Physics (MIT, C++, built to WebAssembly: the `jolt-physics` npm package) runs the bodies of the **host** (`engine/client/physics-jolt.js`, `M.physics.JoltWorld`).
+
+What stays: the interface (`add, remove, setRoom, wake, setHands, hold, release, step`), the plain `makeBox` bodies, the packets (16 for the cube, 17-22 for the lab), the hand code in `cube.js` and `boxes.js`, the headset pages with the built-in `World` (they only draw what the host sends) and the numbers table above (`engine/test/physics-jolt.test.js` holds Jolt to the same checks, with wider tolerances: bounce within 10%, slide within 10%).
+
+What differs (Marek has these in mind from the lab runs):
+- **Hands** are kinematic bodies that move at the hand's own smoothed speed from its headset's clock (`presence.js`), never at the speed of the jumps of their position; whatever is left of the distance to the hand is closed by a silent shift (at most 2 m/s worth a call). A contact with a hand does not bounce (flesh, not plastic): a cube leaves at the hand's speed, not 1.45 times it. The first Jolt run (hand speed from position jumps, with packets arriving in bunches 170 ms apart) launched the cubes; this is the fix, and `physics-jolt.test.js` holds it ("a hand whose packets come in bunches ...").
+- **Friction** is one number per body (the kinetic one, 0.4); there is no rolling resistance (a cube comes to rest by its angular damping and by Jolt's sleeping).
+- **The room** is static bodies: the floor, walls as 20 cm thick slabs, tables and solid objects as the convex hull of their outline (a hollow outline is filled); rebuilt when the room's numbers change.
+- **Capacity**: Jolt's limits are fixed when it is made; `JoltWorld` makes the same world again twice as big from the bodies' plain state when they come near the limit (1024 bodies to start). The lab has no limit on the number of cubes; the pile packet carries at most 64 boxes (the longest-waiting first).
+- **Fallback**: with no `jolt-physics` installed the host logs "no Jolt" and runs the built-in World.
+
+Left open: the cube on Jolt has been tested in Node only (eight of the nine cube tests pass on it unchanged; the ninth compares a heading that is undefined when the cube lands with its x axis up); a headset run decides how it feels. A hand has an infinite mass here (a cube leaves at the hand's full speed); a finite "hand weight" (a fraction of the speed) is the knob to turn if a quick swipe still sends cubes too far.
+

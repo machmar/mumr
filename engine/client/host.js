@@ -14,6 +14,7 @@
 // `space` is the common frame itself (the host stands in it): positions in and out need no turning.
 const path = require('node:path');
 const M = require('./index.js');
+try { require('./physics-jolt.js'); } catch (e) { /* (no Jolt: M.physics.jolt stays unset and an app's host falls back to the built-in physics) */ }
 
 const [url, modPath] = process.argv.slice(2);
 if (!url || !modPath) { console.error('usage: node engine/client/host.js <ws url> <host module>'); process.exit(2); }

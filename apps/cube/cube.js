@@ -38,10 +38,11 @@
   }
 
   class Cube {
-    constructor(cfg = {}) {
+    // Engine: a physics world class with the same methods as M.physics.World (the host passes M.physics.JoltWorld; the pages the built-in one)
+    constructor(cfg = {}, Engine) {
       this.cfg = Object.assign({}, DEF, cfg);
       this.body = M.physics.makeBox({ size: [SIZE, SIZE, SIZE], p: [0.5, 0, HALF] });
-      this.world = new M.physics.World({ gravity: this.cfg.gravity });
+      this.world = new (Engine || M.physics.World)({ gravity: this.cfg.gravity });
       this.world.add(this.body);
       this.held = null;                     // { by: source id, kind: 'pinch' | 'fist', ... } while a grip holds it
       this.off = { x: 0, y: 0, z: 0 };      // drawn = simulated + this (a correction from the holder, fading)

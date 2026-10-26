@@ -25,8 +25,13 @@ One common floor frame from two touched floor spots; everything is sent in it. D
 ## Try it
 
 ```bash
+npm install
 node tools/run.js _template --http
 ```
+
+`npm install` fetches the one dependency, [Jolt Physics](https://github.com/jrouwe/JoltPhysics) (`jolt-physics`, MIT, the C++ engine built to WebAssembly). Only the PC's host process
+uses it, to simulate what nobody is touching (the cube, the lab's cubes); the headset pages and the server load nothing. Without it the host falls back to the
+built-in physics (`engine/client/physics.js`), which is slower and has no stacking to speak of.
 
 Open `http://localhost:8766/?name=A&frame=0,0,0` and `/?name=B&frame=1,0.5,40` in two tabs. Press Count in one and watch the other. For headsets, leave out `--http` and open the printed
 `https://` address on each (accept the certificate once).
@@ -36,11 +41,11 @@ Open `http://localhost:8766/?name=A&frame=0,0,0` and `/?name=B&frame=1,0.5,40` i
 ```
 engine/server/    ws.py  hub.py  serverlog.py  serve.py        Python 3, standard library only
 engine/client/    util link align wire session presence body worldfeed life hands follow menus anchor lineup   plain scripts, no build step
-           all.js (one tag for the browser), index.js (Node)
+           all.js (one tag for the browser), index.js (Node), physics-jolt.js (Node only: the physics on Jolt, used by the host)
 engine/client/xr/ session input ghost players3d panel3d   ES modules for WebXR, THREE handed in
 engine/test/      Node tests (hubfake.js: a pretend server for several pretend headsets in one process)
 engine/server/tests/   Python tests
-apps/      _template (the smallest app; tools/new-app.js copies it), cube (the XR demo, with a PC view)
+apps/      _template (the smallest app; tools/new-app.js copies it), cube (the XR demo, with a PC view), lab (experiments: a pile of any number of cubes, a stack, drift)
 tools/     new-app.js (make an app), run.js (run one by name)
 docs/      ARCHITECTURE.md  HOWTO-NEW-APP.md  PLAN.md  NOTES.md (what was learnt, and what was streamlined)
 ```

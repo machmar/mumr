@@ -6,6 +6,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const { spawn, spawnSync } = require('node:child_process');
 const M = require('../client/index.js');
+require('../client/physics-jolt.js');                // (as engine/client/host.js does: the host modules then run their physics on Jolt, as on the PC)
 const C = require('../../apps/cube/cube.js');
 const { Hub } = require('./hubfake.js');
 const HOSTMOD = require('../../apps/cube/host.js');
@@ -16,20 +17,20 @@ function player(hub, name, frame) {
   S.link.onBin = (b) => body.receive(M.wire.decode(b), 0);
   return { S, sp, cube, body };
 }
-function host(hub) {
+async function host(hub) {
   const S = new M.session.Session(hub.link('host', 'host'), HOSTMOD.session);
   const space = new M.align.Space({ x: 0, y: 0, yaw: 0, z: 0 }, 0);
   S.setLined({ dist: 0, how: 'host' });
   const presence = new M.presence.Presence(S, space);
-  const w = HOSTMOD.setup({ M, session: S, space, presence });
+  const w = await HOSTMOD.setup({ M, session: S, space, presence });
   S.link.onBin = (b) => { const p = M.wire.decode(b); if (p.name === 'presence') presence.receive(p, 0); else w.bodies[0].receive(p, 0); };
   return { S, w, cube: null };
 }
 const finger = (id, x, y, z) => ({ id, points: [{ name: 'index', x, y, z }] });
 
-test('the host holds the cube; a touch takes it at once; at rest and untouched it goes back; the host is not a player', () => {
+test('the host holds the cube; a touch takes it at once; at rest and untouched it goes back; the host is not a player', async () => {
   const hub = new Hub({ bodies: ['cube'], owned: { 16: 'cube' } });
-  const h = host(hub); hub.flush();
+  const h = await host(hub); hub.flush();
   const a = player(hub, 'A', { x: 1, y: 0.5, yaw: 0.7, z: 0 }); hub.flush();
   a.S.setLined({ dist: 3 }); hub.flush();
   assert.deepStrictEqual([h.S.isHost, h.S.holds('cube'), a.S.holder('cube'), a.S.others, a.S.hostHere, a.S.sharing()], [true, true, 15, 0, true, true]);
@@ -52,11 +53,11 @@ test('the host holds the cube; a touch takes it at once; at rest and untouched i
   assert.strictEqual(h.S.holds('cube'), true);
 });
 
-test('a holder that leaves gives the cube to the host, not to the next player; without the host the earliest player has it', () => {
+test('a holder that leaves gives the cube to the host, not to the next player; without the host the earliest player has it', async () => {
   const hub = new Hub({ bodies: ['cube'], owned: { 16: 'cube' } });
   const a = player(hub, 'A', { x: 0, y: 0, yaw: 0, z: 0 }), b = player(hub, 'B', { x: 0, y: 0, yaw: 0, z: 0 }); hub.flush();
   assert.strictEqual(a.S.holder('cube'), 0);
-  const h = host(hub); hub.flush();
+  const h = await host(hub); hub.flush();
   assert.strictEqual(a.S.holder('cube'), 0, 'a host that comes later does not take what a player holds');
   hub.leave(0); hub.flush();
   assert.strictEqual(b.S.holder('cube'), 15);
@@ -89,4 +90,15 @@ test('the real server starts the host by itself, and the host keeps the cube for
     spawnSync('taskkill', ['/pid', String(server.pid), '/T', '/F'], { stdio: 'ignore' });
     try { fs.rmSync(app, { recursive: true, force: true }); } catch (e) { /* still open */ }
   }
+});
+
+test('the cube host runs its cube on Jolt, and steps it with and without a fingertip', async () => {
+  const hub = new Hub({ bodies: ['cube'], owned: { 16: 'cube' } });
+  const S = new M.session.Session(hub.link('host', 'host'), HOSTMOD.session), space = new M.align.Space({ x: 0, y: 0, yaw: 0, z: 0 }, 0);
+  S.setLined({ dist: 0, how: 'host' });
+  const lines = [], w = await HOSTMOD.setup({ M, session: S, space, presence: new M.presence.Presence(S, space), room: { local: () => null }, life: (s) => lines.push(s) });
+  assert.ok(lines.some((s) => /physics on Jolt/.test(s)), lines.join(' | '));
+  const dt = 1 / 90;
+  for (let k = 0; k < 90 * 2; k++) w.step(dt, k * dt, k > 90 ? [finger('h', 0.2 + (k - 90) * 0.003, 0, 0.06)] : []);
+  hub.flush();
 });

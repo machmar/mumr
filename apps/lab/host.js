@@ -9,7 +9,7 @@ module.exports = {
   async setup({ M, session: S, room, life }) {
     // the physics is Jolt (engine/client/physics-jolt.js); the built-in one if the package is not installed
     let Engine = null;
-    try { await require('../../engine/client/physics-jolt.js').load(); Engine = M.physics.JoltWorld; life('lab host: physics on Jolt'); } catch (e) { life(`lab host: no Jolt (${e.message}), the built-in physics`); }
+    try { await M.physics.jolt.load(); Engine = M.physics.JoltWorld; life('lab host: physics on Jolt'); } catch (e) { life(`lab host: no Jolt (${e.message}), the built-in physics`); }
     const pile = new L.World(10, Engine), island = new L.World(L.ISLAND, Engine);
     island.layout('stack', L.ISLAND, [0.5, 0]);
     let mode = 'pile', count = 10, simMs = 0, steps = 0, lagged = 0, most = 0, at = Date.now();
