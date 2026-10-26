@@ -6,8 +6,11 @@ const L = require('./boxes.js');
 
 module.exports = {
   session: { game: L.GAME, player: L.PLAYER, actions: L.ACTIONS, press: L.press, kinds: L.KINDS },
-  setup({ M, session: S, room, life }) {
-    const pile = new L.World(10), island = new L.World(L.ISLAND);
+  async setup({ M, session: S, room, life }) {
+    // the physics is Jolt (engine/client/physics-jolt.js); the built-in one if the package is not installed
+    let Engine = null;
+    try { await require('../../engine/client/physics-jolt.js').load(); Engine = M.physics.JoltWorld; life('lab host: physics on Jolt'); } catch (e) { life(`lab host: no Jolt (${e.message}), the built-in physics`); }
+    const pile = new L.World(10, Engine), island = new L.World(L.ISLAND, Engine);
     island.layout('stack', L.ISLAND, [0.5, 0]);
     let mode = 'pile', count = 10, simMs = 0, steps = 0, lagged = 0, most = 0, at = Date.now();
     const id = (s) => s;

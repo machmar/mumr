@@ -61,10 +61,11 @@
   }
 
   class World {
-    constructor(n) {
+    // Engine: a physics world class with the same methods as M.physics.World (the host passes M.physics.JoltWorld; the pages the built-in one)
+    constructor(n, Engine) {
       this.grips = new M.grab.Grips();
       this.prev = new Map();               // source id + point -> [x, y, z, t]: the hands' speed
-      this.pw = new M.physics.World(PHYSICS);
+      this.pw = Engine ? new Engine({ sleepAfter: SLEEP.after, sleepV: SLEEP.v }) : new M.physics.World(PHYSICS);
       this.free = new Map();               // source id -> time (s) until which its hand pushes nothing: it has just let go
       this.cfg = Object.assign({}, CFG);
       this.room = null;                    // room.js local(), or null: the floor only

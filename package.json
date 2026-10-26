@@ -2,11 +2,14 @@
   "name": "mumr",
   "version": "0.1.0",
   "private": true,
-  "description": "Multi-user mixed reality for WebXR headsets: a shared world, authority by touch, a PC hub. No build step, no dependencies.",
+  "description": "Multi-user mixed reality for WebXR headsets: a shared world, authority by touch, a PC hub. No build step; the only dependency is jolt-physics, for the PC host's physics.",
   "scripts": {
     "test": "node --test",
     "test:py": "py -3 -m unittest discover -s engine/server/tests -p \"test_*.py\"",
     "run": "node tools/run.js",
     "new-app": "node tools/new-app.js"
+  },
+  "dependencies": {
+    "jolt-physics": "^1.1.1"
   }
 }

@@ -247,3 +247,16 @@ test('a box at rest is still sent now and then: the newest state of every box re
   assert.strictEqual((a.pack().length - 1) / 15, 5);
   assert.strictEqual(a.pack().length, 1, 'right after, nothing at rest goes again');
 });
+
+// ---- the host module on Jolt (apps/lab/host.js): its setup loads the physics, the boxes are Jolt bodies, a hand pushes one
+test('the lab host loads Jolt in its async setup and steps the pile with and without a hand', async () => {
+  const HOST = require('./host.js'), hub = new Hub({ bodies: ['b1', 'b2', 'b3', 'b4', 'b5', 'pile'], owned: { 17: 'b1', 18: 'b2', 19: 'b3', 20: 'b4', 21: 'b5', 22: 'pile' } });
+  const S = new M.session.Session(hub.link('host', 'host'), HOST.session), space = new M.align.Space({ x: 0, y: 0, yaw: 0, z: 0 }, 0);
+  S.setLined({ dist: 0, how: 'host' });
+  const lines = [], world = await HOST.setup({ M, session: S, space, presence: new M.presence.Presence(S, space), room: { local: () => null }, life: (s) => lines.push(s) });
+  assert.strictEqual(world.bodies.length, 6);
+  if (!lines.some((s) => /physics on Jolt/.test(s))) return;            // (jolt-physics is not installed: the built-in physics ran, which the other tests cover)
+  const dt = 1 / 72;
+  for (let k = 0; k < 72 * 3; k++) world.step(dt, k * dt, k > 72 ? [{ id: 'h', points: [{ name: 'index', x: 0.3 + (k - 72) * 0.002, y: 0, z: 0.05 }] }] : []);
+  assert.ok(lines.every((s) => !/error|undefined|NaN/i.test(s)), lines.join(' | '));
+});
