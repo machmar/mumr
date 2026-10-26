@@ -44,7 +44,7 @@ steps it by hand. A pretend second player without a browser: `node tools/standin
 
 | File | What |
 |---|---|
-| `cube.js` | the cube's physics, its Body adapter and packet (16), the menu layout and buttons; no THREE, tested in `engine/test/cube.test.js` |
+| `cube.js` | the cube (a body of `engine/client/physics.js`: hands, hold, throw), its Body adapter and packet (16, 56 bytes), the menu layout and buttons; no THREE, tested in `engine/test/cube.test.js` |
 | `draw.js` | how the cube looks, for both pages |
 | `app.js`, `index.html` | the headset page (also the desktop rehearsal) |
 | `view.js`, `view.html` | the PC view (a WorldFeed watcher) |
