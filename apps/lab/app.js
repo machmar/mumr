@@ -12,10 +12,11 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { createApp, PLAYER_COLOURS } from '/mumr/xr/app.js';
 
-const L = window.LAB;
+const L = window.LAB, Q = window.MUMR.physics.quat;
 const pile = new L.World(10), island = new L.World(L.ISLAND), watch = new L.Watch(), perf = new L.Perf(), drift = new L.Drift();
 const STACK_AT = [0.5, 0], meshes = [];
 const tot = { handovers: 0, jumps: 0, worst: 0, broken: 0 };       // the island since its last reset
+let lagFrames = 0;                                                  // frames in this log window in which the physics hit its time budget and ran slow
 let app = null, mode = 'pile', count = 10, claimUntil = 0, lastFrame = 0, frameS = 1 / 60, last = { perf: null, island: null, drift: null }, mark = null;
 island.layout('stack', L.ISLAND, STACK_AT);
 
@@ -99,8 +100,9 @@ app = await createApp({
     // a reset of the island: this page takes the boxes and the others follow what it sends
     if (m === 'island' && now < claimUntil) for (const b of app.bodies) S.claim(b.token, now);
     const sim = performance.now() - t0;
+    if (w.pw.lagged) lagFrames++;
     const r = perf.add(now, frameMs, sim);
-    if (r && m !== 'drift') { last.perf = r; app.life(`lab: ${m === 'pile' ? `pile of ${pile.boxes.length}` : 'island'}: ${r.fps} fps, frame ${r.p50}/${r.p95} ms (p50/p95), simulation ${r.sim} ms, ${w.movingCount()} moving`); }
+    if (r && m !== 'drift') { last.perf = r; app.life(`lab: ${m === 'pile' ? `pile of ${pile.boxes.length}` : 'island'}: ${r.fps} fps, frame ${r.p50}/${r.p95} ms (p50/p95), simulation ${r.sim} ms, ${w.movingCount()} moving, physics cut short in ${lagFrames} frames`); lagFrames = 0; }
     // the drift probe: this page's index fingertips
     const tips = own.map((s) => { const p = (s.points || []).find((q) => q.name === 'index'); return p ? { id: s.id, x: p.x, y: p.y, z: p.z } : null; }).filter(Boolean);
     const row = drift.update(t, tips, (xy) => (app.space.ok ? app.space.toCommon(xy) : xy));
@@ -130,7 +132,8 @@ app = await createApp({
       m.visible = !!b;
       if (!b) return;
       const d = w.drawn(b), p = toPlan([d.x, d.y, d.z]), yaw = app.space.ok ? app.space.yawFromCommon(0) : 0;
-      m.position.set(p[0], p[2], -p[1]); m.rotation.set(0, yaw, 0);
+      const qp = Q.mul(Q.fromAxisAngle([0, 0, 1], yaw), d.q);                       // (the box's turn in the common frame, then the page's line-up)
+      m.position.set(p[0], p[2], -p[1]); m.quaternion.set(qp[0], qp[2], -qp[1], qp[3]);
       let colour = w.isMoving(b) ? 0xe8a33d : 0x9aa3b2;
       if (mode === 'island') { const h = S.holder(L.TYPES[i].token); colour = h === null || h === undefined ? 0xcfd6e2 : h === S.me ? PLAYER_COLOURS[S.me % PLAYER_COLOURS.length] : PLAYER_COLOURS[h % PLAYER_COLOURS.length]; }
       m.material.color.set(d.held ? 0xffffff : colour);

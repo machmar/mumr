@@ -413,5 +413,25 @@
     return { centre: [q.cx, q.cy, q.z], normal: n, axes: [u, cross(n, u)], half: [q.hx, q.hy] };
   }
 
-  M.physics = { quat, makeBox, corners, World, handSpheres, plate };
+  // The turn of a hand (a quaternion), from its 25 joints: the wrist to the middle knuckle is forward, the index knuckle to the little finger's is
+  // across; null when the source has no joints (the desktop's mouse) or they are in a heap.
+  function handQuat(s) {
+    const j = s && s.joints;
+    if (!j || j.length < 25) return null;
+    const unit = (a) => { const l = Math.hypot(...a); return l > 1e-9 ? [a[0] / l, a[1] / l, a[2] / l] : null; };
+    const f = unit(sub(j[11], j[0])), side = sub(j[6], j[21]), n = f && unit(cross(f, side));
+    return n ? M.align.quatFromBasis(f, cross(n, f), n) : null;
+  }
+
+  // The wire packet of a body of this module (14 float32 = 56 bytes, common frame): x, y, z, qx, qy, qz, qw, vx, vy, vz, wx, wy, wz, flags
+  // (1: held). lend turns the orientation the short way. The cube is type 16, the lab's boxes 17-21.
+  const PACKET = 14;
+  function registerPacket({ type, name, token }) {
+    return M.wire.register({ type, name, token,
+      pack: (s) => { const b = new Uint8Array(PACKET * 4), d = new DataView(b.buffer); s.forEach((v, i) => { if (i < PACKET) d.setFloat32(i * 4, +v || 0, true); }); return b; },
+      unpack: (d) => { if (d.byteLength !== PACKET * 4) return null; const s = []; for (let i = 0; i < PACKET; i++) s.push(d.getFloat32(i * 4, true)); return s.every(Number.isFinite) ? s : null; },
+      blend: (a, b, f) => { const q = quat.slerp(a.slice(3, 7), b.slice(3, 7), f); return a.map((v, i) => (i >= 3 && i <= 6 ? q[i - 3] : i === 13 ? a[13] : v + (b[i] - v) * f)); } });
+  }
+
+  M.physics = { quat, makeBox, corners, World, handSpheres, plate, handQuat, registerPacket };
 })(typeof module !== 'undefined' ? (module.exports = require('./ns.js')) : (globalThis.MUMR = globalThis.MUMR || {}));

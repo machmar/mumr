@@ -38,6 +38,7 @@ test('a box pushed into another pushes it', () => {
 
 test('thirty boxes dropped into a heap come to rest, and none is inside another', () => {
   const w = new L.World(30);
+  w.pw.budgetMs = 0;                                    // (the page lets a frame run slow when physics takes more than 6 ms; the test wants every step)
   w.layout('pile', 30, [0.5, 0]);
   settle(w, 12);
   assert.strictEqual(w.movingCount(), 0, 'all at rest');
@@ -159,4 +160,24 @@ test('the windows: wrapped text, and a data line for each experiment', () => {
   assert.ok(L.dataLines(Object.assign({ mode: 'island' }, base)).some((l) => /together/.test(l)));
   assert.ok(L.dataLines(Object.assign({ mode: 'drift' }, base)).some((l) => /not started/.test(l)));
   assert.ok(L.dataLayout(Object.assign({ mode: 'pile' }, base)).buttons.length > 3);
+});
+
+test('boxes turn: one dropped from a height tumbles, one thrown at a stack topples it, and a packet carries the turn', () => {
+  const w = new L.World(1);
+  w.pw.budgetMs = 0;
+  w.layout('stack', 5, [0.5, 0]);
+  settle(w, 1);
+  assert.ok(L.World && w.boxes.every((b, i) => Math.abs(b.z - (L.HALF + i * L.SIZE)) < 0.004), 'the stack of five stands');
+  const hit = w.boxes[0]; hit.x = -0.8; hit.z = L.HALF + 0.001; hit.vx = 3;                          // (the bottom box is shot at the stack's foot from the side; the one above it is lifted and dropped 2 cm off)
+  w.boxes[1].z = 0.5; w.boxes[1].x = 0.5 + 0.02;
+  settle(w, 4);
+  const turned = w.boxes.filter((b) => Math.abs(w.drawn(b).q[3]) < 0.999).length;
+  assert.ok(turned > 0 || w.boxes.some((b) => Math.hypot(b.x - 0.5, b.y) > 0.15), 'something was knocked about');
+  const a1 = L.adapter(w, 2, (s) => s, () => true), w2 = new L.World(1);
+  w2.layout('stack', 5, [0.5, 0]);
+  w.boxes[2].body.q = M.physics.quat.fromAxisAngle([0, 0, 1], 0.7); w.boxes[2].body.w = [1, 2, 3];
+  const spec = M.wire.spec('lab3'), data = spec.unpack(new DataView(spec.pack(a1.pack()).buffer));
+  assert.strictEqual(spec.pack(a1.pack()).length, 56);
+  assert.ok(L.adapter(w2, 2, (s) => s, () => true).apply(data, { first: true }));
+  assert.ok(Math.abs(w2.boxes[2].body.q[2] - Math.sin(0.35)) < 1e-4 && Math.abs(w2.boxes[2].body.w[1] - 2) < 1e-5, 'orientation and spin arrive');
 });

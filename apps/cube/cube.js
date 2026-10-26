@@ -22,26 +22,13 @@
   const R = HALF * 1.3;          // the cube put against walls and objects (`put`): a round thing a little wider than its half
   const HAND_MAX = 4;            // m/s, the most a hand's speed counts for
 
-  // packet 16: x, y, z, qx, qy, qz, qw, vx, vy, vz, wx, wy, wz (common frame), flags (1: held) -- 14 float32
-  const N = 14;
-  M.wire.register({ type: 16, name: 'cube', token: 'cube',
-    pack: (s) => { const b = new Uint8Array(N * 4), d = new DataView(b.buffer); s.forEach((v, i) => { if (i < N) d.setFloat32(i * 4, +v || 0, true); }); return b; },
-    unpack: (d) => { if (d.byteLength !== N * 4) return null; const s = []; for (let i = 0; i < N; i++) s.push(d.getFloat32(i * 4, true)); return s.every(Number.isFinite) ? s : null; },
-    blend: (a, b, f) => { const q = Q.slerp(a.slice(3, 7), b.slice(3, 7), f); return a.map((v, i) => (i >= 3 && i <= 6 ? q[i - 3] : i === 13 ? a[13] : v + (b[i] - v) * f)); } });
+  // packet 16: x, y, z, qx, qy, qz, qw, vx, vy, vz, wx, wy, wz (common frame), flags (1: held) -- 14 float32 (engine/client/physics.js)
+  M.physics.registerPacket({ type: 16, name: 'cube', token: 'cube' });
 
   const pt = (s, name) => (s.points || []).find((p) => p.name === name);
   const sub = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
-  const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
-  const unit = (a) => { const l = Math.hypot(...a); return l > 1e-9 ? [a[0] / l, a[1] / l, a[2] / l] : null; };
   const heading = (q) => { const r = Q.rotate(q, [1, 0, 0]); return Math.atan2(r[1], r[0]); };
-  // The turn of a hand (a quaternion), from its joints: the wrist to the middle knuckle is forward, the index knuckle to the little finger's is
-  // across; null when the source has no joints (the desktop's mouse) or they are in a heap.
-  function handQuat(s) {
-    const j = s && s.joints;
-    if (!j || j.length < 25) return null;
-    const f = unit(sub(j[11], j[0])), side = sub(j[6], j[21]), n = f && unit(cross(f, side));
-    return n ? M.align.quatFromBasis(f, cross(n, f), n) : null;
-  }
+  const handQuat = M.physics.handQuat;
   // a hand that is closing on the cube: the thumb and index coming together, or the fingers curling, near it (it is about to grip).
   // Not a pointing hand: its other fingers are curled too, but it pushes with its index (that stopped one-finger pushing, 2026-10-23).
   function closingOn(cube, s, C) {

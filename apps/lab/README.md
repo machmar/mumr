@@ -28,9 +28,13 @@ small copy of the room; **Show hand IRL** shows your hand full size where it rea
 
 ## What it is and is not
 
-- Boxes are 12 cm and **axis-aligned in the common frame** (no turning). They stand on the highest box under them, are pushed apart
-  sideways in 1 cm steps, tip off the edge of the box under them, and hands push, pinch and fist-grab them as the cube's do. No flat-hand
-  platform, no room model, no kicking. The room's walls and tables work (`room.js`).
+- Boxes are 12 cm and on the engine's **physics** (`engine/client/physics.js`, since 2026-10-26): they fall, bounce like hard plastic, tumble,
+  slide with friction, rest on each other (a stack of five stands; a heap comes to rest and sleeps), topple, and are knocked by a thrown box.
+  Hands push, pinch and fist-grab them as the cube's do (a held box turns with the hand; a throw keeps its speed). No flat-hand platform,
+  no kicking. The room's walls and tables work (`room.js`). The island's packets (17-21) carry orientation and spin (56 bytes).
+- **Cost:** a heap of 30 boxes costs about 19 ms per frame in Node while it falls and 5 ms while it settles, then nothing (they sleep), so
+  on a Quest the pile will be slow. The physics stops stepping once a frame has used 6 ms of it, and the world runs slow for that frame;
+  the log line counts those frames ("physics cut short in N frames"). That count and the frame times are the pile's result now.
 - The simulation is in the common frame, so every page's boxes are turned the same way whatever its line-up. Alone, or before lining up,
   the common frame is the page's own.
 - Not here: `tools/stress.js` (PLAN.md 3.1, Node only, no headset) and the camera row.
@@ -39,6 +43,6 @@ small copy of the room; **Show hand IRL** shows your hand full size where it rea
 |---|---|
 | `mumr.json` | five bodies (`b1`..`b5`, packets 17-21) for the island |
 | `index.html` | the page |
-| `boxes.js` | the logic: `World` (boxes and contact), `Watch` (island numbers), `Drift`, `Perf`, the island's Body adapter, the menu. No THREE, no DOM |
+| `boxes.js` | the logic: `World` (boxes on the physics module), `Watch` (island numbers), `Drift`, `Perf`, the island's Body adapter, the menu. No THREE, no DOM |
 | `app.js` | `createApp`, the drawing, the log lines |
 | `app.test.js` | the logic in Node, with two pretend headsets |

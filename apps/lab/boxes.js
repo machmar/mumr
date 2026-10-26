@@ -1,50 +1,73 @@
 // The lab's own logic, with no THREE and no DOM (the headset page and the Node tests both use it):
-//   * World: N boxes of 12 cm (axis-aligned: no turning) that hands push, pinch and fist-grab, with CUBE-TO-CUBE CONTACT: a box stands on
-//     the highest box under its footprint (as room.js `support` does for tables), and boxes that overlap sideways are pushed apart in the
-//     same 1 cm steps as the room's walls. This is the contact that apps/cube/cube.js does not have, for the pile and the island.
+//   * World: N boxes of 12 cm on the engine's physics (engine/client/physics.js: gravity, bounce, tumbling, friction, boxes that rest on, topple
+//     and push each other), that hands push, pinch and fist-grab as the cube's do. No flat-hand platform, no kicking. The room's walls and
+//     tables work (`room.js`).
 //   * Watch: what the island experiment counts (token hand-overs, jumps of a box, whether the stack stayed together).
 //   * Drift: the line-up drift probe (a fingertip resting on a printed cross, once a minute).
 //   * Perf: frame time and simulation time for the pile.
 //   * the menu and the settings.
 (function (L) {
   const M = typeof module !== 'undefined' ? require('../../engine/client/index.js') : globalThis.MUMR;
-  const SIZE = 0.12, HALF = SIZE / 2, R = HALF * 1.3, STEP = 0.01, MAX_BOXES = 50, ISLAND = 5, FIRST_TYPE = 17;
-  const CFG = { gravity: 9.81, friction: 3, touch: 0.012, grab: 0.03, grabFist: 0.08, spring: 20, holdSpeed: 5, breakAway: 0.3, closeNear: 0.05, reach: 0.06, busy: 0.02, tip: 2.5 };
-  const SIDE = SIZE - 0.004;            // two boxes closer than this (both ways) are on top of each other, not side by side
+  const Q = M.physics.quat;
+  const SIZE = 0.12, HALF = SIZE / 2, MAX_BOXES = 50, ISLAND = 5, FIRST_TYPE = 17;
+  const CFG = { gravity: 9.81, touch: 0.012, grab: 0.03, grabFist: 0.08, spring: 20, holdSpeed: 5, breakAway: 0.3, closeNear: 0.05, reach: 0.06, busy: 0.02 };
+  const HAND_MAX = 4, FRAME_BUDGET_MS = 6;      // m/s; ms of physics a frame may take before the world runs slow for that frame
   const pt = (s, name) => (s.points || []).find((p) => p.name === name);
+  const sub = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+  const heading = (q) => { const r = Q.rotate(q, [1, 0, 0]); return Math.atan2(r[1], r[0]); };
 
-  // packets 17..21, one per island box (a token each, today's rule): x, y, z, yaw (unused), vx, vy, vz (common frame), flags (1: held)
+  // packets 17..21, one per island box (a token each, today's rule): the physics module's body packet (engine/client/physics.js, 56 bytes)
   const TYPES = Array.from({ length: ISLAND }, (_, i) => ({ type: FIRST_TYPE + i, name: `lab${i + 1}`, token: `b${i + 1}` }));
-  for (const t of TYPES) {
-    M.wire.register({ type: t.type, name: t.name, token: t.token,
-      pack: (s) => { const b = new Uint8Array(32), d = new DataView(b.buffer); s.forEach((v, i) => d.setFloat32(i * 4, +v || 0, true)); return b; },
-      unpack: (d) => { if (d.byteLength !== 32) return null; const s = []; for (let i = 0; i < 8; i++) s.push(d.getFloat32(i * 4, true)); return s.every(Number.isFinite) ? s : null; },
-      blend: (a, b, f) => a.map((v, i) => (i === 7 ? a[7] : v + (b[i] - v) * f)) });
+  for (const t of TYPES) M.physics.registerPacket(t);
+
+  // One box: a body of the physics world with the fields the lab and its tests use as plain numbers.
+  class Box {
+    constructor(world, x, y, z) {
+      this.pw = world; this.body = M.physics.makeBox({ size: [SIZE, SIZE, SIZE], p: [x, y, z] }); world.add(this.body);
+      this.held = null;                    // { by: source id, kind, hold, fix, off } while a grip holds it
+      this.steer = null;                   // [x, y, z]: where a hand in the room model wants it
+      this.other = false;                  // held by another page (what the packet says)
+      this.off = { x: 0, y: 0, z: 0 };     // drawn = simulated + this (a correction from the holder, fading)
+    }
+    _set(i, v) { this.body.p[i] = v; this.pw.wake(this.body); }
+    get x() { return this.body.p[0]; } set x(v) { this._set(0, v); }
+    get y() { return this.body.p[1]; } set y(v) { this._set(1, v); }
+    get z() { return this.body.p[2]; } set z(v) { this._set(2, v); }
+    get vx() { return this.body.v[0]; } set vx(v) { this.body.v[0] = v; this.pw.wake(this.body); }
+    get vy() { return this.body.v[1]; } set vy(v) { this.body.v[1] = v; this.pw.wake(this.body); }
+    get vz() { return this.body.v[2]; } set vz(v) { this.body.v[2] = v; this.pw.wake(this.body); }
   }
 
   class World {
     constructor(n) {
       this.grips = new M.grab.Grips();
       this.prev = new Map();               // source id + point -> [x, y, z, t]: the hands' speed
+      this.pw = new M.physics.World({ budgetMs: FRAME_BUDGET_MS });
+      this.free = new Map();               // source id -> time (s) until which its hand pushes nothing: it has just let go
+      this.cfg = Object.assign({}, CFG);
       this.room = null;                    // room.js local(), or null: the floor only
       this.boxes = [];
-      this.cfg = Object.assign({}, CFG);
       this.layout('grid', n);
     }
     // 'grid': n boxes in rows on the floor (from `at`); 'stack': a tower; 'pile': a heap of boxes dropped around `at`
     layout(kind, n, at = [0.5, 0]) {
       const N = Math.max(1, Math.min(MAX_BOXES, n | 0)), cols = Math.ceil(Math.sqrt(N));
+      for (const b of this.pw.bodies.slice()) this.pw.remove(b);
+      this.pw._warm = null;
       this.boxes = Array.from({ length: N }, (_, i) => {
-        const b = { x: at[0], y: at[1], z: HALF, vx: 0, vy: 0, vz: 0, held: null, other: false, off: { x: 0, y: 0, z: 0 }, ground: HALF };
-        if (kind === 'grid') { b.x += (i % cols) * 0.2 - ((cols - 1) * 0.2) / 2; b.y += Math.floor(i / cols) * 0.2 - ((cols - 1) * 0.2) / 2; }
-        else if (kind === 'stack') b.z = HALF + i * SIZE;
-        else { const a = i * 2.4, r = 0.05 + 0.045 * (i % 7); b.x += Math.cos(a) * r; b.y += Math.sin(a) * r; b.z = HALF + 0.05 + i * 0.07; }
-        return b;
+        let x = at[0], y = at[1], z = HALF;
+        if (kind === 'grid') { x += (i % cols) * 0.2 - ((cols - 1) * 0.2) / 2; y += Math.floor(i / cols) * 0.2 - ((cols - 1) * 0.2) / 2; }
+        else if (kind === 'stack') z = HALF + i * SIZE;
+        else { const a = i * 2.4, r = 0.05 + 0.045 * (i % 7); x += Math.cos(a) * r; y += Math.sin(a) * r; z = HALF + 0.05 + i * 0.07; }
+        return new Box(this.pw, x, y, z);
       });
-      this.prev.clear();
+      this.prev.clear(); this.free.clear();
     }
     // how far a point is from a box's surface (0 inside)
-    dist(b, x, y, z) { return Math.hypot(Math.max(0, Math.abs(x - b.x) - HALF), Math.max(0, Math.abs(y - b.y) - HALF), Math.max(0, Math.abs(z - b.z) - HALF)); }
+    dist(b, x, y, z) {
+      const l = Q.rotate(Q.conj(b.body.q), [x - b.x, y - b.y, z - b.z]);
+      return Math.hypot(Math.max(0, Math.abs(l[0]) - HALF), Math.max(0, Math.abs(l[1]) - HALF), Math.max(0, Math.abs(l[2]) - HALF));
+    }
     nearest(b, sources) {
       let best = Infinity;
       for (const s of sources || []) {
@@ -53,69 +76,11 @@
       }
       return best;
     }
-    // the height of what a box at (x, y) with its bottom at `bottom` stands on: the highest of the room's support (nine points of the
-    // footprint, as the cube does) and of the boxes under it
-    ground(b, x, y, bottom) {
-      const k = HALF * 0.9;
-      let h = 0;
-      for (const a of [-k, 0, k]) for (const c of [-k, 0, k]) h = Math.max(h, M.room.support(this.room, x + a, y + c, bottom));
-      for (const o of this.boxes) {
-        if (o === b || Math.abs(o.x - x) >= SIDE || Math.abs(o.y - y) >= SIDE) continue;
-        const top = o.z + HALF;
-        if (top <= bottom + 0.03 && top > h) h = top;
-      }
-      return h;
-    }
-    // A box that rests with its middle past the edge of the box under it tips off (as the cube does off a table's edge): the way off, as a
-    // unit vector, or null. Only boxes carry it here (the room's edges are the cube's business).
-    tipOff(b) {
-      let ox = 0, oy = 0, top = 0, mid = false;
-      for (const o of this.boxes) {
-        if (o === b || Math.abs(o.x - b.x) >= SIDE || Math.abs(o.y - b.y) >= SIDE || Math.abs(o.z + HALF - (b.z - HALF)) > 0.005) continue;
-        top = o.z + HALF;
-        ox += b.x - o.x; oy += b.y - o.y;
-        if (Math.abs(o.x - b.x) < HALF && Math.abs(o.y - b.y) < HALF) mid = true;
-      }
-      const l = Math.hypot(ox, oy);
-      return top && !mid && l > 1e-6 ? [ox / l, oy / l] : null;
-    }
-    // Move by (dx, dy, dz) in steps no longer than STEP: up into a table's underside, down onto what carries it, sideways out of walls.
-    move(b, dx, dy, dz) {
-      const n = Math.max(1, Math.ceil(Math.hypot(dx, dy, dz) / STEP)), out = { hitWall: null, landed: false, ceiling: false };
-      for (let i = 0; i < n; i++) {
-        let z = b.z + dz / n;
-        if (dz > 0) { const top = M.room.ceiling(this.room, b.x, b.y, b.z + HALF - 0.005); if (z + HALF > top) { z = top - HALF; out.ceiling = true; } }
-        const g = HALF + this.ground(b, b.x, b.y, Math.min(b.z, z) - HALF);
-        if (z < g) { z = g; out.landed = true; }
-        b.z = z;
-        const fx = b.x, fy = b.y;
-        b.x += dx / n; b.y += dy / n;
-        const w = M.room.pushOut(this.room, b.x, b.y, b.z - HALF + 0.005, b.z + HALF - 0.005, R, [fx, fy]);
-        if (w) { b.x = w.x; b.y = w.y; out.hitWall = [w.nx, w.ny]; }
-      }
-      return out;
-    }
-    // Boxes that overlap sideways (and by more than a centimetre up and down) are pushed apart along the shorter way out. A held box does
-    // not give way; a box that is pushed takes the speed of what pushes it.
-    contacts() {
-      const B = this.boxes;
-      for (let i = 0; i < B.length; i++) for (let j = i + 1; j < B.length; j++) {
-        const a = B[i], c = B[j], dx = c.x - a.x, dy = c.y - a.y, dz = c.z - a.z;
-        const ox = SIZE - Math.abs(dx), oy = SIZE - Math.abs(dy), oz = SIZE - Math.abs(dz);
-        if (ox <= 0 || oy <= 0 || oz <= 0.01) continue;
-        const wa = a.held || a.steer ? 0 : 1, wc = c.held || c.steer ? 0 : 1;
-        if (!wa && !wc) continue;
-        const ax = ox < oy ? 'x' : 'y', v = 'v' + ax, s = (ax === 'x' ? dx : dy) >= 0 ? 1 : -1, o = ax === 'x' ? ox : oy;
-        a[ax] -= s * o * (wa / (wa + wc)); c[ax] += s * o * (wc / (wa + wc));
-        if ((c[v] - a[v]) * s < 0) {
-          if (!wa) c[v] = a[v]; else if (!wc) a[v] = c[v]; else { const m = (a[v] + c[v]) / 2; a[v] = c[v] = m; }
-        }
-      }
-    }
     _vel(key, p, t) {
       const q = this.prev.get(key), v = q && t > q[3] ? [(p[0] - q[0]) / (t - q[3]), (p[1] - q[1]) / (t - q[3]), (p[2] - q[2]) / (t - q[3])] : [0, 0, 0];
       this.prev.set(key, [p[0], p[1], p[2], t]);
-      return v.map((c) => Math.max(-4, Math.min(4, c)));
+      const s = Math.hypot(...v);
+      return s > HAND_MAX ? v.map((c) => (c * HAND_MAX) / s) : v;
     }
     // a hand that is closing on a box (about to grip it): the thumb and index coming together, or the fingers curling, near it
     _closing(b, s) {
@@ -125,82 +90,53 @@
     }
     // one frame of dt seconds at time t (s) with every hand there is (floor plan)
     step(dt, t, sources) {
-      const C = this.cfg, B = this.boxes, grips = this.grips.update(sources), noHold = new Set((sources || []).filter((s) => s.noHold).map((s) => s.id));
-      // holding: a pinch starting within C.grab of a box, or a fist within C.grabFist; it lasts while the grip does
-      for (const b of B) if (b.held && !grips.some((g) => g.id === b.held.by && g.kind === b.held.kind)) b.held = null;
+      const C = this.cfg, B = this.boxes, pw = this.pw, grips = this.grips.update(sources), noHold = new Set((sources || []).filter((s) => s.noHold).map((s) => s.id));
+      if (pw.room !== this.room) pw.setRoom(this.room);
+      pw.gravity = C.gravity;
+      // holding: a pinch starting within C.grab of a box, or a fist within C.grabFist; it lasts while the grip does, at the angle the hand had
+      for (const b of B) if (b.held && !grips.some((g) => g.id === b.held.by && g.kind === b.held.kind)) { this.free.set(b.held.by, t + 0.3); b.held = null; }
       for (const g of grips) {
         if (!g.start || !g.at || !g.kind || noHold.has(g.id) || B.some((b) => b.held && b.held.by === g.id)) continue;
         const lim = g.kind === 'fist' ? C.grabFist : C.grab;
         let best = null, bd = Infinity;
         for (const b of B) { const d = this.dist(b, g.at[0], g.at[1], g.at[2]); if (!b.held && d <= lim && d < bd) { best = b; bd = d; } }
-        if (best) best.held = { by: g.id, kind: g.kind, off: [best.x - g.at[0], best.y - g.at[1], best.z - g.at[2]] };
+        if (best) {
+          const hq = M.physics.handQuat((sources || []).find((s) => s.id === g.id)), off = sub(best.body.p, g.at);
+          best.held = { by: g.id, kind: g.kind, off, hold: hq ? { loff: Q.rotate(Q.conj(hq), off), qoff: Q.mul(Q.conj(hq), best.body.q) } : null, fix: best.body.q.slice() };
+          pw.wake(best.body);
+        }
       }
-      // pushing: every point and joint of every hand that is in a free box moves it out, with the hand's speed
+      // what is held, or steered from the room model (b.steer: [x, y, z]), follows its target as a motor; the rest is let go (and keeps its speed)
+      const holding = new Set();
+      for (const b of B) {
+        if (!b.held && !b.steer) { if (b.body.held) pw.release(b.body); continue; }
+        let target;
+        if (b.held) {
+          const g = grips.find((q) => q.id === b.held.by), H = b.held, hq = H.hold ? M.physics.handQuat((sources || []).find((s) => s.id === g.id)) : null;
+          const o = hq ? Q.rotate(hq, H.hold.loff) : H.off;
+          target = { p: [g.at[0] + o[0], g.at[1] + o[1], g.at[2] + o[2]], q: hq ? Q.mul(hq, H.hold.qoff) : H.fix, v: this._vel(`${g.id}:hold`, g.at, t) };
+          holding.add(H.by);
+        } else target = { p: b.steer.slice(), q: b.body.q.slice() };
+        if (pw.hold(b.body, target, { spring: C.spring, speed: C.holdSpeed, breakAway: b.held ? C.breakAway : Infinity }) === 'released' && b.held) { this.free.set(b.held.by, t + 0.3); b.held = null; }
+      }
+      // the hands: every point and joint of a hand is a small sphere that pushes; not a hand that holds a box, has just let go, or is closing on one
+      const hands = [];
       for (const s of sources || []) {
         if (s.foot) continue;
-        const pts = (s.points || []).map((p) => [p.x, p.y, p.z]).concat(s.joints || []), vel = pts.map((p, i) => this._vel(`${s.id}:${i}`, p, t));
-        if (!pts.length) continue;
-        for (const b of B) {
-          if (b.held || b.steer || Math.hypot(b.x - pts[0][0], b.y - pts[0][1]) > 0.6 && this.nearest(b, [s]) > 0.1 || this._closing(b, s)) continue;
-          const pushes = [];
-          pts.forEach((p, i) => {
-            const lx = p[0] - b.x, ly = p[1] - b.y, lz = p[2] - b.z, px = HALF + C.touch - Math.abs(lx), py = HALF + C.touch - Math.abs(ly), pz = HALF + C.touch - Math.abs(lz);
-            if (px <= 0 || py <= 0 || pz <= 0) return;
-            if (pz < Math.min(px, py) && lz > 0) return;                    // (from above: it is not pressed into what it stands on)
-            if (px < py) pushes.push({ wx: lx > 0 ? -1 : 1, wy: 0, depth: px, v: vel[i] }); else pushes.push({ wx: 0, wy: ly > 0 ? -1 : 1, depth: py, v: vel[i] });
-          });
-          if (!pushes.length || pushes.some((a) => pushes.some((c) => a.wx * c.wx + a.wy * c.wy < -0.5))) continue;      // (on two sides: it is held, not pushed)
-          for (const q of pushes) {
-            const hit = this.move(b, q.wx * q.depth, q.wy * q.depth, 0), along = q.v[0] * q.wx + q.v[1] * q.wy;
-            if (along > 0 && !hit.hitWall) { const cur = b.vx * q.wx + b.vy * q.wy; if (along > cur) { b.vx += q.wx * (along - cur); b.vy += q.wy * (along - cur); } }
-          }
-        }
+        const quiet = holding.has(s.id) || (this.free.get(s.id) || 0) > t || B.some((b) => this._closing(b, s));
+        hands.push({ id: s.id, spheres: quiet ? [] : M.physics.handSpheres(s, C.touch), plate: null });
       }
-      // physics in short sub-steps, so that a box does not pass another in one
-      const n = Math.min(6, Math.max(1, Math.ceil(dt / 0.008))), h = dt / n;
-      for (let k = 0; k < n; k++) {
-        for (const b of B) {
-          if (b.held || b.steer) {
-            // held by a grip, or steered from the room model (b.steer: [x, y, z]): the same spring
-            let tx, ty, tz;
-            if (b.held) { const g = grips.find((q) => q.id === b.held.by), o = b.held.off; tx = g.at[0] + o[0]; ty = g.at[1] + o[1]; tz = g.at[2] + o[2]; }
-            else [tx, ty, tz] = b.steer;
-            const ex = tx - b.x, ey = ty - b.y, ez = tz - b.z, e = Math.hypot(ex, ey, ez);
-            if (b.held && e > C.breakAway) { b.held = null; continue; }
-            const f = Math.min(C.spring, e > 0 ? C.holdSpeed / e : C.spring), x0 = b.x, y0 = b.y, z0 = b.z;
-            this.move(b, ex * f * h, ey * f * h, ez * f * h);
-            b.vx = (b.x - x0) / h; b.vy = (b.y - y0) / h; b.vz = (b.z - z0) / h;
-            continue;
-          }
-          const g = HALF + this.ground(b, b.x, b.y, b.z - HALF), resting = b.z <= g + 1e-4 && b.vz <= 0;
-          if (resting) {
-            b.vz = 0;
-            const tip = this.tipOff(b);
-            if (tip) { b.vx += tip[0] * C.tip * h; b.vy += tip[1] * C.tip * h; }
-            else if (!b.vx && !b.vy) { b.ground = g; continue; }
-          }
-          if (!resting) b.vz -= C.gravity * h;
-          const hit = this.move(b, b.vx * h, b.vy * h, resting ? 0 : b.vz * h);
-          if (hit.landed && b.vz < 0) b.vz = b.vz < -0.8 ? -b.vz * 0.2 : 0;
-          if (hit.ceiling && b.vz > 0) b.vz = 0;
-          if (hit.hitWall) { const [nx, ny] = hit.hitWall, into = b.vx * nx + b.vy * ny; if (into < 0) { b.vx -= 1.3 * into * nx; b.vy -= 1.3 * into * ny; } }
-          b.ground = HALF + this.ground(b, b.x, b.y, b.z - HALF);
-          if (b.z <= b.ground + 1e-4 && b.vz <= 0) {
-            const f = Math.exp(-C.friction * h); b.vx *= f; b.vy *= f;
-            if (Math.hypot(b.vx, b.vy) < 0.003) { b.vx = 0; b.vy = 0; }
-          }
-        }
-        this.contacts();
-      }
+      pw.setHands(hands, t);
+      pw.step(dt);
       const f = Math.exp(-12 * dt);
       for (const b of B) {
         b.off.x *= f; b.off.y *= f; b.off.z *= f;
-        if (Math.hypot(b.x, b.y) > 8) { b.x = 0.5; b.y = 0; b.z = HALF; b.vx = b.vy = b.vz = 0; b.held = null; }
+        if (Math.hypot(b.x, b.y) > 8) { b.x = 0.5; b.y = 0; b.z = HALF; b.body.v = [0, 0, 0]; b.body.w = [0, 0, 0]; b.body.q = [0, 0, 0, 1]; b.held = null; }
       }
     }
-    isMoving(b) { return !!b.held || !!b.steer || Math.hypot(b.vx, b.vy, b.vz) > 0.002 || b.z > b.ground + 1e-3; }
+    isMoving(b) { return !!b.held || !!b.steer || !b.body.asleep; }
     movingCount() { return this.boxes.filter((b) => this.isMoving(b)).length; }
-    drawn(b) { return { x: b.x + b.off.x, y: b.y + b.off.y, z: b.z + b.off.z, held: !!b.held || !!b.steer || b.other }; }
+    drawn(b) { return { x: b.x + b.off.x, y: b.y + b.off.y, z: b.z + b.off.z, yaw: heading(b.body.q), q: b.body.q.slice(), held: !!b.held || !!b.steer || b.other }; }
   }
 
   // The island box as a Body adapter (the same shape as the cube's). A World simulates in the COMMON frame (every page's boxes are then
@@ -211,14 +147,15 @@
     return {
       reach: (own) => active() && (!!b().steer || world.nearest(b(), common(own)) <= C.reach),            // (steered from this page's room model: it takes it)
       touching: (own) => active() && (!!b().steer || world.nearest(b(), common(own)) <= C.busy || (!!b().held && (own || []).some((s) => s.id === b().held.by))),
-      pack: () => { const q = b(); return [q.x, q.y, q.z, 0, q.vx, q.vy, q.vz, q.held || q.steer ? 1 : 0]; },
+      pack: () => { const q = b(), y = q.body; return [q.x, q.y, q.z, y.q[0], y.q[1], y.q[2], y.q[3], q.vx, q.vy, q.vz, y.w[0], y.w[1], y.w[2], q.held || q.steer ? 1 : 0]; },
       apply: (s, info) => {
         if (!active()) return false;
-        const q = b(), was = world.drawn(q);
-        q.x = s[0]; q.y = s[1]; q.z = s[2]; q.vx = s[4]; q.vy = s[5]; q.vz = s[6]; q.held = null;
+        const q = b(), y = q.body, was = world.drawn(q);
+        y.p = [s[0], s[1], s[2]]; y.q = [s[3], s[4], s[5], s[6]]; y.v = [s[7], s[8], s[9]]; y.w = [s[10], s[11], s[12]]; q.held = null; y.held = null;
+        world.pw.wake(y);
         const far = info.first || Math.hypot(was.x - q.x, was.y - q.y, was.z - q.z) > 0.25;
         q.off = far ? { x: 0, y: 0, z: 0 } : { x: was.x - q.x, y: was.y - q.y, z: was.z - q.z };
-        q.other = s[7] > 0.5;
+        q.other = s[13] > 0.5;
         return true;
       },
       settle: (mine) => { if (mine) b().other = false; },
