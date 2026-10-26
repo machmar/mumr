@@ -42,7 +42,7 @@
     return out;
   }
 
-  const MAX_DT = 0.05, MARGIN = 0.02, ITER = 12, MAX_MOVE = 0.005, SLOP = 0.0005, PEN_LIMIT = 0.06, REST_SPEED = 0.5, HAND_MAX = 4, PLATE_DEPTH = 0.03, HOLD_W = 10, SLEEP_V = 0.01, SLEEP_W = 0.05, SLEEP_AFTER = 0.5, EDGE_STEP = 0.03, STATIC_SLIP = 0.02;
+  const MAX_DT = 0.05, MARGIN = 0.02, ITER = 12, MAX_MOVE = 0.005, SLOP = 0.0005, PEN_LIMIT = 0.06, REST_SPEED = 0.5, V_MAX = 30, W_MAX = 100, MAX_SUB = 64, HAND_MAX = 4, PLATE_DEPTH = 0.03, HOLD_W = 10, SLEEP_V = 0.01, SLEEP_W = 0.05, SLEEP_AFTER = 0.5, EDGE_STEP = 0.03, STATIC_SLIP = 0.02;
   const ZERO = [0, 0, 0];
   const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
   const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
@@ -111,7 +111,7 @@
     // contacts still stop it). -> 'holding', or 'released' when it is further than breakAway from the target.
     hold(b, target, opts = {}) {
       const o = Object.assign({ spring: 20, speed: 5, breakAway: 0.3 }, opts);
-      if (!target || !Number.isFinite(target.p[0] + target.p[1] + target.p[2]) || Math.hypot(...sub(target.p, b.p)) > o.breakAway) { b.held = null; return 'released'; }
+      if (!target || !target.p.every(Number.isFinite) || !target.q || !target.q.every(Number.isFinite) || !(Math.hypot(...target.q) > 1e-6) || Math.hypot(...sub(target.p, b.p)) > o.breakAway) { b.held = null; return 'released'; }
       b.held = { p: target.p, q: target.q, v: target.v || [0, 0, 0], w: target.w || [0, 0, 0], spring: o.spring, speed: o.speed, age: 0 };
       this.wake(b); return 'holding';
     }
@@ -121,9 +121,21 @@
       if (!(dt > 0)) return;
       dt = Math.min(dt, MAX_DT);
       let fast = 0;
-      for (const b of this.bodies) if (!b.asleep) fast = Math.max(fast, Math.hypot(...b.v) + Math.hypot(...b.w) * Math.hypot(...b.size) / 2);
-      const n = Math.max(1, Math.ceil(dt / this.substep - 1e-9), Math.ceil((dt * fast) / MAX_MOVE - 1e-9)), h = dt / n;
+      for (const b of this.bodies) if (!b.asleep) { this._clean(b); fast = Math.max(fast, Math.hypot(...b.v) + Math.hypot(...b.w) * Math.hypot(...b.size) / 2); }
+      const n = Math.min(MAX_SUB, Math.max(1, Math.ceil(dt / this.substep - 1e-9), Math.ceil((dt * fast) / MAX_MOVE - 1e-9))), h = dt / n;
       for (let i = 0; i < n; i++) this._sub(h);
+    }
+    // Anything a packet or a caller put into a body that is not a state it can be in is put right: a position that is not finite goes back to the
+    // last good one, a velocity or spin that is not finite stops and a huge one is cut to V_MAX / W_MAX, an orientation that is not finite or has no
+    // length is the identity.
+    _clean(b) {
+      if (b.p.every(Number.isFinite)) b.good = b.p.slice(); else b.p = (b.good || [0, 0, b.size[2] / 2]).slice();
+      for (const [k, max] of [['v', V_MAX], ['w', W_MAX]]) {
+        if (!b[k].every(Number.isFinite)) b[k] = [0, 0, 0];
+        const s = Math.hypot(...b[k]); if (s > max) b[k] = mulv(b[k], max / s);
+      }
+      const l = Math.hypot(...b.q);
+      if (!b.q.every(Number.isFinite) || !(l > 1e-6) || !Number.isFinite(l)) b.q = [0, 0, 0, 1]; else if (Math.abs(l - 1) > 1e-6) b.q = quat.normalize(b.q);
     }
     // every place b touches, or is within MARGIN of, something solid -> [{ r (the point), n (out of the solid, towards b), gap (negative: inside) }].
     // Two halves: b's corners against the floor, planes, walls and blocks (tables, solid objects); and the edges of the blocks against b's faces
@@ -145,17 +157,24 @@
         }
         for (const k of blocks) {
           if (c[2] < k.lo - MARGIN || c[2] > k.hi + MARGIN || c[0] < k.x0 - MARGIN || c[0] > k.x1 + MARGIN || c[1] < k.y0 - MARGIN || c[1] > k.y1 + MARGIN) continue;
-          const xy = k.pts.map((q) => [q[0], q[1]]), ins = pip(xy, c[0], c[1]), e = nearEdge(xy, c[0], c[1]);
+          const xy = k.xy || (k.xy = k.pts.map((q) => [q[0], q[1]])), ins = pip(xy, c[0], c[1]), e = nearEdge(xy, c[0], c[1]);
           const ux = e[2] > 1e-9 ? (c[0] - e[0]) / e[2] : 0, uy = e[2] > 1e-9 ? (c[1] - e[1]) / e[2] : 0;
           if (ins) {
-            const pTop = k.hi - c[2], pBot = k.lo > 0 ? c[2] - k.lo : Infinity, pSide = e[2];
-            if (pTop <= pBot && pTop <= pSide) out.push({ r: c, n: [0, 0, 1], gap: -pTop });
-            else if (pBot <= pSide) out.push({ r: c, n: [0, 0, -1], gap: -pBot });
-            else out.push({ r: c, n: [-ux, -uy, 0], gap: -pSide });
+            // out of a block by the side its middle is on: above its top, below its underside, or (its middle inside the slab) sideways
+            if (b.p[2] >= k.hi) out.push({ r: c, n: [0, 0, 1], gap: c[2] - k.hi });
+            else if (k.lo > 0 && b.p[2] <= k.lo) out.push({ r: c, n: [0, 0, -1], gap: k.lo - c[2] });
+            else out.push({ r: c, n: [-ux, -uy, 0], gap: -e[2] });
           } else if (e[2] < MARGIN && c[2] > k.lo && c[2] < k.hi) out.push({ r: c, n: [ux, uy, 0], gap: e[2] });
         }
       }
       const R = Math.hypot(...b.size) / 2 + MARGIN, bq = quat.conj(b.q);
+      for (const k of blocks) {                                       // (its middle inside a slab, its corners above and below it: out by the nearer face)
+        if (b.p[2] > k.lo && b.p[2] < k.hi && b.p[0] >= k.x0 && b.p[0] <= k.x1 && b.p[1] >= k.y0 && b.p[1] <= k.y1 && pip(k.xy || (k.xy = k.pts.map((q) => [q[0], q[1]])), b.p[0], b.p[1])) {
+          const half = b.size[2] / 2;
+          if (k.lo <= 0 || b.p[2] >= (k.lo + k.hi) / 2) out.push({ r: b.p.slice(), n: [0, 0, 1], gap: b.p[2] - half - k.hi });
+          else out.push({ r: b.p.slice(), n: [0, 0, -1], gap: k.lo - b.p[2] - half });
+        }
+      }
       for (const k of blocks) {
         if (b.p[0] < k.x0 - R || b.p[0] > k.x1 + R || b.p[1] < k.y0 - R || b.p[1] > k.y1 + R || b.p[2] < k.lo - R || b.p[2] > k.hi + R) continue;
         const zlo = Math.max(k.lo, 0), levels = [zlo, (zlo + k.hi) / 2, k.hi], pts = k.pts;
@@ -182,8 +201,10 @@
           }
         }
       }
-      const bq2 = quat.conj(b.q);
+      const bq2 = quat.conj(b.q), Rb0 = Math.hypot(...b.size) / 2 + MARGIN;
       for (const s of this.kin.spheres) {
+        const rr = Rb0 + s.r;
+        if (Math.abs(s.p[0] - b.p[0]) > rr || Math.abs(s.p[1] - b.p[1]) > rr || Math.abs(s.p[2] - b.p[2]) > rr) continue;                     // (far away: no need to turn it into the cube's frame)
         const l = quat.rotate(bq2, sub(s.p, b.p)), half = b.size.map((v) => v / 2), cl = l.map((v, i) => Math.max(-half[i], Math.min(half[i], v)));
         const diff = sub(l, cl), dist = Math.hypot(...diff);
         if (dist > s.r + MARGIN) continue;
@@ -255,7 +276,7 @@
         const sp = Math.hypot(...b.w);
         if (sp > EPS) b.q = quat.normalize(quat.mul(quat.fromAxisAngle(b.w, sp * h), b.q));
         const fix = [0, 0, 0];                                                    // (out of what it is in: the deepest push along each axis)
-        for (const c of this.contacts(b)) if (c.gap < -SLOP) for (let i = 0; i < 3; i++) { const d = c.n[i] * 0.5 * Math.min(PEN_LIMIT, -c.gap - SLOP); if (Math.abs(d) > Math.abs(fix[i])) fix[i] = d; }
+        if (cs.some((c) => c.gap < 0.002)) for (const c of this.contacts(b)) if (c.gap < -SLOP) for (let i = 0; i < 3; i++) { const d = c.n[i] * 0.5 * Math.min(PEN_LIMIT, -c.gap - SLOP); if (Math.abs(d) > Math.abs(fix[i])) fix[i] = d; }
         b.p = add(b.p, fix);
         if (!b.held && touching && Math.hypot(...b.v) < SLEEP_V && Math.hypot(...b.w) < SLEEP_W) { b.calm += h; if (b.calm >= SLEEP_AFTER) { b.asleep = true; b.v = [0, 0, 0]; b.w = [0, 0, 0]; } } else b.calm = 0;
       }
@@ -273,8 +294,9 @@
   // spheres for a hand source of the engine ({ points: [{ x, y, z }], joints: [[x, y, z]] }, floor plan)
   function handSpheres(source, margin = 0.012) {
     const out = [];
-    for (const p of (source && source.points) || []) if ([p.x, p.y, p.z].every(Number.isFinite)) out.push({ p: [p.x, p.y, p.z], r: margin });
-    for (const j of (source && source.joints) || []) if (j.every(Number.isFinite)) out.push({ p: [j[0], j[1], j[2]], r: margin });
+    // (a point that is not finite keeps its place in the list, as NaN, which the world ignores: every other point keeps the same index and so its speed)
+    for (const p of (source && source.points) || []) out.push({ p: [p.x, p.y, p.z], r: margin });
+    for (const j of (source && source.joints) || []) out.push({ p: [j[0], j[1], j[2]], r: margin });
     return out;
   }
   // the flat hand of a grab.js grip (grip.palm: centre cx, cy and its top z there, normal nx ny nz, heading ang, half sizes hx hy) as a plate

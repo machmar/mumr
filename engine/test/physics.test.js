@@ -227,8 +227,54 @@ test('a cube on a moving flat hand is carried; tilted past atan(mu) it slides of
 
 test('handSpheres takes the points and joints of a source, plate takes a grab.js platform', () => {
   const s = P.handSpheres({ points: [{ name: 'index', x: 1, y: 2, z: 3 }, { name: 'bad', x: NaN, y: 0, z: 0 }], joints: [[4, 5, 6]] });
-  assert.deepStrictEqual(s.map((q) => q.p), [[1, 2, 3], [4, 5, 6]]); assert.strictEqual(s[0].r, 0.012);
+  assert.strictEqual(s.length, 3); assert.deepStrictEqual([s[0].p, s[2].p], [[1, 2, 3], [4, 5, 6]]); assert.ok(!s[1].p.every(Number.isFinite), 'a bad point stays, not finite'); assert.strictEqual(s[0].r, 0.012);
   const pl = P.plate({ palm: { cx: 1, cy: 2, z: 0.9, nx: 0, ny: 0, nz: 1, ang: 0, hx: 0.1, hy: 0.04 } });
   assert.deepStrictEqual(pl.centre, [1, 2, 0.9]); near(pl.axes[0][0], 1, 1e-9); near(pl.axes[1][1], 1, 1e-9); assert.deepStrictEqual(pl.half, [0.1, 0.04]);
   assert.strictEqual(P.plate({ palm: null }), null);
+});
+
+// ---- the final review's findings (2026-10-26)
+const tableAt = (h) => ({ planes: [plane('table', false, [[1, 0, h], [2, 0, h], [2, 1, h], [1, 1, h]])] });
+
+test('a huge or non-finite velocity or orientation does not hang the step and is put right', () => {
+  for (const v of [[1e30, 0, 0], [Infinity, 0, 0], [NaN, 0, 0]]) {
+    const W = new P.World(), b = cube({ p: [0, 0, 1] }); b.v = v; W.add(b);
+    const t0 = Date.now(); W.step(1 / 72);
+    assert.ok(Date.now() - t0 < 200, `took ${Date.now() - t0} ms`);
+    assert.ok(b.p.every(Number.isFinite) && b.v.every(Number.isFinite) && Math.hypot(...b.v) <= 30.01, `v ${b.v}`);
+  }
+  for (const q of [[NaN, 0, 0, 1], [0, 0, 0, 0], [0, 0, 0, 1e30]]) {
+    const W = new P.World(), b = cube({ p: [0, 0, 1], q }); W.add(b); W.step(1 / 72);
+    assert.ok(b.q.every(Number.isFinite) && Math.abs(Math.hypot(...b.q) - 1) < 1e-6, `q ${b.q}`);
+  }
+  const W = new P.World(), b = cube({ p: [0, 0, 1] }); W.add(b);
+  assert.strictEqual(W.hold(b, { p: [0, 0, 1], q: [NaN, 0, 0, 1] }), 'released'); assert.strictEqual(b.held, null);
+});
+
+test('a hand point that is not finite for a frame does not change the speed of the others', () => {
+  const W = new P.World(), b = cube({ p: [0, 0, H] }); W.add(b);
+  const at = (bad) => [{ id: 'a', spheres: P.handSpheres({ points: [{ x: -0.074, y: 0.03, z: H }, { x: bad ? NaN : -0.074, y: -0.03, z: H }, { x: -0.074, y: 0, z: 0.02 }] }), plate: null }];
+  assert.strictEqual(P.handSpheres({ points: [{ x: 1, y: 1, z: 1 }, { x: NaN, y: 0, z: 0 }, { x: 3, y: 3, z: 3 }] }).length, 3, 'every point keeps its place');
+  for (let k = 0; k < 20; k++) { W.setHands(at(k === 10), k / 72); W.step(1 / 72); }
+  assert.ok(Math.hypot(...b.v) < 0.05 && Math.abs(b.p[0]) < 0.01, `kicked to ${b.v}`);
+});
+
+test('a table that rises, or appears around the cube, puts it on top and never leaves it in the slab', () => {
+  const W = new P.World({ room: tableAt(0.7) }), b = cube({ p: [1.5, 0.5, 0.7 + H] }); W.add(b); run(W, b, 3);
+  assert.strictEqual(b.asleep, true);
+  W.setRoom(tableAt(0.735)); run(W, b, 2);                                                 // (a refined scan: 3.5 cm higher)
+  near(b.p[2], 0.735 + H, 0.004, 'on the higher top');
+  const V = new P.World({ room: tableAt(0.7) }), c = cube({ p: [1.5, 0.5, 0.68] }); V.add(c); run(V, c, 2);             // (its middle inside the slab, corners outside it)
+  near(c.p[2], 0.7 + H, 0.004, 'put on the table');
+});
+
+test('the same drop twice ends the same way, and one cube with a hitch near a table costs little', () => {
+  const drop = () => { const W = new P.World({ room: tableRoom() }), b = cube({ p: [1.2, 0.4, 0.5], q: P.quat.fromAxisAngle([1, 0.3, 0], 0.7) }); b.v = [0.8, 0.2, 0]; W.add(b); run(W, b, 3); return [b.p, b.q]; };
+  assert.deepStrictEqual(drop(), drop());
+  const W = new P.World({ room: tableRoom() }), b = cube({ p: [0.2, 0.5, 0.8] }); W.add(b); b.v = [8, 0, 0];
+  const hands = [0, 1].map((h) => ({ id: `h${h}`, spheres: Array.from({ length: 60 }, (_, i) => ({ p: [0.9 + 0.01 * i, 0.5 + 0.2 * h, 0.8], r: 0.012 })), plate: null }));
+  const t0 = process.hrtime.bigint();
+  for (let k = 0; k < 72; k++) { W.setHands(hands, k / 72); W.step(1 / 72); if (k % 18 === 0) { b.p = [0.2, 0.5, 0.8]; b.v = [8, 0, 0]; W.wake(b); } }
+  const ms = Number(process.hrtime.bigint() - t0) / 1e6 / 72;
+  assert.ok(ms < 1.5, `${ms.toFixed(2)} ms per frame`);
 });
