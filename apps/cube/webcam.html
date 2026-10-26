@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MUMR cube: webcam</title>
+<style>
+  body { margin: 0; background: #14161c; color: #ece9e2; font: 14px/1.45 system-ui, sans-serif; }
+  #view { display: block; width: 100vw; height: 100vh; }
+  #hud { margin: 0; color: #9aa3b2; font: 12px/1.45 ui-monospace, monospace; white-space: pre-wrap; pointer-events: none; }
+</style>
+<script type="importmap">
+{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js", "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/" } }
+</script>
+<script src="/mumr/all.js"></script>
+<script src="/mumr/webcam/all.js"></script>
+<script src="cube.js"></script>
+</head>
+<body>
+<!-- The PC view (view.js) with the webcam page on top (/mumr/webcam/start.js): the camera's picture behind the world, the panels, the calibration mode.
+     Open https://<pc>:8443/webcam.html on the PC the webcam is plugged into. -->
+<canvas id="view"></canvas>
+<pre id="hud"></pre>
+<script type="module" src="view.js"></script>
+<script type="module" src="/mumr/webcam/start.js"></script>
+</body>
+</html>

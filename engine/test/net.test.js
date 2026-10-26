@@ -17,8 +17,8 @@ async function until(what, cond, ms = 4000) {
 }
 W.register({ type: 16, name: 'puck', token: 'puck', pack: (o) => new Uint8Array([o.v]), unpack: (d) => ({ v: d.getUint8(0) }) });
 const KINDS = { 'mark+': { keep: (e) => ({ key: `mark:${e.id}` }), apply: (S, e) => { S.doc.marks[e.id] = e.x; } },
-  'cam+': { keep: (e) => ({ key: `cam:${e.id}`, own: true, gone: { k: 'cam-', id: e.id } }), apply: (S, e) => { S.doc.cams[e.id] = e.x; } },
-  'cam-': { apply: (S, e) => { delete S.doc.cams[e.id]; } } };
+  'pin+': { keep: (e) => ({ key: `pin:${e.id}`, own: true, gone: { k: 'pin-', id: e.id } }), apply: (S, e) => { S.doc.cams[e.id] = e.x; } },
+  'pin-': { apply: (S, e) => { delete S.doc.cams[e.id]; } } };
 const OPTS = { kinds: KINDS, init: (d) => { d.marks = {}; d.cams = {}; }, game: { floor: 'grid' }, player: { hue: 'red' } };
 function player(name) {
   const link = M.link.connect(URL, { build, name });
@@ -46,12 +46,12 @@ test('two players and a viewer through the real hub: the kept document, owned th
   const a = player('A');
   await until('A in', () => a.connected);
   a.emit({ k: 'mark+', id: 'm1', x: 1 });
-  a.emit({ k: 'cam+', id: 'w', x: 7 });
+  a.emit({ k: 'pin+', id: 'w', x: 7 });
   a.setLined({ dist: 3 });
   await until('A has its events back', () => a.doc.marks.m1 === 1 && a.doc.cams.w === 7);
   const b = player('B');
   await until('B in, with the world', () => b.connected && b.doc.marks.m1 === 1);
-  assert.deepStrictEqual([b.doc.cams, b.ownerOf('cam:w'), b.lined(0), b.stateOf(0).hue, b.holder('puck')], [{ w: 7 }, 0, { dist: 3, how: 'points' }, 'red', 0]);
+  assert.deepStrictEqual([b.doc.cams, b.ownerOf('pin:w'), b.lined(0), b.stateOf(0).hue, b.holder('puck')], [{ w: 7 }, 0, { dist: 3, how: 'points' }, 'red', 0]);
   b.setLined({ dist: 3 });
   await until('both share', () => a.sharing() && b.sharing());
 

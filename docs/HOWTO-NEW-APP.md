@@ -127,6 +127,19 @@ A PC page: `MUMR.worldfeed.WorldFeed.connect(url, { build, session: sameOptionsA
 `feed.sample('ball', null, feed.serverNow() - delay)` a stream. **The drawing of a shared thing lives in one module that the headset page
 and the PC page both use** (Nudgy drew boxes, rugs and balls differently on the PC, and nobody noticed for days).
 
+### 5a. The PC view as a webcam page
+
+Any PC view built on THREE can also be the webcam page (docs/ARCHITECTURE.md section 6c, [`apps/cube/webcam.html`](../apps/cube/webcam.html)). The view sets
+
+```js
+window.view = { feed, scene, camera, renderer, orbit: controls, setDelay: (ms) => { DELAY = ms; }, camMarks, parts: { hands, head, floor, grid, marks, cameras, menus } };
+```
+
+(`camMarks = createCameraMarks({ THREE, group: world })` from `/mumr/xr/cammark3d.js`, updated every frame with `Object.values(feed.session.doc.cameras)`; `parts`:
+what the Show menu may hide, each `() => [objects]`, or `{ objects, static: true }` for things the view never shows or hides itself; `controls.update()` is called once a frame
+just before `renderer.render`; size the canvas from `canvas.clientWidth`). The page is the view's page plus `/mumr/webcam/all.js` in the head and
+`<script type="module" src="/mumr/webcam/start.js">` after the view's script.
+
 ## 6. Logging
 
 ```js

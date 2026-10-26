@@ -229,3 +229,20 @@ Kept from the first plan's section 6, plus what came after it:
   of the menu are engine-essential ... a wrist based popup that minimizes into a wrist button"): `client/sysmenu.js` is the engine's
   menu on the inside of the left wrist (Line up with its spot rows, Room setup = the headset's own room capture, Exit), shared as panel
   `wrist`; the cube's floating menu holds only the cube's items. Rehearsed in the browser and on the PC view; 79 Node tests.
+- **2026-10-26: the webcam page** (Marek: "port the webcam page in its entirety from nudgy"). Everything of Nudgy's `mixedView.html` and its calibration
+  mode is in `engine/client/webcam/` (about 4500 lines and their tests, from 2150 lines of Nudgy's tests). What changed in the port, and why:
+  1. **Cameras are owned things**, no special subsystem (item 2): the session has built-in kinds `cam+` / `cam-` (`own`, `gone`), the hub knows no
+     cameras (Nudgy's `cam_ok`, `cam>`, `CAM_RATE` and `cams` in the hello are gone), a headset moves one with `session.moveCamera` (an `ask` to the owner).
+     The generic tests that used `cam+` as their example kind now use `pin+`.
+  2. **The page sits on the app's PC view** (`window.view`, `parts`), not on Nudgy's `view.js`: the Show menu works through the objects the view hands over
+     (`mixedshow.js` was rewritten; the old one found Nudgy's three scene groups by their order), and the occluders are built from MUMR's room planes (walls and
+     blocks of `room.js`), not Nudgy's `fixed` boxes (no marks in MUMR yet, so no marked boxes).
+  3. **The page builds its own panels** (`page.js`): an app only adds one script tag. The browser storage keys are `mumr.webcam.*`; the old `nudgy.mr.webcam.*` ones
+     are read while a new key is empty (same origin when the PC serves both on 8443), so the camera profiles come across.
+  4. The line-up's wrist menu has a **Camera** place (Reset camera) in the free slot of its Line up screen; the headset draws the real cameras and, while
+     lining up, the three knobs in front of each (`xr/cammark3d.js`, `players3d.js`, `createApp`).
+  5. Sheet 4 and the other line-up sheets come from `tools/make_align_sheets.py` (`docs/sheets/`), the screen codes from `tools/make_screen_codes.py`,
+     the phone pictures from `tools/make_phone_test_images.py`, the painted-picture rehearsal is `engine/client/webcam/rehearsal.js`.
+  Rehearsed through the real server with a painted floor seen through a lens (a1 -0.12): the camera came out at its true place, the lens pass drew the world
+  over it, a second tab (a player) saw the camera, moved it (the page kept its aim: yaw 2.191 to 2.245) and reset it. 374 Node tests, 373 pass (the physics pile
+  test was already failing before this work), 48 Python. Nothing has run with a real webcam or a headset.

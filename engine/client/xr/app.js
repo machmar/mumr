@@ -50,6 +50,7 @@ import { makeShoes } from './feet3d.js';
 import { createHandMask } from './handmask.js';
 import { createHandWall, SIZE as WALL_SIZE, wallSpot } from './handwall.js';
 import { createModel3d } from './roommodel3d.js';
+import { createCameraMarks } from './cammark3d.js';
 
 export { GHOST_COLOURS, PLAYER_COLOURS };
 const HOST = 15, MENU_W = 0.42;
@@ -115,11 +116,38 @@ export async function createApp(o) {
   const lineup = new M.lineup.LineUp(S, space, { store: LS, say, life });
   const room = new M.room.Room(S, space, { life, say });
   let xr = null, keeper = null;
+  // the real cameras of the room (cams.js): a small thing where each really is; while lining up three knobs hang in front of each, and a pinch on
+  // one moves the camera a twentieth as far as the hand (the page that owns the camera decides, keeps it looking at the same point and announces it)
+  const camMarks = createCameraMarks({ THREE, group: world }), camKnobs = new M.camknobs.CamKnobs();
+  let camSent = 0, camPend = null;
+  const r2 = (v) => Math.round(v * 100) / 100;
+  function camInfo() { const list = Object.values(S.doc.cameras), c = list[0]; return { count: list.length, name: c ? c.name : '', x: c ? r2(c.x) : 0, y: c ? r2(c.y) : 0, z: c ? r2(c.z) : 0 }; }
+  function camReset() {
+    const list = Object.values(S.doc.cameras);
+    camKnobs.cancel(); camPend = null;
+    if (!list.length) { say('No camera is aligned'); return; }
+    for (const c of list) S.resetCamera(c.id);
+    say(list.length === 1 ? 'The camera is back where its clicks put it' : `${list.length} cameras are back where their clicks put them`);
+  }
+  function camFrame(now, tips, cams) {
+    if (lineup.active && S.connected && space.ok) {
+      const r = camKnobs.update(tips, cams, space.fz);
+      if (r.grabbed) life('camera: a knob was taken');
+      const last = r.release || (r.moves.length ? r.moves[r.moves.length - 1] : null);
+      if (last) camPend = last;
+      if (camPend && (r.release || now - camSent >= 50)) {
+        const p = camPend, c = space.toCommon([p.x, p.y]);
+        S.moveCamera(p.id, c[0], c[1], p.z - space.fz);
+        camSent = now; camPend = null;
+      }
+    } else { camKnobs.cancel(); camPend = null; }
+    camMarks.update(cams.map((c) => camKnobs.pose(c)));          // (the one a hand holds is drawn where the hand has taken it: the world catches up a moment later)
+  }
   const sys = new SysMenu(S, lineup, {
     exit: () => { if (xr) { life('xr: the Exit button ended the session'); xr.session.end(); } else say('Not in mixed reality'); },
     roomSetup: () => { const r = xr ? xr.roomSetup() : 'none'; say(r === 'started' ? 'Room setup: the headset takes over' : r === 'used' ? 'Room setup was used once: leave mixed reality and come back for it again' : 'No room setup here'); },
     roomUsed: () => !!(xr && xr.roomUsed),
-    room, life,
+    room, life, cams: camInfo, camReset,
   });
   const bodies = (typeof o.bodies === 'function' ? o.bodies({ S, space, say, life }) : o.bodies || []).map((b) => new M.body.Body(S, b));
   const clicks = new M.clicks.Clicks();
@@ -281,7 +309,10 @@ export async function createApp(o) {
     mouseDot.visible = !xr && !!mouse;
     if (mouse) mouseDot.position.set(mouse.x, 0.05, -mouse.y);
     // lining up, then everything that is shared
-    lineup.update(now, dt, M.hands.tips(own, Object.fromEntries(own.map((s) => [s.id, !!s.pinch]))));
+    const tipList = M.hands.tips(own, Object.fromEntries(own.map((s) => [s.id, !!s.pinch])));
+    lineup.update(now, dt, tipList);
+    const camsOwn = space.ok ? Object.values(S.doc.cameras).map((c) => M.cams.toOwn(space.frame, c)) : [];       // (a camera needs a frame to be placed in: none until lined up)
+    camFrame(now, tipList, camsOwn);
     S.tick(now);
     room.update(now, [head[0], head[1]]);
     presence.send(now, head, own.concat(feet));
@@ -293,7 +324,7 @@ export async function createApp(o) {
     windowsFrame(now, dt, head, handsXR);
     modelFrame(now, own);
     players.update(presence.others(now).map((q) => ({ slot: q.slot, head: q.head, sources: q.sources })), dt);
-    players.marks(lineup.marks());
+    players.marks(Object.assign(lineup.marks(), { camKnobs: lineup.active ? camKnobs.knobs(camsOwn).slice(0, 6) : [] }));
     world.position.y = space.floorY;
     room3d.set(room.local()); room3d.group.visible = !xr || lineup.active;
     if (handWall) handWall.update(room.local(), wallHands(), now, viewerPreview || viewerSpot());

@@ -40,6 +40,24 @@ and rests on a spot while lining up; with Shift it is a pinch, which picks the c
 presses it (also on the other tab's menu). A tab in the background gets no animation frames and gives the cube up: `__cube.frame()`
 steps it by hand. A pretend second player without a browser: `node tools/standin.js ws://localhost:8766/ws stand-in 1,0.5,40`.
 
+## The webcam page
+
+`https://<the PC>:8443/webcam.html`, on the PC the webcam is plugged into (ported from Nudgy's `mixedView.html`, 2026-10-26; `engine/client/webcam/`,
+docs/ARCHITECTURE.md section 6c). It shows the shared world over the live picture of a webcam: both players' hands and heads, the cube, the room, the
+menus, all in the same place as in the room. Print `docs/sheets/align-sheets.pdf` (`py -3 tools/make_align_sheets.py`: sheets 1 to 3 are the crosses of the
+line-up, sheet 4 measures the camera's field of view).
+
+1. Line up with a headset first (the page takes the spots from the line-up: spot 1, spot 2 and the check spot).
+2. **Start camera**, then **Spot 1**, **Spot 2**, **Check spot**: click each cross in the picture (a zoomed box helps; arrow keys fine-tune, Enter keeps it).
+   The page works out where the camera stands and draws the world over the picture. The camera is now an object of the world: every headset draws it
+   where it really is, and while lining up three knobs hang in front of it (a pinch moves it a twentieth as far as the hand; **Reset camera** on the wrist
+   menu puts it back).
+3. **Camera calibration...** measures what the overlay needs to sit exactly: the field of view (sheet 4), the lens distortion and the latency (the laptop's
+   screen shown to the camera). They are kept in a named profile in this browser.
+
+Not yet tried with a real camera in MUMR (the page was rehearsed with painted pictures: `await import('/mumr/webcam/rehearsal.js')`, then
+`calRehearsal.start()` and `calRehearsal.floor({ lens: { a1: -0.12, a2: 0.01 } })`).
+
 ## Files
 
 | File | What |
@@ -47,6 +65,8 @@ steps it by hand. A pretend second player without a browser: `node tools/standin
 | `cube.js` | the cube (a body of `engine/client/physics.js`: hands, hold, throw), its Body adapter and packet (16, 56 bytes), the menu layout and buttons; no THREE, tested in `engine/test/cube.test.js` |
 | `draw.js` | how the cube looks, for both pages |
 | `app.js`, `index.html` | the headset page (also the desktop rehearsal) |
-| `view.js`, `view.html` | the PC view (a WorldFeed watcher) |
+| `view.js`, `view.html` | the PC view (a WorldFeed watcher); `view.js` also hands the webcam page what it needs (`window.view`) |
+| `webcam.html` | the webcam page: the PC view with `/mumr/webcam/start.js` on top, the world drawn over a webcam's picture (below) |
+| `phone-test/` | `sheet4.png` and `floor.png` for trying the webcam page from a phone (`py -3 tools/make_phone_test_images.py`) |
 | `host.js` | the cube's host module: the server runs it on the PC (`engine/client/host.js`), it holds the cube while nobody touches it and simulates it on Jolt (`engine/client/physics-jolt.js`; the built-in physics if `npm install` was not run) |
 | `mumr.json` | the server's settings: the token `cube` always has a holder, packet 16 belongs to it, the host module |

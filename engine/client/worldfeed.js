@@ -46,6 +46,9 @@
     get clockQuality() { return this.link ? this.link.clockSpread : null; }
     // a thing this page owns (an event whose kind keeps it with own: true, see session.js), or its end
     announce(e) { if (!this.session.connected) return false; this.session.emit(e); return true; }
+    // the one thing a webcam page says: its real camera (cams.js) is here, or has moved, or is gone. -> false when it was not sent
+    announceCamera(c) { const e = M.cams.event(c); return !!e && this.announce(e); }
+    withdrawCamera(id) { return typeof id === 'string' && /^[A-Za-z0-9_-]{1,40}$/.test(id) && this.announce({ k: 'cam-', id }); }
 
     // ---- what comes in
     receive(buf) {

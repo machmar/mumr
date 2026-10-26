@@ -1,6 +1,6 @@
 // Drawing the other players (the hands as ghost fingers in that player's colour, a cone for the head, the feet as shoes: feet3d.js) and the marks for lining up (a
 // disc with a cross and a number on a short pole at each of this player's two spots, a ring that fills while a spot is being taken, a
-// disc with a 3 for every check mark, three knobs at each spot). From Nudgy (simulator/mr/players3d.js), without the camera knobs.
+// disc with a 3 for every check mark, three knobs at each spot, three knobs in front of each real camera). From Nudgy (simulator/mr/players3d.js).
 //
 // Everything here is given on this headset's floor plan (x, y on the floor, z up): presence.js and lineup.js have already turned
 // what came from the others out of the common frame. `world` is the group whose origin is on the real floor; inside it the floor
@@ -98,9 +98,11 @@ export function createPlayers({ THREE, world, scene, GhostHand }) {
     return { ball, stalk };
   };
   const knobs = [0, 1, 2, 3, 4, 5, 6, 7, 8].map(() => makeKnob(0.014));      // (three at each of the three spots)
+  const camKnobs = [0, 1, 2, 3, 4, 5].map(() => makeKnob(0.02));        // (room for two cameras: the knobs are bigger, they hang half a metre in front of a camera)
   // m: { show, slot, points: [[x, y, z] | null, [x, y, z] | null], knobs (align.js: Aligner.knobs()), held (0, 1 or -1),
   //      (points has the check mark as a third entry while lining up, so that its knobs have a spot to hang from),
-  //      progress (0..1), at: [x, y, z] | null, checks: [{ slot, x, y, z }] }, all in our own frame (lineup.js LineUp.marks()).
+  //      progress (0..1), at: [x, y, z] | null, checks: [{ slot, x, y, z }], camKnobs (camknobs.js: CamKnobs.knobs(), up to six) }, all in our own
+  //      frame (lineup.js LineUp.marks()).
   function marks(m) {
     group.visible = !!(m && m.show);
     if (!group.visible) return;
@@ -136,6 +138,18 @@ export function createPlayers({ THREE, world, scene, GhostHand }) {
       k.ball.position.copy(toV(q.x, q.y, q.z));
       k.ball.material.color.setHex(q.held ? 0xf2c14e : KNOB_COL[q.axis]); k.ball.scale.setScalar(q.held ? 1.5 : 1);
       const a = k.stalk.geometry.attributes.position, from = toV(p[0], p[1], (p[2] || 0) + 0.02);
+      a.setXYZ(0, from.x, from.y, from.z); a.setXYZ(1, k.ball.position.x, k.ball.position.y, k.ball.position.z); a.needsUpdate = true;
+      k.stalk.material.color.setHex(KNOB_COL[q.axis]);
+    });
+    // the knobs of the real cameras: the same three directions and colours, each on a thin stalk
+    const cl = m.camKnobs || [];
+    camKnobs.forEach((k, n) => {
+      const q = cl[n];
+      k.ball.visible = k.stalk.visible = !!q;
+      if (!q) return;
+      k.ball.position.copy(toV(q.x, q.y, q.z));
+      k.ball.material.color.setHex(q.held ? 0xf2c14e : KNOB_COL[q.axis]); k.ball.scale.setScalar(q.held ? 1.5 : 1);
+      const a = k.stalk.geometry.attributes.position, from = toV(q.from[0], q.from[1], q.from[2]);
       a.setXYZ(0, from.x, from.y, from.z); a.setXYZ(1, k.ball.position.x, k.ball.position.y, k.ball.position.z); a.needsUpdate = true;
       k.stalk.material.color.setHex(KNOB_COL[q.axis]);
     });

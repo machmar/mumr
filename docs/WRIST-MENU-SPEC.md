@@ -32,7 +32,7 @@ of U or R) with the overlap hidden, so one thin separation runs through all thre
 
 - The card is 22 cm wide with a 0.5 cm margin. Two columns, rows of 3 cm, 8 mm between buttons and between rows.
 - Every screen uses the same six places. Only buttons are drawn as buttons; a thing that cannot be pressed now is a line of text, not a grey button.
-- Home: Line up, Room setup, Exit. Line up: one slot per spot (Spot 1, Spot 2, Check spot), Room (with Upload), Done. Spot menu (after poking a spot):
+- Home: Line up, Room setup, Exit. Line up: one slot per spot (Spot 1, Spot 2, Check spot), Room (with Upload), Camera (Reset camera, when a webcam page has aligned one), Done. Spot menu (after poking a spot):
   Lock, Replace, Delete, Back, with Delete away from the others. Exit asks again, with the confirming button in another place.
 - A button is at least 4 × 3 cm. Nothing smaller.
 
@@ -108,7 +108,7 @@ What the first build decided where the spec was silent (change them freely):
 - The fold arrow is centred, 8 mm above the card's top edge and in the card's plane; a strip of the same height under the card keeps the card's middle at the
   wrist point. The folded button is at the same point.
 - Slots (row by row, left to right): Home: Line up, Room setup, Exit (bottom right). Line up: Spot 1, Spot 2, Check spot, Room (Upload room when this headset has a
-  scan), Done (bottom right). Spot: Lock and Replace on top, Delete on its own in the middle right, Back at the bottom left. Exit asks again: Exit now (middle left), Stay (bottom right, where Exit was).
+  scan), Camera (Reset camera: the real cameras go back to where their webcam page worked them out; the text "none aligned" without one), Done (bottom right). Spot: Lock and Replace on top, Delete on its own in the middle right, Back at the bottom left. Exit asks again: Exit now (middle left), Stay (bottom right, where Exit was).
 - A button is held until 7 cm sideways from it; a fingertip 50 cm behind the surface also lets go (it was 12 cm, which let go too soon; the menu has moved back 4.75 cm by then). A button that can be pressed and is `active` has a dark bar on
   its left edge, 4 mm wide.
 - Every menu drawn by `panel3d.js` has the new look and the same blocks and press (the app's menu, the room picker, the windows' buttons), not only the wrist menu.

@@ -78,6 +78,9 @@ NOTES 1, 2026-10-22).
 | `engine/client/menus.js` | menu layouts (`grid`), the hit test, panel axes, `Poke` (a fingertip arms a button from above, presses it at 1 cm, holds it until it is back up; `shape`: how far down it is), `Menus` (everyone's panel poses and info through `M`) | session, wire, align |
 | `engine/client/anchor.js` | `Keeper`: the persistent anchor, reset events, settle, found again by its handle (the 10-22 fix) | util, align |
 | `engine/client/lineup.js` | `LineUp`: Aligner + keeper + session + saving, its buttons (`lineUp`, `p1create` ...), rows and info for the menu, marks to draw | align, session, anchor |
+| `engine/client/cams.js` | the real cameras of the room: `clean` / `event` (a `cam+` event), `toOwn` (into a headset's floor plan), `aimPoint`, `lookAt`; the session's built-in kinds `cam+` / `cam-` keep them as **owned things** (hub `own`: the connection that aligned a camera owns it, a headset only `ask`s it to move: `session.moveCamera`, `resetCamera`) | align |
+| `engine/client/camknobs.js` | the three knobs a headset hangs in front of each real camera while lining up (pinch: the camera moves a twentieth as far as the hand, keeping its aim point) | cams |
+| `engine/client/webcam/*.js` | the webcam page (section 6c): geometry (`webcam`), printed-marker detector (`markers`, `fovcapture`), per-camera profiles (`webcamcal`), lens (`lens`, `lensfit`, `overlaylens`, `lenspass`), screen tests (`screencodes`, `boardcapture`, `latency`, `calmode`), what to show and what hides what (`mixedshow`, `occluders`), moving a camera by hand (`camadjust`), the DOM (`webcamview`, `page`), the page itself (`mixed`, `start`) | everything plain, THREE for the lens pass and the occluders |
 | `engine/client/room.js` | the room: a headset's planes on its floor plan, the server's room in the common frame (uploaded once by the first headset when the server has none, or by the Upload button); `kind` (table, solid, wall ...), `support`, `ceiling` and `pushOut` for an app's physics | session, align |
 | `engine/client/grab.js` | the gestures of a hand, for any app: a pinch and a fist (grips), pointing (a ray, and what it hits: `pointAt`), a flat hand as a platform (palm up or down), from anybody's hand sources | hands, room |
 | `engine/client/model.js` | the room model: a small copy of the room to move things in (scale, the way between the room and the model, its handles, this page's hands at every open model) | grab, util |
@@ -85,7 +88,7 @@ NOTES 1, 2026-10-22).
 | `engine/client/clicks.js` | the menu's two clicks (press, release), made on the fly with Web Audio and played from the button's place | - |
 | `engine/client/host.js` | the host process (Node): the app's own simulation on the PC, holding what nobody touches | everything plain |
 | `engine/client/all.js` | the browser's one-tag loader for all of the above | - |
-| `engine/client/xr/*.js` | ES modules, THREE handed in: `session.js` (enter MR, resets, the `shared` probe, the anchor's XR calls), `input.js` (hands and controllers from the frame), `ghost.js` (ghost fingers), `players3d.js` (the others' hands, heads and feet, line-up marks and knobs), `panel3d.js` (a menu panel drawn from a grid), `room3d.js` (the room's outlines), `feet3d.js` (shoes), `handmask.js` (the hand cutouts), `handwall.js` (the hand window on a wall), `pointer3d.js` (pointing rays), `roommodel3d.js` (the room model), `app.js` (createApp) | the plain files |
+| `engine/client/xr/*.js` | ES modules, THREE handed in: `session.js` (enter MR, resets, the `shared` probe, the anchor's XR calls), `input.js` (hands and controllers from the frame), `ghost.js` (ghost fingers), `players3d.js` (the others' hands, heads and feet, line-up marks and knobs), `panel3d.js` (a menu panel drawn from a grid), `room3d.js` (the room's outlines), `feet3d.js` (shoes), `handmask.js` (the hand cutouts), `handwall.js` (the hand window on a wall), `pointer3d.js` (pointing rays), `roommodel3d.js` (the room model), `cammark3d.js` (the real cameras, one drawing for headsets and PC pages), `app.js` (createApp) | the plain files |
 
 ## 4. The packets
 
@@ -140,6 +143,29 @@ A player's hello carries a `key`. When its connection goes (a Wi-Fi stall: the p
 place for 10 s: the slot, its settings, line-up and owned things stay and the others are not told it left; only its tokens go to others
 at once. The link rejoins with `{ resume: { slot, key } }` and gets the same slot back (`hello.resumed`), also while the hub still holds
 the old connection (that one is closed). A page that closes on purpose sends `bye` and is gone at once.
+
+## 6c. The webcam page (engine/client/webcam/, ported from Nudgy 2026-10-26)
+
+A PC page that draws the shared world over the live picture of a webcam, so that someone without a headset can watch (and record) what the players do
+in the real room. It is a **watcher** (a WorldFeed, the viewer role) on top of an app's PC view: `<script type="module" src="/mumr/webcam/start.js">`
+after the view's own script (apps/cube/webcam.html), which waits for `window.view` and builds the panels itself (`page.js`).
+
+- **What the view hands over** (`window.view`): `feed`, `scene`, `camera`, `renderer`, `orbit` (the controls: `update()` is called once a frame just
+  before drawing, and the page replaces it), `setDelay(ms)`, `camMarks` (xr/cammark3d.js), and `parts`, the objects of each switch of the Show menu
+  (mixedshow.js: hands, head, floor, grid, marks, cameras, walls, boxes, menus; a part the view does not give is greyed out).
+- **Placing the camera:** the player clicks the line-up's three floor spots in the picture (a zoomed box, arrow keys); the spots are known numbers in
+  the common frame (spot 1 at the origin, spot 2 on the x axis `dist` away, the check mark: `spotsFromDoc`). A Levenberg-Marquardt solve gives the
+  camera's place and aim; the field of view comes from the printed sheet 4 (four markers the page finds by itself and shoots when the sheet is still) or
+  is typed or assumed (70 degrees).
+- **The camera is an object of the shared world** (rule 1): the page announces it as an owned `cam+` (an id of its own for each page load), every
+  headset draws it small where it really is, every PC view too, and while a player lines up three knobs hang in front of it: a headset's pinch becomes
+  `session.moveCamera`, which reaches only the owner (the page), which moves the camera keeping its aim point (camadjust.js) and announces it again.
+- **The overlay is bent, the picture is not:** a camera profile (field of view, lens `a1 a2`, latency) is made in the calibration mode (sheet 4; the
+  laptop's screen shown to the camera for the lens and the latency). With a lens the world is rendered with a wider frustum into a target and warped by the
+  lens on the way to the screen (lenspass.js); the world is drawn `latency` ms in the past so that hands and picture agree.
+- **The real room hides the world** (occluders.js): a depth-only box for each wall, table top and solid object of the server's room.
+- Everything that is only this browser's business (clicks, profiles, the Show menu, which panels are rolled up) is kept in `localStorage` under
+  `mumr.webcam.*` (Nudgy's `nudgy.mr.webcam.*` are read once when the new key is empty) and changes nothing in the world, except the camera it announces.
 
 ## 7. Invariants
 

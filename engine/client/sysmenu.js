@@ -5,19 +5,21 @@
 //   folded    a 2 x 2 cm button with the logo, shown while the inside of the wrist looks at you
 //   open      a 22 cm card of six fixed places (two columns, rows of 3 cm) under a 2 x 2 cm arrow that floats above it and folds it:
 //             Home: Line up, Room setup, Exit (Exit asks again: Exit now, Stay)
-//             Line up: Spot 1, Spot 2, Check spot, Room (upload), Done; poking a spot opens its menu: Lock, Replace, Delete, Back
+//             Line up: Spot 1, Spot 2, Check spot, Room (upload), Camera (Reset camera, when a webcam page has aligned one), Done; poking a
+//             spot opens its menu: Lock, Replace, Delete, Back
 //             the home menu (Home, nothing else open) folds by itself once it has been hidden for HIDDEN ms in a row (the hand turned away
 //             from the face, or not tracked; Marek, 2026-10-22). Anything else that is open (lining up) never folds by itself
 // Like every menu it is shared: it goes out in the `M` packet as panel 'wrist' with its state in info.sys, the other players see it on its
 // owner's wrist and may press it, and a press acts for the owner (session.press). The app's own menu is separate (the app's layout).
 //
-//   const sys = new SysMenu(session, lineup, { exit, roomSetup, roomUsed, room, life })     room: room.js Room (its Room row and button)
+//   const sys = new SysMenu(session, lineup, { exit, roomSetup, roomUsed, room, cams, camReset, life })     room: room.js Room (its Room row and button)
+//                            cams() -> { count, name, x, y, z } (the real cameras, for the Camera place; x y z to the centimetre), camReset(): the button
 //   ACTIONS                  add them to the session's actions; press(id) from the 'action' listener -> true when it was one of ours
 //   info()                   what another page needs to draw this menu: { open, lining, fields, lined, dist, note, spot, asking, players, ... }
 //   SysMenu.layout(info)     the layout (like menus.grid, plus `card`, `wrist`, `folded`) for anybody's wrist menu; SysMenu.width(info): its width in metres
 //   place(head, jp, floorY)  where it floats this frame (a panel pose), or null while the wrist does not look at you
 (function (M) {
-  const OWN = ['sysOpen', 'sysClose', 'exit', 'exitYes', 'exitNo', 'roomSetup', 'spot1', 'spot2', 'spot3', 'spotBack', 'spotLock', 'spotReplace', 'spotDelete'];
+  const OWN = ['sysOpen', 'sysClose', 'exit', 'exitYes', 'exitNo', 'roomSetup', 'spot1', 'spot2', 'spot3', 'spotBack', 'spotLock', 'spotReplace', 'spotDelete', 'camReset'];
   const OPEN_W = 0.22, FOLDED_W = 0.02, MAP_W = 0.32;
   const HIDDEN = 5000;          // ms hidden in a row before the open home menu folds (Marek: 10 s, then 5)
   const WRIST_SIDE = 'left';
@@ -47,6 +49,13 @@
     const hm = (ms) => { const d = new Date(ms); return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`; };
     if (r.own) return { slot: 3, id: 'supplyRoom', label: 'Upload room', value: r.kept ? `server has ${r.n} planes` : `none yet, own scan ${r.own} planes`, active: false };
     return { slot: 3, label: 'Room', value: r.kept ? `server's: ${r.n} planes${r.by === null || r.by === undefined ? '' : ` from player ${r.by + 1}`}${r.at ? ` at ${hm(r.at)}` : ''}` : 'no room' };
+  }
+
+  // the Camera place of the line-up menu: the real cameras of the room (cams.js) that a webcam page has aligned, and a button that puts them
+  // back where their own page worked them out (the knobs in front of a camera move it by hand while lining up)
+  function camSlot(c) {
+    if (!c || !c.count) return { slot: 4, label: 'Camera', value: 'none aligned' };
+    return { slot: 4, id: 'camReset', label: 'Reset camera', value: c.count > 1 ? `${c.count} cameras` : `${c.name || 'Webcam'}: ${c.x}, ${c.y}, ${c.z} m` };
   }
 
   // The room picker (room.js: a scan with more than one room): a map of the rooms' floors, seen from above with the front of the headset
@@ -98,6 +107,7 @@
       if (id === 'exitNo') { this.asking = false; return true; }
       if (id === 'exitYes') { this.asking = false; if (this.opts.exit) this.opts.exit(); return true; }
       if (id === 'roomSetup') { if (this.opts.roomSetup) this.opts.roomSetup(); return true; }
+      if (id === 'camReset') { if (this.opts.camReset) this.opts.camReset(); return true; }
       const L = this.lineup, sp = /^spot([123])$/.exec(id);
       if (sp) { if (L && L.active) this.spot = +sp[1] - 1; return true; }
       if (id === 'spotBack') { this.spot = null; return true; }
@@ -111,7 +121,7 @@
       const L = this.lineup, f = L ? L.frame : null, S = this.session;
       return { open: this.open, lining: !!(L && L.active), fields: L && L.active ? L.aligner.fields() : null, lined: !!f,
         dist: f && f.how !== 'given' ? +(f.dist || 0).toFixed(2) : null, note: L ? L.note() : '', roomUsed: !!this.opts.roomUsed && this.opts.roomUsed(),
-        room: this.opts.room ? this.opts.room.info() : null, spot: L && L.active ? this.spot : null, asking: this.asking, players: S && Number.isFinite(S.others) ? S.others + 1 : 1 };
+        room: this.opts.room ? this.opts.room.info() : null, cam: this.opts.cams ? this.opts.cams() : null, spot: L && L.active ? this.spot : null, asking: this.asking, players: S && Number.isFinite(S.others) ? S.others + 1 : 1 };
     }
     static width(info) { return info && info.open ? (info.room && info.room.choice ? MAP_W : OPEN_W) : FOLDED_W; }
     static layout(info) {
@@ -137,7 +147,7 @@
           { slot: 0, id: 'spot1', label: 'Spot 1', value: st(0), active: !!(F[0] && F[0].armed) },
           { slot: 1, id: 'spot2', label: 'Spot 2', value: st(1), active: !!(F[1] && F[1].armed) },
           info.lined ? { slot: 2, id: 'spot3', label: 'Check spot', value: st(2), active: !!(F[2] && F[2].armed) } : { slot: 2, label: 'Check spot', value: 'after spots 1 and 2' },
-          roomSlot(info.room), { slot: 5, id: 'lineUp', label: 'Done' }], 1);
+          roomSlot(info.room), camSlot(info.cam), { slot: 5, id: 'lineUp', label: 'Done' }], 1);
       }
       return card('MUMR', info.players > 1 ? `${info.players} players` : 'alone', [
         { slot: 0, id: 'lineUp', label: info.lined ? 'Lined up' : 'Line up', value: info.dist ? `${info.dist} m` : info.lined ? 'given' : 'not yet', active: !!info.lined },

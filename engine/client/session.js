@@ -83,6 +83,20 @@
       keep: () => ({ key: 'room' }),
       apply(S, e, from) { if (!e.data || typeof e.data !== 'object') return; S.doc.room = { data: e.data, by: Number.isInteger(e.by) ? e.by : null, at: U().num(e.at) ? e.at : null }; S.notify('room', S.doc.room, from); },
     },
+    // a real camera of the room (cams.js), owned by the page that aligned it: a webcam page (a viewer) or a player
+    'cam+': {
+      keep: (e) => ({ key: `cam:${e.id}`, own: true, gone: { k: 'cam-', id: e.id } }),
+      apply(S, e, from) {
+        const c = M.cams.clean(e);
+        if (!c || (!S.doc.cameras[c.id] && Object.keys(S.doc.cameras).length >= M.cams.MAX)) return;
+        S.doc.cameras[c.id] = Object.assign(c, { owner: from === undefined ? null : from });
+        S.notify('cam', c.id, from);
+      },
+    },
+    'cam-': {
+      keep: (e) => ({ key: `cam:${e.id}`, drop: true, own: true }),
+      apply(S, e, from) { if (typeof e.id === 'string' && S.doc.cameras[e.id]) { delete S.doc.cameras[e.id]; S.notify('cam', e.id, from); } },
+    },
   };
 
   class Session {
@@ -122,7 +136,7 @@
       }
     }
     _fresh() {
-      const d = { game: {}, players: {}, lined: {}, checks: {}, room: null };
+      const d = { game: {}, players: {}, lined: {}, checks: {}, room: null, cameras: {} };
       if (this.opts.init) this.opts.init(d);
       return d;
     }
@@ -213,6 +227,14 @@
       if (!this.connected || owner === this.me) { this.notify('ask', key, m, this.me); return true; }
       return !!this.link.sendText({ t: 'ask', key, m });
     }
+    // A real camera of the room (cams.js) is asked to stand somewhere else (x, y on the floor, z above the common floor: the line-up knobs of a
+    // headset), or to go back to where its own page worked it out. The page that owns the camera decides and announces it again (cam+).
+    moveCamera(id, x, y, z) {
+      const r4 = (v) => Math.round(v * 10000) / 10000;
+      if (typeof id !== 'string' || ![x, y, z].every(Number.isFinite)) return false;
+      return this.request(`cam:${id}`, { x: r4(x), y: r4(y), z: r4(z) });
+    }
+    resetCamera(id) { return typeof id === 'string' && this.request(`cam:${id}`, { reset: true }); }
     direct(slot, m) { return this.connected && this.peers.has(slot) && !!this.link.sendText({ t: 'to', to: slot, m }); }
     claim(token, nowMs) {
       if (!this.connected || this.isViewer || this.holds(token) || nowMs - (this._claimed[token] || -1e9) < CLAIM_EVERY) return false;
@@ -281,6 +303,7 @@
       for (const [k, v] of this._pend.player) this.mine[k] = v;
       this._pend.game.clear(); this._pend.player.clear();
       this.peers.clear(); this.clocks.clear(); this.doc.players = {}; this.doc.lined = {}; this.doc.checks = {};
+      if (Object.keys(this.doc.cameras).length) { this.doc.cameras = {}; this.notify('cam', null, null); }      // (the pages that made them may be gone: they say so again when the link is back)
       for (const slot of gone) this.notify('peer', slot, false);
       for (const t of before) this.notify('token', t, true, null);      // alone again: it is all ours
       this.notify('leave', why);

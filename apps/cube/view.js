@@ -9,10 +9,13 @@ import { createRoom3d } from '/mumr/xr/room3d.js';
 import { createHandWall, SIZE as WALL_SIZE, wallSpot } from '/mumr/xr/handwall.js';
 import { createModel3d } from '/mumr/xr/roommodel3d.js';
 import { createPointers } from '/mumr/xr/pointer3d.js';
+import { createCameraMarks } from '/mumr/xr/cammark3d.js';
 import { makeCube, setCube, ownerOf } from './draw.js';
 
 // DELAY: how far in the past the world is drawn, so that it can be blended between packets (they come every 22 ms); ?delay=ms changes it
-const M = window.MUMR, C = window.CUBE, DELAY = Math.max(0, Math.min(1000, Number(new URLSearchParams(location.search).get('delay') ?? 50)));
+// (the webcam page, webcam.html, sets it to the camera's latency: window.view.setDelay)
+const M = window.MUMR, C = window.CUBE;
+let DELAY = Math.max(0, Math.min(1000, Number(new URLSearchParams(location.search).get('delay') ?? 50)));
 const canvas = document.getElementById('view'), hud = document.getElementById('hud');
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
 renderer.setPixelRatio(1);                  // (the PC view is a monitor: a sharper picture is not worth the frame rate)
@@ -22,7 +25,9 @@ const controls = new OrbitControls(camera, canvas); controls.target.set(0.8, 0, 
 scene.add(new THREE.HemisphereLight(0xffffff, 0x445566, 1.6));
 const sun = new THREE.DirectionalLight(0xffffff, 1.4); sun.position.set(1, 3, 2); scene.add(sun);
 const world = new THREE.Group(); scene.add(world);
-world.add(new THREE.GridHelper(8, 40, 0x55607a, 0x353b4a));
+const grid = new THREE.GridHelper(8, 40, 0x55607a, 0x353b4a); world.add(grid);
+// the real cameras of the room (cams.js: a webcam page aligned them), small, where they really are: the same drawing as in the headsets
+const camMarks = createCameraMarks({ THREE, group: world });
 const cubeMesh = makeCube(THREE, C.SIZE); world.add(cubeMesh, cubeMesh.userData.holder);
 const { Panel } = makePanels(THREE, renderer);
 const room3d = createRoom3d({ THREE, parent: world });
@@ -120,6 +125,7 @@ function frame() {
   }));
   spots[0].visible = spots[1].visible = dist !== null;
   if (dist !== null) spots[1].position.set(dist, 0.002, 0);
+  camMarks.update(Object.values(S.doc.cameras));
   const st = feed.status();
   hud.textContent = `${feed.ready ? 'connected' : 'waiting for the server'}, ${st.players} player(s), drawn ${DELAY} ms in the past (?delay=), event ${st.events}, ${st.packets} packets, clock spread ${st.clockSpreadMs === null ? '-' : st.clockSpreadMs.toFixed(1)} ms\n`
     + `cube: ${c ? `${c.data[0].toFixed(2)}, ${c.data[1].toFixed(2)} m${c.data[13] > 0.5 ? ', held' : ''}, simulated by ${(ownerOf(S.holder('cube'), null, PLAYER_COLOURS) || { text: 'nobody' }).text}` : 'not seen yet'}   count ${S.doc.game.count ?? 0}   room: ${S.doc.room ? `${S.doc.room.data.planes.length} planes${S.doc.room.by === null ? '' : `, uploaded by player ${S.doc.room.by + 1}`}` : 'none'}`;
@@ -136,9 +142,23 @@ function frame() {
   }
 }
 const perf = { t0: performance.now(), frames: 0, p0: 0 };
-function resize() { renderer.setSize(innerWidth, innerHeight, false); camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); }
+function resize() { const w = canvas.clientWidth || innerWidth, h = canvas.clientHeight || innerHeight; renderer.setSize(w, h, false); camera.aspect = w / h; camera.updateProjectionMatrix(); }
 addEventListener('resize', resize); resize();
 renderer.setAnimationLoop(frame);
 window.__view = { feed, frame };
+// What the webcam page (webcam.html, engine/client/webcam/mixed.js) needs of this view: the feed, the scene and its camera and controls (the page
+// replaces controls.update, which is called once a frame just before drawing), the delay, the cameras' drawing, and the parts of the picture
+// that its Show menu switches (engine/client/webcam/mixedshow.js; this view draws the room as one outline, so it has no separate walls or boxes).
+const each = (f) => [...drawn.values()].flatMap(f);
+window.view = { feed, scene, camera, renderer, orbit: controls, setDelay: (ms) => { DELAY = ms; }, camMarks, world, frame,
+  parts: {
+    hands: () => each((o) => [o.dots]),
+    head: () => each((o) => [o.headM]),
+    floor: { objects: () => [room3d.group], static: true },
+    grid: { objects: () => [grid], static: true },
+    marks: () => spots.concat(each((o) => [o.check])),
+    cameras: { objects: () => [camMarks.group], static: true },
+    menus: () => each((o) => Object.values(o.panels).map((q) => q.panel.mesh)),
+  } };
 // a page of another build reloads itself (the server refuses an old one)
 setInterval(async () => { try { const i = await (await fetch('/info')).json(); if (i.build && info.build && i.build !== info.build) location.reload(); } catch (e) { /* the server is away */ } }, 3000);

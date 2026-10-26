@@ -42,7 +42,8 @@ headset (section 4 says what is missing); **not started**. Rows are in the order
 | 6b | `xr/app.js` `createApp({...})`: the page wiring every app repeated | **done**; the cube page is the cube only |
 | 6c | The engine's wrist menu (`sysmenu.js`): Line up, Room setup, Exit; folds after 5 s hidden | **done** 2026-10-22 (Marek's rules, NOTES log) |
 | 6d | The wrist menu as designed (`docs/WRIST-MENU-SPEC.md`): six fixed places, blocks that lift / snap into a pit / follow the finger, fold arrow and unfold ripple, two clicks, touches shared in `M` | **built** 2026-10-25, rehearsed on the desktop; **not yet on a headset** (the feel of the depths, the clicks by ear, the release distance) |
-| 4b | The line-up menu's other rows, as in Nudgy: **Room** and **Camera** | **Room done**: the server's room (`room.js`, NOTES 29), uploaded once by the first headset or by Upload; a scan with several rooms is split and picked on a map (NOTES 33). **Camera** not started: waits for a webcam page |
+| 4b | The line-up menu's other rows, as in Nudgy: **Room** and **Camera** | **Room done**: the server's room (`room.js`, NOTES 29), uploaded once by the first headset or by Upload; a scan with several rooms is split and picked on a map (NOTES 33). **Camera built** 2026-10-26 with phase 15: the wrist menu's Line up screen has a Camera place (Reset camera) |
+| 15 | **The webcam page** (2026-10-26, Marek: "port the webcam page in its entirety from nudgy"): `engine/client/webcam/` (docs/ARCHITECTURE.md 6c): the shared world drawn over a webcam's picture, the camera placed from three clicks on the line-up's floor spots, field of view from printed sheet 4 (own marker detector, shoots when the sheet is still), camera profiles (field of view, lens, latency) with the calibration mode (distortion and latency from the laptop's screen), the overlay bent to the lens, the real room hiding the world, the Show menu. The camera is an **owned thing** of the world (`cam+`, `session.moveCamera`): every headset and PC view draws it, and the line-up knobs in front of it move it by hand. `apps/cube/webcam.html`; sheets: `tools/make_align_sheets.py` (`docs/sheets/align-sheets.pdf`), `tools/make_phone_test_images.py`. 16 test files ported or written (`cams`, `camknobs`, `camadjust`, `cams_world`, `cams_net`, `webcam*`, `markers`, `fovcapture`, `lens*`, `overlaylens`, `screencodes`, `boardcapture`, `latency`, `calmode`, `mixedshow`, `occluders`, `webcampage`) | **built**: rehearsed on the PC with painted pictures through the real server (camera solved exactly, lens pass on, camera seen by a second tab, moved and reset by it); **not yet with a real webcam, a printed sheet or a headset** (section 4) |
 | 9 | Cube physics against the room (NOTES 30): springy hold, 1 cm steps (nothing passes a wall), footprint support, tables with space under them, solid objects | **done** (10-22 run; one-finger push broke and was fixed, see section 4) |
 | 10 | Engine gestures (`grab.js`, NOTES 31, 34): pinch, fist, point (a ray and `pointAt`: the app's boxes and the room), flat hand as a platform (palm up or down); the fist moves the room model, the menu and the viewer; `noHold` | **built**: pointing works on the headset; the platform, the fist grab of the cube and the fist moves are untested |
 | 11 | Hand wall (`xr/handwall.js`): a window on a wall with every hand and its gesture numbers; solid tube hands, every frame (NOTES 34) | **built**: the first version ran on the headset; the tube hands are untested |
@@ -63,7 +64,7 @@ after a run in which the PC view is open (section 4).
 1. **One headset session for section 4** (about 15 minutes, one headset is enough for most of it; the list says which items need two). Also check the cube still loads and plays after the engine/ move.
 2. **The experiment pages (3.1)**: built as `apps/lab`; Marek runs them for the numbers. They no longer gate phase 5, which is closed.
 3. ~~**Phase 5, many bodies (3.2)**~~ done 2026-10-26: Jolt on the host covers it.
-4. **Camera row** of the line-up menu, when a webcam page is wanted.
+4. ~~**Camera row** of the line-up menu~~ built with the webcam page (phase 15, 2026-10-26); the real run is section 4.
 5. **Phase 7** only when Marek says so.
 
 ### 3.1 Experiment pages (built as `apps/lab`; the Node stress test `tools/stress.js` is dropped, Marek 2026-10-26: not needed)
@@ -87,10 +88,10 @@ resting on a carrier move with it. Contact islands: bodies that touch form a gro
 not tear it apart. Test with two pretend headsets in Node first (a stack handed over, a sleeping body woken by a far player's hand), then
 `pile` and `island` on headsets.
 
-### 3.3 Camera row (4b)
+### 3.3 Camera row (4b) (built 2026-10-26, see phase 15)
 
 As in Nudgy: real webcams as owned things (`own`, `gone`) from a webcam page on the PC, three knobs in front of each to place it, and
-Reset. Test: one webcam, two tabs, then a headset placing it.
+Reset. Test: one webcam, two tabs, then a headset placing it. (Two tabs done on the PC; the rest is in section 4.)
 
 ## 4. Untested (2026-10-25)
 
@@ -113,6 +114,9 @@ From the server logs of 10-22/23 and Marek's answers of 10-25. Each line says ho
 | Physics: a one-finger push, a fist hold at an angle (it turns with the hand), a throw (it keeps the hand's speed and spin) | 10-26 | Push with the index; fist-grab and turn the wrist; swing and open the hand | not tried |
 | Physics: a flat hand carries the cube if the hand speeds up smoothly and slips it off when tilted past about 24 degrees | 10-26 | Put the cube on a flat hand, walk, tilt | not tried |
 | Physics: frame rate with the cube moving; two headsets see the same tumble | 10-26 | Look at the frame rate while it rattles; watch it from the other headset | not tried |
+| The webcam page with a real webcam: Start camera, click the three crosses, the overlay sits on the floor and the cube and hands match the picture; field of view from a printed sheet 4 (`docs/sheets/align-sheets.pdf`) | 10-26 | `node tools/run.js cube`, a headset lined up on the crosses, `https://<PC>:8443/webcam.html` on the PC with the webcam | not tried (Nudgy's page was tried once on 10-15 and again after the camera knobs, not with MUMR) |
+| The webcam page's calibration mode: distortion and latency from the laptop's screen, the overlay bent to the lens | 10-26 | Camera calibration... on the page, the laptop's screen in front of the camera | not tried (rehearsed with painted pictures only) |
+| The camera as a world object: a headset sees the small camera where it really is, the line-up knobs in front of it move it, Reset camera on the wrist menu | 10-26 | Line up (Done not pressed), pinch a knob, pull; poke Reset camera | not tried (the PC tab saw it, moved it and reset it) |
 | Feet `show` and `kick` | 10-22 | Set `feet: 'show'` in the cube's `app.js`, look down; then `'kick'` and kick the cube | "pretty sure those work" (never ran) |
 
 Found on 2026-10-25 (one headset): the Quest's floor level had drifted about 40 cm (head read 130 cm, then 165 cm after a restart); a restart plus deleting the old saved rooms in Quest settings fixed it, and a bad scan then had two nested rooms. Resets now log their height (`xr: reset height`) and the head height is logged every 4 s (`xr: head`). The room picker presses the smallest room first (a small room inside a big one can be picked). Still open: the session ended a few seconds after Room setup three times (the page tells the player to leave and come back, since the browser allows Room setup once per session, so it may have been Marek leaving; the log now says `xr: the Exit button ended the session` when Exit does it, and the visibility state when the session ends, so the next run tells them apart); the PC view lag line (no PC view was open); the two-headset rows.

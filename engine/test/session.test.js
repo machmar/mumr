@@ -15,8 +15,8 @@ const APP = {
   kinds: {
     'mark+': { keep: (e) => ({ key: `mark:${e.id}` }), apply: (S, e, from) => { S.doc.marks.set(e.id, { id: e.id, x: e.x }); S.notify('marks', from); } },
     'mark-': { keep: (e) => ({ key: `mark:${e.id}`, drop: true }), apply: (S, e, from) => { S.doc.marks.delete(e.id); S.notify('marks', from); } },
-    'cam+': { keep: (e) => ({ key: `cam:${e.id}`, own: true, gone: { k: 'cam-', id: e.id } }), apply: (S, e) => { S.doc.cams = Object.assign({}, S.doc.cams, { [e.id]: e.x }); } },
-    'cam-': { apply: (S, e) => { const c = Object.assign({}, S.doc.cams); delete c[e.id]; S.doc.cams = c; } },
+    'pin+': { keep: (e) => ({ key: `pin:${e.id}`, own: true, gone: { k: 'pin-', id: e.id } }), apply: (S, e) => { S.doc.cams = Object.assign({}, S.doc.cams, { [e.id]: e.x }); } },
+    'pin-': { apply: (S, e) => { const c = Object.assign({}, S.doc.cams); delete c[e.id]; S.doc.cams = c; } },
   },
 };
 const player = (hub, name, extra = {}) => { const s = new Session(hub.link(name), Object.assign({}, APP, extra)); s.log = []; for (const k of ['first', 'synced', 'action', 'do', 'ask', 'game']) s.on(k, (...a) => s.log.push([k, ...a])); return s; };
@@ -103,14 +103,14 @@ test('an owned thing: only its owner changes it, others ask, and it goes when th
   const hub = new Hub();
   const a = player(hub, 'A'), b = player(hub, 'B');
   hub.flush();
-  a.emit({ k: 'cam+', id: 'w', x: 1 }); hub.flush();
-  assert.deepStrictEqual([b.doc.cams, b.ownerOf('cam:w')], [{ w: 1 }, 0]);
-  b.emit({ k: 'cam+', id: 'w', x: 9 }); hub.flush();
+  a.emit({ k: 'pin+', id: 'w', x: 1 }); hub.flush();
+  assert.deepStrictEqual([b.doc.cams, b.ownerOf('pin:w')], [{ w: 1 }, 0]);
+  b.emit({ k: 'pin+', id: 'w', x: 9 }); hub.flush();
   assert.deepStrictEqual(a.doc.cams, { w: 1 }, 'B cannot move A\'s camera');
-  b.request('cam:w', { x: 5 }); hub.flush();
-  assert.deepStrictEqual(a.log.filter((l) => l[0] === 'ask'), [['ask', 'cam:w', { x: 5 }, 1]]);
+  b.request('pin:w', { x: 5 }); hub.flush();
+  assert.deepStrictEqual(a.log.filter((l) => l[0] === 'ask'), [['ask', 'pin:w', { x: 5 }, 1]]);
   hub.leave(0); hub.flush();
-  assert.deepStrictEqual([b.doc.cams, b.ownerOf('cam:w')], [{}, null]);
+  assert.deepStrictEqual([b.doc.cams, b.ownerOf('pin:w')], [{}, null]);
 });
 
 test('do goes to the holder of the token; tokens made by a claim; busy keeps it', () => {
@@ -159,7 +159,7 @@ test('a viewer replays the document and cannot change it', () => {
   assert.deepStrictEqual([v.isViewer, v.doc.game.floor, [...v.doc.marks.keys()], v.stateOf(0).hue, v.sending()], [true, 'wood', ['v'], 'red', false]);
   v.emit({ k: 'mark+', id: 'nope', x: 0 }); hub.flush();
   assert.deepStrictEqual([...a.doc.marks.keys()], ['v']);
-  v.emit({ k: 'cam+', id: 'pc', x: 2 }); hub.flush();
+  v.emit({ k: 'pin+', id: 'pc', x: 2 }); hub.flush();
   assert.deepStrictEqual(a.doc.cams, { pc: 2 }, 'but a viewer may own a thing (its camera)');
   assert.strictEqual(a.viewers, 1);
   assert.strictEqual(a.sending(), false, 'not lined up: nothing to send');
