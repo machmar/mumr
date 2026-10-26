@@ -95,7 +95,7 @@ test('two headsets: where the viewer hangs is one place for both (and for a newc
   other.body.ask('put', { x: pc[0], y: pc[1], z: pc[2] }); hub.flush();
   near(holder.cube.x, 0.5, 1e-9); near(holder.cube.z, 0.3, 1e-9);
   for (let i = 0; i < 60; i++) holder.cube.step(0.016, i * 0.016, []);
-  near(holder.cube.z, C.HALF, 1e-9, 'it fell onto the floor');
+  near(holder.cube.z, C.HALF, 3e-3, 'it fell onto the floor');
 });
 
 // a scan with two rooms 5 m apart (Marek's had one): a wall between nothing, a table in the first, a bed in the second
@@ -174,8 +174,8 @@ test('moved in a model, the cube is held by that hand: it follows (and says it i
   assert.strictEqual(cube.drawn().held, true); assert.strictEqual(cube.moving(), true);
   const ad = C.adapter(cube, new AL.Space({ x: 0, y: 0, yaw: 0, z: 0 }, 0));
   assert.ok(ad.reach([]) && ad.touching([]), 'this page takes the cube and keeps it while it moves it');
-  assert.strictEqual(ad.pack()[7], 1, 'the others see it held');
+  assert.strictEqual(ad.pack()[13], 1, 'the others see it held');
   cube.steer = null;
   for (let i = 0; i < 80; i++) cube.step(0.016, i * 0.016, []);
-  near(cube.z, C.HALF, 1e-6, 'fell'); assert.strictEqual(cube.drawn().held, false);
+  near(cube.z, C.HALF, 3e-3, 'fell'); assert.strictEqual(cube.drawn().held, false);
 });

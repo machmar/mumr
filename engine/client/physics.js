@@ -87,7 +87,7 @@
     // The hands of this frame (floor plan) at time t (s): [{ id, spheres: [{ p, r }], plate: null | { centre, normal, axes: [u, v], half: [hu, hv] } }].
     // Their speed comes from the last call (clamped to HAND_MAX; a hand that jumps further than that in a frame is slow, not a launch);
     // anything not finite is ignored. They are kinematic: a body is pushed by them, they are not pushed back.
-    setHands(list, t) {
+    setHands(list, t, solid = true) {
       const fin = (a) => a.every(Number.isFinite), next = new Map(), kin = { spheres: [], plates: [] };
       const speed = (key, p) => {
         const q = this.handPrev.get(key); next.set(key, { p, t });
@@ -98,9 +98,9 @@
       for (const hd of list || []) {
         (hd.spheres || []).forEach((s, i) => { if (s && s.p && fin(s.p) && Number.isFinite(s.r)) kin.spheres.push({ p: s.p.slice(), r: s.r, v: speed(hd.id + ':s' + i, s.p) }); });
         const pl = hd.plate;
-        if (pl && fin(pl.centre) && fin(pl.normal) && fin(pl.axes[0]) && fin(pl.axes[1]) && fin(pl.half)) kin.plates.push({ centre: pl.centre.slice(), normal: pl.normal, axes: pl.axes, half: pl.half, v: speed(hd.id + ':plate', pl.centre) });
+        if (pl && fin(pl.centre) && fin(pl.normal) && fin(pl.axes[0]) && fin(pl.axes[1]) && fin(pl.half)) kin.plates.push({ id: hd.id, centre: pl.centre.slice(), normal: pl.normal, axes: pl.axes, half: pl.half, v: speed(hd.id + ':plate', pl.centre) });
       }
-      this.kin = kin; this.handPrev = next;
+      this.kin = solid ? kin : { spheres: [], plates: [] }; this.handPrev = next;                // (not solid: only their speed is kept up, for when they are)
       for (const b of this.bodies) {
         if (!b.asleep) continue;
         const R = Math.hypot(...b.size) / 2 + 0.05;
@@ -195,6 +195,20 @@
         }
       }
       for (const q of this.kin.plates) {
+        // the plate's own points against the cube's faces (a hand is narrower than the cube it carries: no corner of the cube is over it)
+        const nu = Math.max(1, Math.ceil((2 * q.half[0]) / EDGE_STEP)), nv = Math.max(1, Math.ceil((2 * q.half[1]) / EDGE_STEP)), Rb = Math.hypot(...b.size) / 2 + MARGIN;
+        if (Math.hypot(...sub(q.centre, b.p)) < Rb + Math.hypot(...q.half)) {
+          for (let i = 0; i <= nu; i++) for (let j = 0; j <= nv; j++) {
+            const u = -q.half[0] + (2 * q.half[0] * i) / nu, v = -q.half[1] + (2 * q.half[1] * j) / nv;
+            const pt = [q.centre[0] + q.axes[0][0] * u + q.axes[1][0] * v, q.centre[1] + q.axes[0][1] * u + q.axes[1][1] * v, q.centre[2] + q.axes[0][2] * u + q.axes[1][2] * v];
+            const l = quat.rotate(bq2, sub(pt, b.p));
+            let ax = 0, dm = Infinity, all = true;
+            for (let k = 0; k < 3; k++) { const d = b.size[k] / 2 - Math.abs(l[k]); if (d <= -MARGIN) { all = false; break; } if (d < dm) { dm = d; ax = k; } }
+            if (!all) continue;
+            const m = [0, 0, 0]; m[ax] = l[ax] >= 0 ? 1 : -1;
+            out.push({ r: pt, n: mulv(quat.rotate(b.q, m), -1), gap: -dm, vs: q.v, e: 0 });
+          }
+        }
         for (const c of cs) {
           const rel = sub(c, q.centre), lu = dot(rel, q.axes[0]), lv = dot(rel, q.axes[1]), ln = dot(rel, q.normal);
           if (Math.abs(lu) <= q.half[0] + 0.005 && Math.abs(lv) <= q.half[1] + 0.005 && ln > -PLATE_DEPTH && ln < MARGIN) out.push({ r: c, n: q.normal, gap: ln, vs: q.v, e: 0 });
@@ -220,7 +234,7 @@
           c.Kn = b.inv + dot(cross(invI(b, cross(c.ra, c.n)), c.ra), c.n);
           const vc = sub(add(b.v, cross(b.w, c.ra)), c.vs || ZERO), vn = dot(vc, c.n);
           c.target = c.gap > 0 ? -c.gap / h : 0;                                                  // (it may close the gap this step, no more)
-          if (vn < -REST_SPEED && -vn * h >= c.gap) c.target = Math.max(c.target, -(c.e === undefined ? b.restitution : c.e) * vn);
+          if (vn < -REST_SPEED && -vn * h >= c.gap) c.target = Math.max(c.target, -(c.e !== undefined ? c.e : b.held ? 0 : b.restitution) * vn);
           c.J = 0; c.Jt = [0, 0, 0];
         }
         for (let it = 0; it < ITER; it++) {

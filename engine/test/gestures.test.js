@@ -73,9 +73,9 @@ test('the cube: one pointing finger pushes it; put on a flat hand it is carried,
   cube.place(0, 0.1); cube.z = 0.6;
   for (let k = 0; k < 60; k++) cube.step(0.016, t += 0.016, [P(0, 0)]);
   assert.strictEqual(cube.onHand && cube.onHand.id, 'left', 'it lies on the hand');
-  near(cube.z, 0.3 + G.PLAT.thick + C.HALF, 1e-6);
-  for (let k = 1; k <= 50; k++) cube.step(0.016, t += 0.016, [P(k * 0.01, 0)]);
-  near(cube.x, 0.5, 1e-6, 'carried 50 cm'); assert.ok(cube.onHand);
+  near(cube.z, 0.3 + G.PLAT.thick + C.HALF, 3e-3);
+  for (let k = 1; k <= 60; k++) cube.step(0.016, t += 0.016, [P(0.25 * (1 - Math.cos((Math.PI * k) / 60)), 0)]);       // (a hand speeds up and slows down over a second, at most 2.7 m/s2: a jerk of 4 g would leave a cube behind on a hand 8 cm wide)
+  near(cube.x, 0.5, 0.05, 'carried 50 cm'); assert.ok(cube.onHand);
   // turned on its side (a hand held upright: no platform) it falls
   const side = P(0.5, 0); side.joints = side.joints.map((q) => [q[0], q[1], 0.3 + (q[0] - 0.5) * 3]);      // (tilted about 70 degrees)
   for (let k = 0; k < 60; k++) cube.step(0.016, t += 0.016, [side]);

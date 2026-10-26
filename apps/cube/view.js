@@ -59,7 +59,7 @@ function frame() {
   const t = feed.serverNow(), at = t === null ? undefined : t - DELAY, S = feed.session;
   room3d.set(S.doc.room ? S.doc.room.data : null);
   const c = feed.sample('cube', null, at);
-  if (c) setCube(cubeMesh, { x: c.data[0], y: c.data[1], z: c.data[2], yaw: c.data[3], held: c.data[7] > 0.5 }, C.COLOURS[(S.doc.game.colour || 0) % C.COLOURS.length], ownerOf(S.holder('cube'), null, PLAYER_COLOURS));
+  if (c) setCube(cubeMesh, C.unpacked(c.data), C.COLOURS[(S.doc.game.colour || 0) % C.COLOURS.length], ownerOf(S.holder('cube'), null, PLAYER_COLOURS));
   const here = new Set(), everyone = [];
   let dist = null;
   for (const p of feed.players()) {
@@ -106,14 +106,14 @@ function frame() {
     seenModels.add(p.slot);
     if (!models.has(p.slot)) models.set(p.slot, createModel3d({ THREE, parent: world }));
     const things = [];
-    if (c) things.push({ id: 'cube', kind: 'box', at: [c.data[0], c.data[1], c.data[2]], yaw: c.data[3], size: [C.SIZE], colour: C.COLOURS[(S.doc.game.colour || 0) % C.COLOURS.length] });
+    if (c) things.push({ id: 'cube', kind: 'box', at: [c.data[0], c.data[1], c.data[2]], yaw: C.heading(c.data.slice(3, 7)), size: [C.SIZE], colour: C.COLOURS[(S.doc.game.colour || 0) % C.COLOURS.length] });
     if (spot) things.push({ id: 'viewer', kind: 'panel', at: [spot.x, spot.y, spot.h], yaw: spot.yaw, size: [WALL_SIZE.w, WALL_SIZE.h], colour: 0x4ea1ff });
     const k = m.data.info && m.data.info.model ? +m.data.info.model.k || 1 : 1;
     models.get(p.slot).update({ x: row[1], y: row[2], z: row[3], yaw: row[4], k }, F, roomNow, things, { edge: PLAYER_COLOURS[p.slot % PLAYER_COLOURS.length] });
   }
   for (const [slot, d] of [...models]) if (!seenModels.has(slot)) { d.dispose(); models.delete(slot); }
   handWall.update(roomNow, gestures.map((g) => { const s = everyone.find((q) => q.id === g.id); return { name: `player ${s.slot + 1}, ${/left/.test(g.id) ? 'left' : 'right'}`, colour: hex(PLAYER_COLOURS[s.slot % PLAYER_COLOURS.length]), source: s, g }; }), performance.now(), S.doc.wallspot || null);
-  const box = c ? { id: 'cube', label: 'cube', x: c.data[0], y: c.data[1], z: c.data[2], half: C.HALF, yaw: c.data[3] } : null;
+  const box = c ? { id: 'cube', label: 'cube', x: c.data[0], y: c.data[1], z: c.data[2], half: C.HALF, yaw: C.heading(c.data.slice(3, 7)) } : null;
   pointers.update(gestures.filter((g) => g.point).map((g) => {
     const hit = M.grab.pointAt(g.point, box ? [box] : [], roomNow, 8), s = everyone.find((q) => q.id === g.id);
     return { from: g.point.from, at: hit ? hit.at : g.point.from.map((v, i) => v + g.point.dir[i] * 3), label: hit ? hit.label || hit.what : '', colour: PLAYER_COLOURS[s.slot % PLAYER_COLOURS.length] };
@@ -122,7 +122,7 @@ function frame() {
   if (dist !== null) spots[1].position.set(dist, 0.002, 0);
   const st = feed.status();
   hud.textContent = `${feed.ready ? 'connected' : 'waiting for the server'}, ${st.players} player(s), drawn ${DELAY} ms in the past (?delay=), event ${st.events}, ${st.packets} packets, clock spread ${st.clockSpreadMs === null ? '-' : st.clockSpreadMs.toFixed(1)} ms\n`
-    + `cube: ${c ? `${c.data[0].toFixed(2)}, ${c.data[1].toFixed(2)} m${c.data[7] > 0.5 ? ', held' : ''}, simulated by ${(ownerOf(S.holder('cube'), null, PLAYER_COLOURS) || { text: 'nobody' }).text}` : 'not seen yet'}   count ${S.doc.game.count ?? 0}   room: ${S.doc.room ? `${S.doc.room.data.planes.length} planes${S.doc.room.by === null ? '' : `, uploaded by player ${S.doc.room.by + 1}`}` : 'none'}`;
+    + `cube: ${c ? `${c.data[0].toFixed(2)}, ${c.data[1].toFixed(2)} m${c.data[13] > 0.5 ? ', held' : ''}, simulated by ${(ownerOf(S.holder('cube'), null, PLAYER_COLOURS) || { text: 'nobody' }).text}` : 'not seen yet'}   count ${S.doc.game.count ?? 0}   room: ${S.doc.room ? `${S.doc.room.data.planes.length} planes${S.doc.room.by === null ? '' : `, uploaded by player ${S.doc.room.by + 1}`}` : 'none'}`;
   controls.update();
   renderer.render(scene, camera);
   perf.frames++;
