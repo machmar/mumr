@@ -108,7 +108,7 @@ export async function createApp(o) {
   const link = M.link.connect(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws`, { build: info.build, name: NAME });
   link.onNote = (n) => life(`link: ${n}`);
   const sess = o.session || {};
-  const S = new M.session.Session(link, Object.assign({}, sess, { actions: SysMenu.ACTIONS.concat(sess.actions || []), kinds: Object.assign({ wallspot: M.room.SPOT_KIND }, sess.kinds || {}) }));
+  const S = new M.session.Session(link, Object.assign({}, sess, { actions: SysMenu.ACTIONS.concat(sess.actions || []), kinds: Object.assign({ wallspot: M.room.SPOT_KIND, winspot: M.room.WIN_KIND }, sess.kinds || {}) }));
   const space = new M.align.Space(null, 0);
   const presence = new M.presence.Presence(S, space);
   const menus = new M.menus.Menus(S, space, { known: (id) => id === 'main' || id === 'wrist' || id === 'model' });
@@ -325,6 +325,7 @@ export async function createApp(o) {
       const f = fists.get(g.id);
       if (f && g.kind !== 'fist') {                                     // let go: it stays where it is
         if (f.what === 'viewer' && viewerPreview) { putViewer(viewerPreview); viewerPreview = null; }
+        if (f.what.startsWith('win:')) { const w = wins.find((q) => `win:${q.id}` === f.what); if (w) putWin(w); }
         fists.delete(g.id); life(`fist: let go of the ${f.what}`);
         continue;
       }
@@ -338,15 +339,15 @@ export async function createApp(o) {
         continue;
       }
       if (g.kind !== 'fist' || !g.start || !p) continue;
-      const r = room.local(), F = RM && r && modelPose ? M.model.frameOf(r) : null, vs = handWall && handWall.spot;
+      const ms = modelSpace(), F = RM && ms.room && modelPose ? M.model.frameOf(ms.room) : null, vs = handWall && handWall.spot;
       let took = null;
-      if (F && M.model.inside(modelPose, F, p, 0.03)) took = { what: 'model', off: [modelPose.x - p[0], modelPose.y - p[1], modelPose.z - p[2]] };
+      if (F && M.model.inside(ms.poseTo(modelPose), F, ms.to(p), 0.03)) took = { what: 'model', off: [modelPose.x - p[0], modelPose.y - p[1], modelPose.z - p[2]] };
       else if (follower.pose && onPanel(follower.pose, MENU_W, lastMenuH, p)) { const P = follower.pose; took = { what: 'menu', off: [P.x - p[0], P.y - p[1], P.h - space.floorY - p[2]] }; }
       else if (wins.some((w) => winPose(w) && onPanel(winPose(w), w.w, w.h, p))) { const w = wins.find((q) => winPose(q) && onPanel(winPose(q), q.w, q.h, p)), P = winPose(w); took = { what: `win:${w.id}`, off: [P.x - p[0], P.y - p[1], P.h - space.floorY - p[2]] }; }
       else if (vs && onPanel({ x: vs.x, y: vs.y, h: vs.h + space.floorY, yaw: vs.yaw, pitch: 0 }, WALL_SIZE.w, WALL_SIZE.h, p)) took = { what: 'viewer', off: [vs.x - p[0], vs.y - p[1], vs.h - p[2]] };
       if (took) { fists.set(g.id, took); life(`fist: took the ${took.what}`); }
     }
-    for (const id of [...fists.keys()]) if (!own.some((s) => s.id === id)) { const f = fists.get(id); if (f.what === 'viewer' && viewerPreview) { putViewer(viewerPreview); viewerPreview = null; } fists.delete(id); }
+    for (const id of [...fists.keys()]) if (!own.some((s) => s.id === id)) { const f = fists.get(id); if (f.what === 'viewer' && viewerPreview) { putViewer(viewerPreview); viewerPreview = null; } if (f.what.startsWith('win:')) { const w = wins.find((q) => `win:${q.id}` === f.what); if (w) putWin(w); } fists.delete(id); }
     for (const s of own) if (fists.has(s.id)) s.noHold = true;
   }
   // ---- the viewer's place: the document's wallspot (common frame) in this page's floor plan, or null (the default: the longest wall)
@@ -360,10 +361,24 @@ export async function createApp(o) {
   }
   // ---- the room models (model.js): this player's (opened from the app's menu), and every other player's where they have it. Everybody
   // can move the things in any of them; only the owner carries and turns a model. A hand that reaches into a model whose owner has
-  // "hand IRL" on is also drawn full size in the room, where it would be.
+  // "hand IRL" on is also drawn full size in the room, where it would be, whoever's hand it is.
+  // Rule 1 (docs/ARCHITECTURE.md): a model is the same thing for everybody, so all its numbers are in the COMMON frame: its room is the
+  // server's room, its pose and the hands and things in it are taken into the common frame, and it is drawn in a group that holds this
+  // page's line-up. (Each page's own floor plan gave each page a different model frame, and a turn counted twice on the others' pages.)
+  // Alone, or with no shared room yet, the common frame is the page's own.
   const RM = o.roomModel || null, modelHands = new M.model.Hands(), model3d = new Map(), bigHands = [];
-  let modelPose = null, modelHot = null;
+  const modelGroup = new THREE.Group();
+  world.add(modelGroup);
+  let modelPose = null, modelHot = null;          // (this page's own model, in its floor plan)
   app.modelPose = () => modelPose;
+  function modelSpace() {
+    const same = (p) => p;
+    if (!(S.connected && space.ok && S.doc.room)) return { room: room.local(), to: same, from: same, yawTo: same, poseTo: same, poseFrom: same, src: same, frame: null };
+    const to = (p) => space.toCommon(p), from = (c) => space.fromCommon(c);
+    const pose = (f, yaw) => (p) => { const c = f([p.x, p.y, p.z]); return Object.assign({}, p, { x: c[0], y: c[1], z: c[2], yaw: yaw(p.yaw || 0) }); };
+    const src = (s) => Object.assign({}, s, s.points ? { points: s.points.map((q) => { const c = to([q.x, q.y, q.z]); return Object.assign({}, q, { x: c[0], y: c[1], z: c[2] }); }) } : {}, s.joints ? { joints: s.joints.map(to) } : {});
+    return { room: S.doc.room.data, to, from, yawTo: (y) => space.yawToCommon(y), poseTo: pose(to, (y) => space.yawToCommon(y)), poseFrom: pose(from, (y) => space.yawFromCommon(y)), src, frame: space.frame, fz: space.fz };
+  }
   function viewerThing() {
     const r = room.local(), sp = viewerPreview || viewerSpot() || (r ? wallSpot(r) : null);
     if (!handWall || !sp) return null;
@@ -383,58 +398,64 @@ export async function createApp(o) {
       drag(phase, at) {
         const s = M.room.wallSpot(room.local(), { w: w.w, h: w.h }, at);
         if (!s) return;
-        if (phase === 'drop') { w.spot = s; w.preview = null; life(`window ${w.id} moved to (${s.x.toFixed(2)}, ${s.y.toFixed(2)}), ${s.h.toFixed(2)} m up`); } else w.preview = s;
+        if (phase === 'drop') { w.spot = s; w.preview = null; putWin(w); } else w.preview = s;
       } }));
   }
   function modelFrame(now, own) {
-    const r = room.local(), F = RM && r ? M.model.frameOf(r) : null, models = [];
+    const ms = modelSpace(), r = ms.room, F = RM && r ? M.model.frameOf(r) : null, models = [];
     if (F && RM.open(S.stateOf(null))) {
       if (!modelPose) {
         const h = head;
         modelPose = xr ? { x: h[0] + Math.cos(h[2]) * 0.5, y: h[1] + Math.sin(h[2]) * 0.5, z: Math.max(0.6, h[3] - 0.5), yaw: h[2] - Math.PI / 2, k: 1 } : { x: 0.35, y: 0.1, z: 0.04, yaw: 0, k: 1 };
       }
-      models.push({ key: 'own', slot: S.me, mine: true, pose: modelPose });
+      models.push({ key: 'own', slot: S.me, mine: true, pose: ms.poseTo(modelPose) });
     } else modelPose = null;
+    const others = presence.others(now);
     if (F) for (const q of menus.others(now)) {
       const p = q.panels.find((x) => x.id === 'model');
-      if (p) models.push({ key: `p${q.slot}`, slot: q.slot, mine: false, pose: { x: p.pose.x, y: p.pose.y, z: p.pose.h - space.floorY, yaw: p.pose.yaw, k: q.info && q.info.model ? +q.info.model.k || 1 : 1 } });
+      if (p) models.push({ key: `p${q.slot}`, slot: q.slot, mine: false, pose: ms.poseTo({ x: p.pose.x, y: p.pose.y, z: p.pose.h - space.floorY, yaw: p.pose.yaw, k: q.info && q.info.model ? +q.info.model.k || 1 : 1 }) });
     }
-    const things = F ? (RM.things ? RM.things(app) : []).concat([viewerThing()].filter(Boolean), winThings()) : [];
+    // the things, taken into the common frame (a drag hands the app its place back in this page's floor plan)
+    const local = F ? (RM.things ? RM.things(app) : []).concat([viewerThing()].filter(Boolean), winThings()) : [];
+    const things = local.map((t) => ({ id: t.id, kind: t.kind, at: ms.to(t.at), yaw: ms.yawTo(t.yaw || 0), size: t.size, colour: t.colour, preview: t.preview ? ms.to(t.preview) : undefined, src: t }));
     for (const m of models) { m.F = F; m.things = things; }
     // the hands: this page's own reach into any model
-    for (const ev of modelHands.update(lineup.active ? [] : own, models)) {
-      if (ev.what === 'move' || ev.what === 'turn' || ev.what === 'scale') { modelPose = ev.pose; modelHot = ev.what; continue; }
+    for (const ev of modelHands.update(lineup.active ? [] : own.map(ms.src), models)) {
+      if (ev.what === 'move' || ev.what === 'turn' || ev.what === 'scale') { modelPose = ms.poseFrom(ev.pose); modelHot = ev.what; continue; }
       const th = things.find((t) => t.id === ev.id);
-      if (th && th.drag) th.drag(ev.phase, ev.at);
+      if (th && th.src.drag) th.src.drag(ev.phase, ms.from(ev.at));
       if (ev.phase === 'start') life(`room model: took the ${ev.id}`);
     }
     if (!modelHands.busy('own')) modelHot = null;
-    // drawing: every open model, with the things where they are (and where a thing being moved here will go)
+    // drawing: every open model, with the things where they are (and where a thing being moved here will go), in the common frame
+    if (ms.frame) { modelGroup.position.set(ms.frame.x, ms.fz, -ms.frame.y); modelGroup.rotation.set(0, ms.frame.yaw, 0); }
+    else { modelGroup.position.set(0, 0, 0); modelGroup.rotation.set(0, 0, 0); }
     const keys = new Set(models.map((m) => m.key));
     for (const [k, d] of [...model3d]) if (!keys.has(k)) { d.dispose(); model3d.delete(k); }
     for (const m of models) {
       let d = model3d.get(m.key);
-      if (!d) { d = createModel3d({ THREE, parent: world }); model3d.set(m.key, d); }
+      if (!d) { d = createModel3d({ THREE, parent: modelGroup }); model3d.set(m.key, d); }
       const shown = things.map((t) => ({ id: t.id, kind: t.kind, at: t.at, yaw: t.yaw, size: t.size, colour: t.colour }));
       for (const t of things) if (t.preview) shown.push({ id: t.id, kind: t.kind, at: t.preview, yaw: t.yaw, size: t.size, colour: t.colour, ghost: true });
-      if (viewerPreview) { const v = things.find((t) => t.id === 'viewer'); if (v) shown.push(Object.assign({}, v, { at: [viewerPreview.x, viewerPreview.y, viewerPreview.h], yaw: viewerPreview.yaw, ghost: true })); }
+      if (viewerPreview) { const v = things.find((t) => t.id === 'viewer'); if (v) shown.push({ id: v.id, kind: v.kind, size: v.size, colour: v.colour, at: ms.to([viewerPreview.x, viewerPreview.y, viewerPreview.h]), yaw: ms.yawTo(viewerPreview.yaw), ghost: true }); }
       d.update(m.pose, F, r, shown, { handles: m.mine, hot: m.mine ? modelHot : null, edge: m.mine ? undefined : PLAYER_COLOURS[m.slot % PLAYER_COLOURS.length] });
     }
-    // hand IRL: a hand in a model, full size where it would be in the room (its owner's choice, seen by everybody)
+    // hand IRL: any hand in a model (this page's or another player's), full size where it would be in the room (the model owner's
+    // choice, seen by everybody)
+    const hands = own.map((s) => ({ s, slot: null })).concat(...others.map((q) => (q.sources || []).map((s) => ({ s, slot: q.slot }))));
     let n = 0;
     for (const m of models) {
       if (!RM.handIrl || !RM.handIrl(S.stateOf(m.mine ? null : m.slot))) continue;
-      const hs = m.mine ? own : ((presence.others(now).find((q) => q.slot === m.slot) || {}).sources || []);
-      for (const s of hs) {
-        if (!s.joints || s.foot) continue;
-        const tip = s.joints[9], palm = s.joints[10];
+      for (const { s: s0, slot } of hands) {
+        if (!s0.joints || s0.foot) continue;
+        const s = ms.src(s0), tip = s.joints[9], palm = s.joints[10];
         if (!M.model.inside(m.pose, F, tip, 0.03) && !M.model.inside(m.pose, F, palm, 0.03)) continue;
         if (!bigHands[n]) { bigHands[n] = new GhostHand(0.35, { full: true }); scene.add(bigHands[n].mesh); }
         // (the whole hand, as thick as it is long: its own joints' radii if this page tracks it, typical ones if not, all grown as much)
-        const S2 = M.model.scaleOf(m.pose, F), hx = m.mine ? (lastHandsXR.find((q) => q.id === s.id && q.jr) || null) : null;
+        const S2 = M.model.scaleOf(m.pose, F), hx = slot === null ? (lastHandsXR.find((q) => q.id === s.id && q.jr) || null) : null;
         const jp = new Float32Array(75), jr = new Float32Array(25).map((_, i) => (hx ? hx.jr[i] : RADII[i]) / S2);
-        s.joints.forEach((q, i) => { const p = M.model.fromModel(m.pose, F, q); jp[i * 3] = p[0]; jp[i * 3 + 1] = p[2] + space.floorY; jp[i * 3 + 2] = -p[1]; });
-        bigHands[n].update(jp, jr, m.mine ? 0xf2c14e : PLAYER_COLOURS[m.slot % PLAYER_COLOURS.length]);
+        s.joints.forEach((q, i) => { const p = ms.from(M.model.fromModel(m.pose, F, q)); jp[i * 3] = p[0]; jp[i * 3 + 1] = p[2] + space.floorY; jp[i * 3 + 2] = -p[1]; });
+        bigHands[n].update(jp, jr, slot === null ? 0xf2c14e : PLAYER_COLOURS[slot % PLAYER_COLOURS.length]);
         n++;
       }
     }
@@ -525,8 +546,24 @@ export async function createApp(o) {
     }
     for (const [key, q] of [...panelsAll]) if (!want.has(key)) { q.panel.dispose(); panelsAll.delete(key); }
   }
-  // the text windows (o.windows): this player's own. They hang on a wall like the viewer, and are moved along the walls by the bar under
-  // them (pinch) or a fist; with no wall to hang on (no room scan) they float and follow like the menu.
+  // the text windows (o.windows). They hang on a wall like the viewer, and are moved along the walls by the bar under them (pinch) or a
+  // fist, by anybody: where each hangs is the document's (winspot, common frame), the same for everybody (rule 1). With no wall to hang
+  // on (no room scan) they float and follow like the menu.
+  function putWin(w) {
+    const s = w.spot;
+    if (!s) return;
+    const c = space.ok ? space.toCommon([s.x, s.y, s.h]) : [s.x, s.y, s.h], yaw = space.ok ? space.yawToCommon(s.yaw) : s.yaw;
+    S.emit({ k: 'winspot', id: w.id, x: +c[0].toFixed(3), y: +c[1].toFixed(3), h: +c[2].toFixed(3), yaw: +yaw.toFixed(4) });
+    life(`window ${w.id} moved to (${s.x.toFixed(2)}, ${s.y.toFixed(2)}), ${s.h.toFixed(2)} m up`);
+  }
+  // the document's place of a window in this page's floor plan, taken when it (or this page's line-up) changes and no hand here moves it
+  function docWin(w) {
+    const d = S.doc.winspots && S.doc.winspots[w.id], sig = space.ok ? `${space.frame.x},${space.frame.y},${space.frame.yaw},${space.fz}` : '';
+    if (!d || (d === w.docAt && sig === w.docSig) || w.drag || [...fists.values()].some((f) => f.what === `win:${w.id}`)) return;
+    w.docAt = d; w.docSig = sig;
+    const p = space.ok ? space.fromCommon([d.x, d.y, d.h]) : [d.x, d.y, d.h];
+    w.spot = { x: p[0], y: p[1], h: p[2], yaw: space.ok ? space.yawFromCommon(d.yaw) : d.yaw };
+  }
   const hasWall = () => { const r = room.local(); return !!r && M.room.walls(r).length > 0; };
   function winPose(w) {
     if (w.spot && hasWall()) return { x: w.spot.x, y: w.spot.y, h: w.spot.h + space.floorY, yaw: w.spot.yaw, pitch: 0 };
@@ -550,6 +587,7 @@ export async function createApp(o) {
       if (!w.f.pose) { if (xr) w.f.snap(at); else w.f.set(w.d.desktop || { x: -0.4 + 0.5 * w.order, y: 0.4, h: 1.15, yaw: -1.3, pitch: 0.15 }); }
       if (!w.lay || now - w.layAt > 250) { w.lay = w.d.lay(app, now); w.layAt = now; w.redraw = true; }
       w.h = w.w * w.lay.h / w.lay.w;
+      if (hasWall()) docWin(w);
       if (!w.spot && hasWall()) w.spot = firstSpot(w);
       const pose = winPose(w);
       let handle = 'idle', busy = false;
@@ -561,7 +599,7 @@ export async function createApp(o) {
       }
       if (w.drag) {
         const h = handsXR.find((q) => q.id === w.drag.id);
-        if (!h || !h.pinch) w.drag = null;
+        if (!h || !h.pinch) { w.drag = null; if (w.spot && hasWall()) putWin(w); }
         else { moveWin(w, h.at[0] + w.drag.off[0], -h.at[2] + w.drag.off[2], h.at[1] + w.drag.off[1] - space.floorY); handle = 'held'; busy = true; }
       }
       if ([...fists.values()].some((f) => f.what === `win:${w.id}`)) { handle = 'held'; busy = true; }

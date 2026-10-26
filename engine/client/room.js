@@ -297,6 +297,11 @@
   }
   // the document's kind for where the viewer hangs (any page may move it; the last move stands): { k: 'wallspot', x, y, h, yaw } in the
   // common frame; createApp and a PC view add it to their session's kinds
+  // and where each text window of the app hangs (the same for everybody, any page may move one): { k: 'winspot', id, x, y, h, yaw }
+  const WIN_KIND = {
+    keep: (e) => ({ key: `winspot:${e.id}` }),
+    apply(S, e) { if (typeof e.id === 'string' && [e.x, e.y, e.h, e.yaw].every(Number.isFinite)) { S.doc.winspots = Object.assign({}, S.doc.winspots, { [e.id]: { x: e.x, y: e.y, h: e.h, yaw: e.yaw } }); S.notify('winspot', e); } },
+  };
   const SPOT_KIND = {
     keep: () => ({ key: 'wallspot' }),
     apply(S, e) { if ([e.x, e.y, e.h, e.yaw].every(Number.isFinite)) { S.doc.wallspot = { x: e.x, y: e.y, h: e.h, yaw: e.yaw }; S.notify('wallspot', S.doc.wallspot); } },
@@ -331,5 +336,5 @@
   const surfaces = (room) => (room ? prep(room).tops : []);
   const blocks = (room) => (room ? prep(room).blocks : []);
 
-  M.room = { Room, ACTIONS, fromXR, mapRoom, splitRooms, pickRooms, kind, support, ceiling, pushOut, cast, wallSpot, SPOT_KIND, walls, surfaces, blocks, TABLE_T, SOLID_MIN };
+  M.room = { Room, ACTIONS, fromXR, mapRoom, splitRooms, pickRooms, kind, support, ceiling, pushOut, cast, wallSpot, SPOT_KIND, WIN_KIND, walls, surfaces, blocks, TABLE_T, SOLID_MIN };
 })(typeof module !== 'undefined' ? (module.exports = require('./ns.js')) : (globalThis.MUMR = globalThis.MUMR || {}));

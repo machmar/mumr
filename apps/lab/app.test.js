@@ -181,3 +181,23 @@ test('boxes turn: one dropped from a height tumbles, one thrown at a stack toppl
   assert.ok(L.adapter(w2, 2, (s) => s, () => true).apply(data, { first: true }));
   assert.ok(Math.abs(w2.boxes[2].body.q[2] - Math.sin(0.35)) < 1e-4 && Math.abs(w2.boxes[2].body.w[1] - 2) < 1e-5, 'orientation and spin arrive');
 });
+
+test('the pile is shared: one packet carries every box, another page takes it in, and anybody\'s hand near any box asks for it', () => {
+  const w1 = new L.World(1), w2 = new L.World(10);
+  w1.layout('pile', 20, [0.5, 0]);
+  settle(w1, 0.5);
+  w1.boxes[7].body.q = M.physics.quat.fromAxisAngle([0, 0, 1], 0.4); w1.boxes[7].vx = 0.3;
+  const a1 = L.pileAdapter(w1, (s) => s, () => true), a2 = L.pileAdapter(w2, (s) => s, () => true);
+  const spec = M.wire.spec('labpile'), bytes = M.wire.encode('labpile', a1.pack(), 1), p = M.wire.decode(bytes);
+  assert.strictEqual(spec.token, 'pile');
+  assert.strictEqual(bytes.length, 6 + (1 + 20 * 14) * 4);
+  assert.ok(p && a2.apply(p.data, { first: true }));
+  assert.strictEqual(w2.boxes.length, 20, 'the other page has as many boxes as the holder');
+  w1.boxes.forEach((b, i) => assert.ok(Math.hypot(b.x - w2.boxes[i].x, b.y - w2.boxes[i].y, b.z - w2.boxes[i].z) < 1e-5, `box ${i} is where the holder has it`));
+  assert.ok(Math.abs(w2.boxes[7].body.q[2] - Math.sin(0.2)) < 1e-4 && Math.abs(w2.boxes[7].vx - 0.3) < 1e-5);
+  const b = w2.boxes[12];
+  assert.strictEqual(a2.reach([tip('h', b.x, b.y, b.z + L.HALF + 0.01)]), true, 'a hand at a box of the pile asks for it');
+  assert.strictEqual(a2.reach([tip('h', 5, 5, 1)]), false);
+  assert.strictEqual(L.pileAdapter(w2, (s) => s, () => false).reach([tip('h', b.x, b.y, b.z)]), false, 'not in another experiment');
+  assert.strictEqual(spec.unpack(new DataView(new Uint8Array(12).buffer)), null, 'a short packet is refused');
+});

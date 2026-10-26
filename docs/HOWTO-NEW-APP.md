@@ -1,5 +1,9 @@
 # Making a new MUMR app
 
+**Rule 1 ([ARCHITECTURE.md](ARCHITECTURE.md#rule-1-everything-is-shared-and-physical)): everything is shared and physical.** Whatever one
+player sees, every player sees in the same place; whatever one player can touch, every player can. No thing lives on one page only, not
+even in a test mode: a moving thing is a Body, a placed thing is in the Document, and geometry is worked out in the common frame.
+
 The quick way:
 
 ```bash

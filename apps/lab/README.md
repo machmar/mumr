@@ -15,15 +15,18 @@ node --test "apps/lab/*.test.js"
 | **island** | Two headsets. *Reset* builds a stack of 5 (each cube has its own token, today's rule). One player pushes the bottom, the other lifts the top. A cube's colour is the player who simulates it | every second something happened: token hand-overs, jumps of a cube (> 2 cm), stack together or BROKEN | this is the baseline: it shows today's failure. Phase 5's islands pass when the stack moves as one with no jumps |
 | **drift** | Mark a cross on the floor (a printed one). Line up, press *Start drift*, touch the cross with the index finger (rest it there 1.5 s) when the page says so: once a minute, ten times. Two players: both touch the same cross | every touch: mm from the first touch (dx, dy), the largest so far, and mm from the other player's touch of the same round; a missed round says so | under 2 cm after 10 minutes; if not, the anchor keeper needs a re-check timer (`engine/client/anchor.js`) |
 
-Pile cubes are not shared (every page simulates its own, as before phase 5). The island's are shared with a body each (packet types 17-21).
+Everything is shared (rule 1, [docs/ARCHITECTURE.md](../../docs/ARCHITECTURE.md)): the pile is one body under one token (packet type 22: every box, 14 numbers each), simulated by the page whose hand is on it; the island's boxes have a body each (packet types 17-21).
 
 ## The screens
 
 Three windows on the room's longest wall, side by side: the **hand window** (the engine's: every hand and its gesture), **Data** (the
 numbers of the running experiment, with the pass line) and **About** (what the experiment is for, what to try, what passes: the table
 above). Each is moved along the walls by its bar (pinch), by a fist on it, or in the room model (the menu's **Room model** button: the
-model is mainly for rearranging the windows). Data and About are this player's own; with no room scan they
-float and follow you like the menu. The menu's **Room model** button opens the room rearranger: move the cubes (or the viewer) in a
+model is mainly for rearranging the windows). Where each window hangs is shared (the document's `winspot`): every player sees the
+same Data and About windows on the same wall, and any player can move them. With no room scan they float and follow you like the menu.
+The room model is worked out in the common frame from the server's room, so a model is in the same place, with the same things in it,
+on every headset; every player can reach into anybody's model, and with **Show hand IRL** on (the model owner's) every hand in it is
+shown full size, in the same place for everybody. The menu's **Room model** button opens the room rearranger: move the cubes (or the viewer) in a
 small copy of the room; **Show hand IRL** shows your hand full size where it reaches in.
 
 ## What it is and is not
@@ -41,7 +44,7 @@ small copy of the room; **Show hand IRL** shows your hand full size where it rea
 
 | File | What it is |
 |---|---|
-| `mumr.json` | five bodies (`b1`..`b5`, packets 17-21) for the island |
+| `mumr.json` | the bodies: `b1`..`b5` (packets 17-21) for the island, `pile` (packet 22) for the pile |
 | `index.html` | the page |
 | `boxes.js` | the logic: `World` (boxes on the physics module), `Watch` (island numbers), `Drift`, `Perf`, the island's Body adapter, the menu. No THREE, no DOM |
 | `app.js` | `createApp`, the drawing, the log lines |

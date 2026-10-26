@@ -23,6 +23,19 @@
   // packets 17..21, one per island box (a token each, today's rule): the physics module's body packet (engine/client/physics.js, 56 bytes)
   const TYPES = Array.from({ length: ISLAND }, (_, i) => ({ type: FIRST_TYPE + i, name: `lab${i + 1}`, token: `b${i + 1}` }));
   for (const t of TYPES) M.physics.registerPacket(t);
+  // packet 22: the whole pile under one token (rule 1: every player sees and touches the same cubes). [n, then 14 numbers a box: the
+  // island packet's]; one holder simulates the heap with everybody's hands, the others follow
+  const BOX_N = 14, PILE = { type: FIRST_TYPE + ISLAND, name: 'labpile', token: 'pile' };
+  M.wire.register(Object.assign({}, PILE, {
+    pack: (s) => { const b = new Uint8Array(s.length * 4), d = new DataView(b.buffer); s.forEach((v, i) => d.setFloat32(i * 4, +v || 0, true)); return b; },
+    unpack: (d) => {
+      if (d.byteLength < 4 || d.byteLength % 4) return null;
+      const n = d.getFloat32(0, true);
+      if (!Number.isInteger(n) || n < 1 || n > MAX_BOXES || d.byteLength !== (1 + n * BOX_N) * 4) return null;
+      const s = []; for (let i = 0; i < 1 + n * BOX_N; i++) s.push(d.getFloat32(i * 4, true));
+      return s.every(Number.isFinite) ? s : null;
+    },
+  }));
 
   // One box: a body of the physics world with the fields the lab and its tests use as plain numbers.
   class Box {
@@ -146,25 +159,45 @@
   // The island box as a Body adapter (the same shape as the cube's). A World simulates in the COMMON frame (every page's boxes are then
   // turned the same way, whatever its line-up), so the state goes out as it is; `common(sources)` turns this page's hands (floor plan)
   // into it. `active()` says whether the island experiment is on (the boxes are not touched, or claimed, in the other modes).
+  const packBox = (q) => { const y = q.body; return [q.x, q.y, q.z, y.q[0], y.q[1], y.q[2], y.q[3], q.vx, q.vy, q.vz, y.w[0], y.w[1], y.w[2], q.held || q.steer ? 1 : 0]; };
+  // the holder's state of one box (s from index o): taken over, with what was drawn gliding to it unless it is far or the first
+  function applyBox(world, q, s, o, first) {
+    const y = q.body, was = world.drawn(q);
+    y.p = [s[o], s[o + 1], s[o + 2]]; y.q = [s[o + 3], s[o + 4], s[o + 5], s[o + 6]]; y.v = [s[o + 7], s[o + 8], s[o + 9]]; y.w = [s[o + 10], s[o + 11], s[o + 12]]; q.held = null; y.held = null;
+    world.pw.wake(y);
+    const far = first || Math.hypot(was.x - q.x, was.y - q.y, was.z - q.z) > 0.25;
+    q.off = far ? { x: 0, y: 0, z: 0 } : { x: was.x - q.x, y: was.y - q.y, z: was.z - q.z };
+    q.other = s[o + 13] > 0.5;
+  }
   function adapter(world, i, common, active) {
     const b = () => world.boxes[i], C = world.cfg;
     return {
       reach: (own) => active() && (!!b().steer || world.nearest(b(), common(own)) <= C.reach),            // (steered from this page's room model: it takes it)
       touching: (own) => active() && (!!b().steer || world.nearest(b(), common(own)) <= C.busy || (!!b().held && (own || []).some((s) => s.id === b().held.by))),
-      pack: () => { const q = b(), y = q.body; return [q.x, q.y, q.z, y.q[0], y.q[1], y.q[2], y.q[3], q.vx, q.vy, q.vz, y.w[0], y.w[1], y.w[2], q.held || q.steer ? 1 : 0]; },
-      apply: (s, info) => {
-        if (!active()) return false;
-        const q = b(), y = q.body, was = world.drawn(q);
-        y.p = [s[0], s[1], s[2]]; y.q = [s[3], s[4], s[5], s[6]]; y.v = [s[7], s[8], s[9]]; y.w = [s[10], s[11], s[12]]; q.held = null; y.held = null;
-        world.pw.wake(y);
-        const far = info.first || Math.hypot(was.x - q.x, was.y - q.y, was.z - q.z) > 0.25;
-        q.off = far ? { x: 0, y: 0, z: 0 } : { x: was.x - q.x, y: was.y - q.y, z: was.z - q.z };
-        q.other = s[13] > 0.5;
-        return true;
-      },
+      pack: () => packBox(b()),
+      apply: (s, info) => { if (!active()) return false; applyBox(world, b(), s, 0, info.first); return true; },
       settle: (mine) => { if (mine) b().other = false; },
       do: () => false,
       moving: () => world.isMoving(b()),
+    };
+  }
+  // The whole pile as one Body adapter: a hand of this page near any box (or a box steered from its room model) takes the token
+  function pileAdapter(world, common, active) {
+    const C = world.cfg, near = (own, lim) => { const h = common(own); return world.boxes.some((b) => !!b.steer || world.nearest(b, h) <= lim); };
+    return {
+      reach: (own) => active() && near(own, C.reach),
+      touching: (own) => active() && (near(own, C.busy) || world.boxes.some((b) => !!b.held && (own || []).some((s) => s.id === b.held.by))),
+      pack: () => [world.boxes.length].concat(...world.boxes.map(packBox)),
+      apply: (s, info) => {
+        if (!active()) return false;
+        const n = s[0];
+        if (world.boxes.length !== n) world.layout('grid', n);
+        world.boxes.forEach((q, i) => applyBox(world, q, s, 1 + i * BOX_N, info.first));
+        return true;
+      },
+      settle: (mine) => { if (mine) for (const b of world.boxes) b.other = false; },
+      do: () => false,
+      moving: () => world.movingCount() > 0,
     };
   }
 
@@ -304,7 +337,7 @@
     pile: ['## What it is for', 'How many boxes one headset can simulate before the frame time suffers. The answer says whether sleeping bodies (phase 5) are needed or only nice.',
       '## What to try', 'Pick 10, 20, 30 and 50 cubes with the Cubes button. Press Drop the pile. Poke the heap with a finger, pinch a cube, throw one at it. Leave it alone and see that it comes to rest.',
       '## What passes', 'Frame time p95 under 13.9 ms (72 Hz) at 30 cubes, and the pile comes to rest. The numbers are on the data window and in the log every 5 s.',
-      '## Note', 'The cubes are not shared: every page simulates its own pile.'],
+      '## Note', 'The cubes are shared: every player sees the same pile and can touch it. The page whose hand is on it simulates it for everybody.'],
     island: ['## What it is for', 'What happens to a stack when two players touch it at once. Today each cube has a token of its own and changes hands on touch. This run is the baseline: it shows today\'s failure so that phase 5 (one token for a touching group) has something to beat.',
       '## What to try', 'Two headsets, both lined up. Press Reset (builds a stack of 5). One player pushes the bottom cube while the other lifts the top one. A cube\'s colour is the player who simulates it.',
       '## What passes', 'Today: it will probably tear apart, which is the point. Phase 5 passes when the stack moves as one with no jumps. The data window counts hand-overs, jumps over 2 cm and whether the stack stayed together.'],
@@ -339,5 +372,5 @@
   }
   const dataLayout = (info) => textLayout('Data', dataLines(info), '', 62);
 
-  Object.assign(L, { SIZE, HALF, MAX_BOXES, ISLAND, TYPES, KINDS, World, adapter, commonSource, Watch, Drift, Perf, MODES, COUNTS, GAME, PLAYER, ACTIONS, press, menu, wrap, textLayout, description, dataLines, dataLayout, DESCRIPTION });
+  Object.assign(L, { SIZE, HALF, MAX_BOXES, ISLAND, TYPES, PILE, KINDS, World, adapter, pileAdapter, commonSource, Watch, Drift, Perf, MODES, COUNTS, GAME, PLAYER, ACTIONS, press, menu, wrap, textLayout, description, dataLines, dataLayout, DESCRIPTION });
 })(typeof module !== 'undefined' ? module.exports : (globalThis.LAB = {}));

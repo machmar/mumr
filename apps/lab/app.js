@@ -1,6 +1,6 @@
 // The MUMR lab: the experiments of docs/PLAN.md section 3.1 in one app, chosen on the menu (every player sees the same one).
-//   pile    N boxes simulated on this page alone (no sharing): drop them into a heap, poke it; frame time, simulation time and how many
-//           are moving go to the log every 5 s
+//   pile    N boxes, shared under one token (the page whose hand is on the heap simulates it for everybody): drop them into a heap,
+//           poke it; frame time, simulation time and how many are moving go to the log every 5 s
 //   island  a stack of 5 boxes, each with a token of its own (today's rule): one player pushes the bottom while the other lifts the top;
 //           once a second the log says the token hand-overs, the jumps of a box, and whether the stack stayed together
 //   drift   Start, then touch the printed cross with the index finger when asked (once a minute, ten times): the first touch is the
@@ -77,7 +77,8 @@ app = await createApp({
     { id: 'data', title: 'data window', w: 0.55, bearing: 0.55, dist: 0.85, desktop: { x: -0.5, y: 0.5, h: 1.2, yaw: -1.2, pitch: 0.15 }, lay: () => L.dataLayout(dataInfo()) },
     { id: 'about', title: 'about window', w: 0.62, bearing: 1.1, dist: 0.95, desktop: { x: -0.9, y: -0.3, h: 1.2, yaw: -0.5, pitch: 0.15 }, lay: () => L.description(mode) },
   ],
-  bodies: () => L.TYPES.map((t, i) => ({ token: t.token, type: t.name, adapter: L.adapter(island, i, (s) => common(s), () => mode === 'island') })),
+  bodies: () => L.TYPES.map((t, i) => ({ token: t.token, type: t.name, adapter: L.adapter(island, i, (s) => common(s), () => mode === 'island') }))
+    .concat([{ token: L.PILE.token, type: L.PILE.name, adapter: L.pileAdapter(pile, (s) => common(s), () => mode === 'pile') }]),
   setup: ({ world: floor, S, life }) => {
     const geo = new THREE.BoxGeometry(L.SIZE, L.SIZE, L.SIZE), edges = new THREE.EdgesGeometry(geo);
     for (let i = 0; i < L.MAX_BOXES; i++) {
@@ -97,8 +98,8 @@ app = await createApp({
     w.room = S.connected && app.space.ok ? (S.doc.room ? S.doc.room.data : null) : app.room.local();      // (the server's room is in the common frame; alone, the own scan is the plan)
     frameS = dt;
     if (m !== 'drift') w.step(dt, t, common(hands));
-    // a reset of the island: this page takes the boxes and the others follow what it sends
-    if (m === 'island' && now < claimUntil) for (const b of app.bodies) S.claim(b.token, now);
+    // a reset (or a dropped pile): this page takes the boxes and the others follow what it sends
+    if (m !== 'drift' && now < claimUntil) for (const b of app.bodies) if ((b.token === L.PILE.token) === (m === 'pile')) S.claim(b.token, now);
     const sim = performance.now() - t0;
     if (w.pw.lagged) lagFrames++;
     const r = perf.add(now, frameMs, sim);
@@ -118,11 +119,11 @@ app = await createApp({
   onAction: (id, from) => {
     const now = performance.now();
     if (id === 'reset') {
-      if (mode === 'pile') pile.layout('grid', count);
+      if (mode === 'pile') { pile.layout('grid', count); claimUntil = now + 1500; }
       else if (mode === 'island') { island.layout('stack', L.ISLAND, STACK_AT); claimUntil = now + 1500; Object.assign(tot, { handovers: 0, jumps: 0, worst: 0, broken: 0 }); }
       else drift.reset();
       app.say('Reset');
-    } else if (id === 'dropPile' && mode === 'pile') { pile.layout('pile', count, front()); app.say(`${count} cubes dropped`); }
+    } else if (id === 'dropPile' && mode === 'pile') { pile.layout('pile', count, front()); claimUntil = now + 1500; app.say(`${count} cubes dropped`); }
     else if (id === 'driftStart' && mode === 'drift') { drift.start(now / 1000); app.life(`drift: started by ${from === null ? 'this page' : `player ${from + 1}`}`); app.say('Drift started: touch the cross with the index finger'); }
   },
   draw: ({ S }) => {

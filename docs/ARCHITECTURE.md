@@ -2,8 +2,22 @@
 
 MUMR (multi-user mixed reality) is the shared-world part of Nudgy's mixed-reality app, made into an engine. Two to four people in one room
 wear headsets (Quest 3, Quest Pro: a WebXR `immersive-ar` page in the browser, nothing installed); a PC on the same network serves the
-pages and runs the hub; any number of PC pages may watch. Everything in the world is shared: every player sees it and every player can
-touch it.
+pages and runs the hub; any number of PC pages may watch.
+
+## Rule 1: everything is shared and physical
+
+**Every thing in the world is one thing for everybody, at all times, in every app and every mode (also tests, experiments and demos):**
+
+- If one player sees it, every player sees it, in the same real place, turned the same way.
+- If one player can touch, push, grab or move it, every player can, with their own hands.
+- Any hand (any player's) that is shown somewhere is shown in the same place on every headset.
+- Nothing is simulated or kept on one page only. A thing that moves is a **Body** (a token, its state sent by the holder); a thing
+  that is placed is in the **Document**; geometry that ties the two together (a room model, a window on a wall) is worked out in the
+  **common frame** from shared data, never from a page's own floor plan or own scan.
+
+There are no exceptions "for a quick test". A thing that is not shared yet is a bug, not a mode. (Marek, 2026-10-26, after the lab's
+pile was simulated per page and the room model was worked out in each page's own frame.) The only per-player things are what a person
+carries on their body and the others still see: their menu, their wrist card, their hands.
 
 ## 1. Three kinds of shared thing
 
