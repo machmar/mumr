@@ -10,6 +10,8 @@
 
 **Spec:** `docs/superpowers/specs/2026-10-26-physics-design.md` (the module). Part B's spec is still to be written (Task B0).
 
+**Rule 1 (CLAUDE.md) holds throughout:** everything is shared. Since `02dffe3` the lab's pile is one shared body (token `pile`, packet 22 with every box), simulated by the page whose hand is on it. So today one Quest simulates the whole heap for everybody, and Part B is what splits that work.
+
 ## Where we start (measured 2026-10-26, branch `physics`, Node on the dev PC)
 
 A heap dropped as `apps/lab/boxes.js` drops it (`layout('pile')`), stepped at 72 Hz for 4 s, with no room and no hands:
@@ -124,12 +126,12 @@ It answers these questions, with Marek's decisions marked as in the physics spec
 2. **Who simulates.** The host by default (the PC is several times faster and has no frame to keep). A Quest takes a group's token at once when a hand reaches it (today's rule: the toucher never waits) and gives it back when its hands have left and the group is still for 0.6 s (today's `restMs`).
 3. **The load cap.** Each page reports its simulation ms per frame (a number in its ping). The hub gives a Quest no more than a budget (a starting guess: 3 ms) and keeps the rest of a big group on the host: what splitting a group means for the bodies at the seam is the hard question here (they push across two machines).
 4. **Merging and splitting.** When a group held by one machine touches a group held by another, the hub gives the merged group to one of them (the toucher's first, then the host). The other's last state goes to it as the first packet. Pass: no jump over 2 cm (the lab's island watch).
-5. **The packet.** The host streams many bodies: one packet for a group (an entity list, `token` per packet) instead of 56 bytes per body, and nothing for sleeping bodies. Size and rate for 50 bodies over Wi-Fi.
+5. **The packet.** Packet 22 already carries a whole pile; it becomes one packet per group (an entity list, `token` per packet), with nothing for sleeping bodies. Size and rate for 50 bodies over Wi-Fi.
 6. **The host's physics.** The host runs the same `physics.js` and the same app module, so the host needs the room (it has it: the room is in the document) and everybody's hands (it has them: presence).
 
 ### Task B1: The host simulates everything nobody touches
 
-- [ ] The lab's pile on the host: `apps/lab/host.js` steps the World with everybody's hands and sends the bodies. Pages draw what they receive, and touching takes a body's token as today. Measure the host's step time and the network rate with `tools/standin.js` players.
+- [ ] The lab's pile on the host: `apps/lab/host.js` steps the World with everybody's hands and holds the `pile` token while nobody touches it (packet 22 as it is). Pages draw what they receive; a touch takes the token as today. Measure the host's step time and the network rate with `tools/standin.js` players (packet 22 is 4 + 56 bytes a box: 2.8 kB for 50 at 45/s).
 
 ### Task B2: Groups and their tokens in the hub
 
@@ -141,7 +143,7 @@ It answers these questions, with Marek's decisions marked as in the physics spec
 
 ### Task B4: The group packet
 
-- [ ] One packet per group, its token in the header (NOTES item 4), the hub's per-entry token check. `tools/stress.js` (PLAN 3.1): 4 players × 30 bodies, no queue growth, delay under 30 ms on localhost.
+- [ ] One packet per group (generalising the lab's packet 22), its token in the header (NOTES item 4), the hub's per-entry token check. `tools/stress.js` (PLAN 3.1): 4 players × 30 bodies, no queue growth, delay under 30 ms on localhost.
 
 ### Task B5: Two headsets
 
