@@ -28,10 +28,10 @@
 
   // size: full edge lengths. Inertia is the box's, in its own axes.
   let nextId = 0;
-  function makeBox({ size, density = 1050, restitution = 0.45, friction = { s: 0.45, k: 0.4 }, angularDamping = 0.05, rollingResistance = 0.02, p, q = [0, 0, 0, 1] } = {}) {
+  function makeBox({ size, density = 1050, restitution = 0.45, friction = { s: 0.45, k: 0.4 }, angularDamping = 0.05, rollingResistance = 0.02, sleep = {}, p, q = [0, 0, 0, 1] } = {}) {
     const [sx, sy, sz] = size, mass = density * sx * sy * sz;
     return { id: ++nextId, size: [sx, sy, sz], mass, inv: 1 / mass, inertia: [(mass / 12) * (sy * sy + sz * sz), (mass / 12) * (sx * sx + sz * sz), (mass / 12) * (sx * sx + sy * sy)],
-      p: (p || [0, 0, sz / 2]).slice(), q: q.slice(), v: [0, 0, 0], w: [0, 0, 0], restitution, friction: Object.assign({}, friction), angularDamping, rollingResistance, calm: 0, asleep: false, held: null };
+      p: (p || [0, 0, sz / 2]).slice(), q: q.slice(), v: [0, 0, 0], w: [0, 0, 0], restitution, friction: Object.assign({}, friction), angularDamping, rollingResistance, sleep: Object.assign({ v: SLEEP_V, w: SLEEP_W, after: SLEEP_AFTER }, sleep), calm: 0, asleep: false, held: null };
   }
   // the 8 corners in the world
   function corners(b) {
@@ -43,7 +43,7 @@
     return out;
   }
 
-  const MAX_DT = 0.05, MARGIN = 0.02, ITER = 12, ITER_PAIRS = 30, ROUND_BUDGET = 7000, MAX_MOVE = 0.005, SLOP = 0.0005, PEN_LIMIT = 0.06, REST_SPEED = 0.5, WARM_NEAR = 0.02, WAKE_V = 0.05, WAKE_W = 0.5, V_MAX = 30, W_MAX = 100, MAX_SUB = 64, HAND_MAX = 4, PLATE_DEPTH = 0.03, HOLD_W = 10, SLEEP_V = 0.01, SLEEP_W = 0.05, SLEEP_AFTER = 0.5, EDGE_STEP = 0.03, STATIC_SLIP = 0.02;
+  const MAX_DT = 0.05, MARGIN = 0.02, ITER = 12, ITER_PAIRS = 30, ROUND_BUDGET = 7000, MAX_MOVE = 0.005, SLOP = 0.0005, PEN_LIMIT = 0.06, REST_SPEED = 0.5, WARM_NEAR = 0.02, WAKE_V = 0.15, WAKE_W = 1.5, V_MAX = 30, W_MAX = 100, MAX_SUB = 64, HAND_MAX = 4, PLATE_DEPTH = 0.03, HOLD_W = 10, SLEEP_V = 0.01, SLEEP_W = 0.05, SLEEP_AFTER = 0.5, EDGE_STEP = 0.03, STATIC_SLIP = 0.02;
   const ZERO = [0, 0, 0];
   const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
   const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
@@ -80,6 +80,8 @@
     constructor(opts = {}) {
       this.gravity = opts.gravity === undefined ? 9.81 : opts.gravity;
       this.substep = opts.substep || 1 / 240;
+      this.maxMove = opts.maxMove || MAX_MOVE;     // m, the most a body moves in one substep (5 mm: a throw cannot pass a table top; a heap of boxes can have more)
+      this.rounds = opts.rounds || ITER;           // solver rounds per substep for one body on the room (boxes on boxes use more, up to ITER_PAIRS)
       this.room = opts.room || null;
       this.floor = opts.floor !== false;           // the floor at z = 0 (always there unless a test turns it off)
       this.planes = opts.planes || [];             // more half-spaces { n, d }: n . x + d >= 0 is free space (for tests of slopes)
@@ -131,7 +133,7 @@
       dt = Math.min(dt, MAX_DT);
       let fast = 0;
       for (const b of this.bodies) if (!b.asleep) { this._clean(b); fast = Math.max(fast, Math.hypot(...b.v) + Math.hypot(...b.w) * Math.hypot(...b.size) / 2); }
-      const n = Math.min(MAX_SUB, Math.max(1, Math.ceil(dt / this.substep - 1e-9), Math.ceil((dt * fast) / MAX_MOVE - 1e-9))), h = dt / n;
+      const n = Math.min(MAX_SUB, Math.max(1, Math.ceil(dt / this.substep - 1e-9), Math.ceil((dt * fast) / this.maxMove - 1e-9))), h = dt / n;
       const t0 = this.budgetMs ? Date.now() : 0;
       this.lagged = false;
       for (let i = 0; i < n; i++) { this._sub(h); if (this.budgetMs && Date.now() - t0 > this.budgetMs && i < n - 1) { this.lagged = true; break; } }
@@ -347,7 +349,7 @@
         best.used = true; c.J = best.J * (h / best.h); c.Jt = mulv(best.Jt, h / best.h);
         this._applyC(c, add(mulv(c.n, c.J), c.Jt));
       }
-      const rounds = pairs ? Math.max(ITER, Math.min(ITER_PAIRS, Math.round(ROUND_BUDGET / all.length))) : ITER;          // (a big heap gets fewer rounds each: its cost grows with both)
+      const rounds = pairs ? Math.max(this.rounds, Math.min(ITER_PAIRS, Math.round(ROUND_BUDGET / all.length))) : this.rounds;          // (a big heap gets fewer rounds each: its cost grows with both)
       for (let it = 0; it < rounds; it++) {
         for (let ci = 0; ci < all.length; ci++) {
           const c = all[it % 2 ? all.length - 1 - ci : ci], b = c.b;
@@ -382,7 +384,7 @@
       }
       for (const b of live) {
         b.p = add(b.p, fix.get(b));
-        if (!b.held && b._touch && Math.hypot(...b.v) < SLEEP_V && Math.hypot(...b.w) < SLEEP_W) { b.calm += h; if (b.calm >= SLEEP_AFTER) { b.asleep = true; b.v = [0, 0, 0]; b.w = [0, 0, 0]; } } else b.calm = 0;
+        if (!b.held && b._touch && Math.hypot(...b.v) < b.sleep.v && Math.hypot(...b.w) < b.sleep.w) { b.calm += h; if (b.calm >= b.sleep.after) { b.asleep = true; b.v = [0, 0, 0]; b.w = [0, 0, 0]; } } else b.calm = 0;
       }
     }
     _motor(b) {

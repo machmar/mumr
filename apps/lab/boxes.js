@@ -11,7 +11,11 @@
   const Q = M.physics.quat;
   const SIZE = 0.12, HALF = SIZE / 2, MAX_BOXES = 50, ISLAND = 5, FIRST_TYPE = 17;
   const CFG = { gravity: 9.81, touch: 0.012, grab: 0.03, grabFist: 0.08, spring: 20, holdSpeed: 5, breakAway: 0.3, closeNear: 0.05, reach: 0.06, busy: 0.02 };
-  const HAND_MAX = 4, FRAME_BUDGET_MS = 6;      // m/s; ms of physics a frame may take before the world runs slow for that frame
+  // The lab's boxes only touch each other and the room's big things, so its physics is coarser than the cube's (one substep per frame at 72 Hz, at
+  // most 2 cm of movement in one, 8 solver rounds, a frame runs slow when its physics has taken 6 ms): a heap of 50 cost 48 ms a frame at the cube's
+  // settings and 12 ms at these (Node), with no box inside another. Boxes sleep sooner, too.
+  const PHYSICS = { budgetMs: 6, substep: 1 / 72, maxMove: 0.02, rounds: 8 }, SLEEP = { v: 0.03, w: 0.3, after: 0.3 };
+  const HAND_MAX = 4;                           // m/s
   const pt = (s, name) => (s.points || []).find((p) => p.name === name);
   const sub = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
   const heading = (q) => { const r = Q.rotate(q, [1, 0, 0]); return Math.atan2(r[1], r[0]); };
@@ -23,7 +27,7 @@
   // One box: a body of the physics world with the fields the lab and its tests use as plain numbers.
   class Box {
     constructor(world, x, y, z) {
-      this.pw = world; this.body = M.physics.makeBox({ size: [SIZE, SIZE, SIZE], p: [x, y, z] }); world.add(this.body);
+      this.pw = world; this.body = M.physics.makeBox({ size: [SIZE, SIZE, SIZE], p: [x, y, z], sleep: SLEEP }); world.add(this.body);
       this.held = null;                    // { by: source id, kind, hold, fix, off } while a grip holds it
       this.steer = null;                   // [x, y, z]: where a hand in the room model wants it
       this.other = false;                  // held by another page (what the packet says)
@@ -42,7 +46,7 @@
     constructor(n) {
       this.grips = new M.grab.Grips();
       this.prev = new Map();               // source id + point -> [x, y, z, t]: the hands' speed
-      this.pw = new M.physics.World({ budgetMs: FRAME_BUDGET_MS });
+      this.pw = new M.physics.World(PHYSICS);
       this.free = new Map();               // source id -> time (s) until which its hand pushes nothing: it has just let go
       this.cfg = Object.assign({}, CFG);
       this.room = null;                    // room.js local(), or null: the floor only
