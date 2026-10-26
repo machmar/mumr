@@ -124,3 +124,39 @@ test('an owner\'s body: only its owner claims and keeps it', () => {
   cb.frame(500, []); hub.flush();
   assert.strictEqual(ca.mine, true);
 });
+
+test('policy host: while the host is here it holds the body and a page\'s touch does not take it; with no host the touch rules hold', () => {
+  const hub = new Hub({ bodies: ['puck'], owned: { 16: 'puck' } });
+  const mk = (S) => new M.body.Body(S, { token: 'puck', type: 'puck', policy: 'host', adapter: { reach: () => true, touching: () => true, pack: () => [0, 0, 0, 0], apply: () => true, settle: () => {}, do: () => true } });
+  const SA = new M.session.Session(hub.link('A'), {}), a = mk(SA);
+  hub.flush(); SA.setLined({ dist: 3 }); hub.flush();
+  const SH = new M.session.Session(hub.link('host', 'host'), {}), h = mk(SH);
+  hub.flush(); SH.setLined({ dist: 0, how: 'host' }); hub.flush();
+  for (let i = 0; i < 3; i++) { a.frame(1000 + i * 10, []); h.frame(1000 + i * 10, []); hub.flush(); }
+  assert.strictEqual(SA.holder('puck'), 15, 'the host holds it');
+  assert.strictEqual(a.hosted(), true, 'the page only shows it');
+  assert.strictEqual(h.hosted(), false, 'the host simulates it');
+  a.frame(1100, [hand(0, 0)]); hub.flush();
+  assert.strictEqual(SA.holder('puck'), 15, 'a touch on the page does not take it');
+  hub.leave(15); hub.flush();
+  assert.strictEqual(a.hosted(), false, 'no host: the page simulates');
+  a.frame(1200, [hand(0, 0)]); hub.flush();
+  assert.strictEqual(SA.holder('puck'), SA.me, 'and a touch takes it again');
+});
+
+test('presence: another player\'s hand speed comes from its own clock, smoothed, whenever its packets arrive; hands() carries it on', () => {
+  const { hub, a, b } = pair();
+  const send = (clock, x) => { b.S.link.sendBin(W.encode('presence', { head: [0, 0, 0, 1.6, 0], sources: [{ id: 'right', points: [{ name: 'index', x, y: 0, z: 0.1 }] }] }, clock)); };
+  // 0.5 m/s by B's clock, a packet every 22 ms; they arrive at A all at once (a late bunch) or not at all (one dropped)
+  for (let k = 0; k < 12; k++) { if (k !== 6) send(1000 + k * 22, k * 0.011); }
+  hub.flush();
+  const v = a.presence.players.get(b.S.me).sources[0].points[0].v;
+  assert.ok(Math.abs(v[0] - 0.5) < 0.05, `0.5 m/s whatever the arrival (${v[0].toFixed(3)})`);
+  const at = a.presence.players.get(b.S.me).at, h = a.presence.hands([], at + 20).find((s) => s.slot === b.S.me);
+  assert.ok(Math.abs(h.points[0].x - (11 * 0.011 + 0.5 * 0.02)) < 0.002, 'carried on 20 ms along its speed');
+  const late = a.presence.hands([], at + 400).find((s) => s.slot === b.S.me);
+  assert.ok(Math.abs(late.points[0].x - (11 * 0.011 + 0.5 * M.presence.PREDICT)) < 0.002, 'for at most PREDICT');
+  const r = a.presence.report(at), r2 = a.presence.report(at + 1000);
+  assert.ok(r.length === 1 && r[0].gap >= 43, `the gap of the dropped one is seen (${r[0].gap} ms)`);
+  assert.deepStrictEqual(r2, [], 'and it starts again');
+});

@@ -8,7 +8,9 @@
 //             (adapter.touching): the one who touches never waits for the network. Give the token to the server as one of its `bodies`
 //             so that somebody always simulates it.
 //   'owner'   one player's thing (opts.owner: a slot, or 'me' for this page's own): that page claims it and keeps it; others only ask
-//   (planned: 'host', a host page on the PC holds it at rest and a touch takes it: docs/PLAN.md)
+//   'host'    while the host (engine/client/host.js, on the PC) is here it holds the body ALL the time and simulates it with everybody's
+//             hands; the pages never claim it, they only show what it sends (hosted(): the app shows, it does not step). With no host
+//             it is 'touch'. (Marek, 2026-10-26: run all the simulations on the server at all times)
 //
 // The adapter is the app's (all in the common frame where it says so):
 //   reach(hands) -> bool          a hand of THIS page is near enough to ask for it
@@ -39,6 +41,8 @@
       S.on('keyframe', (t, data, from) => { if (t === this.token && this.a.takeKeyframe && !S.holds(t)) this.a.takeKeyframe(data, from); });
     }
     get mine() { return this.session.holds(this.token); }
+    // whether the host simulates it and this page only shows it
+    hosted() { const S = this.session; return this.policy === 'host' && S.connected && !S.isHost && S.hostHere; }
     _ownerSlot() { return this.owner === 'me' ? this.session.me : this.owner; }
     _token(mine) {
       this.guard = new M.wire.Guard();          // (the one that sends now has a clock of its own)
@@ -56,6 +60,11 @@
         const mineToOwn = this._ownerSlot() === S.me;
         if (mineToOwn && !S.holds(this.token) && S.claim(this.token, nowMs)) this.stats.claims++;
         S.setBusy(this.token, mineToOwn && S.holds(this.token));
+        return;
+      }
+      if (this.policy === 'host' && S.hostHere) {
+        if (S.isHost) { if (!S.holds(this.token) && S.claim(this.token, nowMs)) this.stats.claims++; S.setBusy(this.token, S.holds(this.token)); }
+        else if (S.holds(this.token)) { S.setBusy(this.token, false); S.release(this.token); }      // (held from before the host came: it goes to the host)
         return;
       }
       if (!S.sharing()) { S.setBusy(this.token, false); return; }
@@ -89,8 +98,19 @@
       if (!S.sharing() || S.holds(this.token) || p.slot !== S.holder(this.token)) return false;      // (not lined up: the common frame means nothing here yet)
       if (!this.guard.fresh(p.type, p.slot, p.clock)) { this.stats.old++; return false; }
       const ok = this.a.apply(p.data, { slot: p.slot, clock: p.clock, now: nowMs, first: this._first });
-      if (ok !== false) { this.stats.applied++; this._first = false; }
+      if (ok !== false) {
+        this.stats.applied++; this._first = false;
+        // how old it was on arrival (both clocks set to the server's: see presence.js), for report()
+        const mine = S.link && S.link.clockOffset, theirs = S.clocks.get(p.slot);
+        if (Number.isFinite(mine) && Number.isFinite(theirs)) (this._ages || (this._ages = [])).push(nowMs + mine - (p.clock + theirs));
+      }
       return ok !== false;
+    }
+    // what was taken in since the last call: { perSec, age: { mean, max } (ms) or null }; then it starts again
+    report(nowMs) {
+      const secs = this._repAt === undefined ? null : (nowMs - this._repAt) / 1000, n = this.stats.applied - (this._repN || 0), a = this._ages || [];
+      this._repAt = nowMs; this._repN = this.stats.applied; this._ages = [];
+      return { perSec: secs ? n / secs : null, age: a.length ? { mean: Math.round(a.reduce((x, y) => x + y, 0) / a.length), max: Math.round(Math.max(...a)) } : null };
     }
     // Something to be done to the body on behalf of this page (args in the common frame): shared, it goes to the holder as an event;
     // alone, or held here, it is done at once. Says which.

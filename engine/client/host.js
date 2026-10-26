@@ -42,10 +42,13 @@ const app = require(path.resolve(modPath));
     if (p.name === 'presence') presence.receive(p, now);
     else { for (const body of bodies) body.receive(p, now); if (world.receive) world.receive(p, now); }
   };
-  let last = performance.now();
+  let last = performance.now(), netAt = performance.now();
+  const who = (s) => `player ${s + 1}`;
   setInterval(() => {
     const now = performance.now(), dt = Math.min(0.05, (now - last) / 1000); last = now;
     session.tick(now);
+    // every 5 s: the players' hand packets as the host gets them (how many a second, the longest gap, how old)
+    if (now - netAt > 5000) { netAt = now; life(M.presence.netLine(link.rtt, presence.report(now), [], who)); }
     for (const body of bodies) body.frame(now, []);
     world.step(dt, now / 1000, presence.hands([], now));
     for (const body of bodies) body.send(now);

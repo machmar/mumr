@@ -2,5 +2,6 @@
   "title": "MUMR lab",
   "index": "index.html",
   "bodies": ["b1", "b2", "b3", "b4", "b5", "pile"],
-  "owned": { "17": "b1", "18": "b2", "19": "b3", "20": "b4", "21": "b5", "22": "pile" }
+  "owned": { "17": "b1", "18": "b2", "19": "b3", "20": "b4", "21": "b5", "22": "pile" },
+  "host": "host.js"
 }

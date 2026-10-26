@@ -15,7 +15,15 @@ node --test "apps/lab/*.test.js"
 | **island** | Two headsets. *Reset* builds a stack of 5 (each cube has its own token, today's rule). One player pushes the bottom, the other lifts the top. A cube's colour is the player who simulates it | every second something happened: token hand-overs, jumps of a cube (> 2 cm), stack together or BROKEN | this is the baseline: it shows today's failure. Phase 5's islands pass when the stack moves as one with no jumps |
 | **drift** | Mark a cross on the floor (a printed one). Line up, press *Start drift*, touch the cross with the index finger (rest it there 1.5 s) when the page says so: once a minute, ten times. Two players: both touch the same cross | every touch: mm from the first touch (dx, dy), the largest so far, and mm from the other player's touch of the same round; a missed round says so | under 2 cm after 10 minutes; if not, the anchor keeper needs a re-check timer (`engine/client/anchor.js`) |
 
-Everything is shared (rule 1, [docs/ARCHITECTURE.md](../../docs/ARCHITECTURE.md)): the pile is one body under one token (packet type 22: every box, 14 numbers each), simulated by the page whose hand is on it; the island's boxes have a body each (packet types 17-21).
+Everything is shared (rule 1, [docs/ARCHITECTURE.md](../../docs/ARCHITECTURE.md)): the pile is one body under one token (packet type 22: every box, 14 numbers each); the island's boxes have a body each (packet types 17-21).
+
+**The physics runs on the PC.** The server starts the lab's host (`host.js`, run by `engine/client/host.js`) and it simulates the pile and the island all the time with everybody's hands (body policy `host`). The headsets only show what it sends: the boxes that move go out 45 times a second, those at rest 4 times a second, and a headset draws every box 50 ms behind, blended between the two packets around then (`World.show`). Reset, Drop the pile and a box moved in a room model go to the host as requests. The host writes `lab host: ...` lines to the log every 5 s (time per step, how many hands it got). With no host (no Node on the PC, or `--no-host`) the page whose hand is on the boxes simulates them, as before.
+
+**Light hands:** to the physics a hand is 6 shapes: a 1.2 cm ball on each fingertip and a 2.5 cm pill across the palm, from the wrist side to the knuckles (`physics.handLite`), not a ball on every joint.
+
+**A hand's speed** is worked out from its own headset's clock (every packet carries it), smoothed over 40 ms, and between packets the host carries the hand on along it for at most 50 ms (`presence.js`). The physics pushes with that speed, so a late or a dropped packet no longer makes a hand look still and then fast (the 2026-10-26 run: about 1 hand packet in 10 was dropped on the way to the host, a slow push stalled and a quick hit launched).
+
+**The network in the log:** every 5 s each headset and the host write a `net:` line: the round trip to the server; for each other player how many hand packets a second came, the longest gap between two and how old they were on arrival (mean/most, both clocks set to the server's); and on a headset the same for the boxes from the host.
 
 ## The screens
 
@@ -48,4 +56,5 @@ small copy of the room; **Show hand IRL** shows your hand full size where it rea
 | `index.html` | the page |
 | `boxes.js` | the logic: `World` (boxes on the physics module), `Watch` (island numbers), `Drift`, `Perf`, the island's Body adapter, the menu. No THREE, no DOM |
 | `app.js` | `createApp`, the drawing, the log lines |
+| `host.js` | the host module: the pile and the island simulated on the PC |
 | `app.test.js` | the logic in Node, with two pretend headsets |

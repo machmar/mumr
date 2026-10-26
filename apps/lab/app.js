@@ -1,11 +1,12 @@
 // The MUMR lab: the experiments of docs/PLAN.md section 3.1 in one app, chosen on the menu (every player sees the same one).
-//   pile    N boxes, shared under one token (the page whose hand is on the heap simulates it for everybody): drop them into a heap,
-//           poke it; frame time, simulation time and how many are moving go to the log every 5 s
+//   pile    N boxes, shared under one token: drop them into a heap, poke it; frame time, simulation time and how many are moving go to the log every 5 s
 //   island  a stack of 5 boxes, each with a token of its own (today's rule): one player pushes the bottom while the other lifts the top;
 //           once a second the log says the token hand-overs, the jumps of a box, and whether the stack stayed together
 //   drift   Start, then touch the printed cross with the index finger when asked (once a minute, ten times): the first touch is the
 //           cross, the others are measured against it (and against the other player's touch of the same round)
 // All three simulate in the common frame (boxes.js), so every page's boxes are turned the same way whatever its line-up.
+// The host (host.js, on the PC) simulates the pile and the island all the time with everybody's hands; a page only shows what it sends
+// (World.show: 50 ms behind, between two packets). With no host the page whose hand is on them simulates them (the bodies' 'touch' rules).
 //   node tools/run.js lab                    headsets: https://<PC>:8443/
 //   node tools/run.js lab --http             two tabs: /?name=A&frame=0,0,0 and /?name=B&frame=1,0.5,40   (add &room=demo for a room)
 import * as THREE from 'three';
@@ -24,6 +25,10 @@ const common = (sources) => (app.space.ok ? sources.map((s) => L.commonSource(s,
 const toPlan = (p) => (app.space.ok ? app.space.fromCommon(p) : p);
 const front = () => { const h = app.head(), c = [h[0] + Math.cos(h[2]) * 0.7, h[1] + Math.sin(h[2]) * 0.7]; return app.space.ok ? app.space.toCommon(c) : c; };
 const world = () => (mode === 'island' ? island : pile);
+// the body of a box (pile: the one body; island: the box's own), and whether the host simulates it
+const bodyOf = (i) => (mode === 'pile' ? app.bodies.find((b) => b.token === L.PILE.token) : app.bodies.find((b) => b.token === L.TYPES[i].token)) || null;
+const hosted = () => { const b = bodyOf(0); return !!b && b.hosted(); };
+let steerSent = 0;
 
 // what the data window shows
 function dataInfo() {
@@ -68,7 +73,13 @@ app = await createApp({
         const d = w.drawn(b), p = toPlan([d.x, d.y, d.z]);
         // moved in the model, a cube is held by the hand there: this page takes it and it follows, and falls where it is let go
         return { id: `box${i}`, label: `cube ${i + 1}`, kind: 'box', at: p, yaw, size: [L.SIZE], colour: 0xe8a33d,
-          drag: (phase, at) => { b.steer = phase === 'drop' ? null : app.space.ok ? app.space.toCommon(at) : at; } };
+          drag: (phase, at) => {
+            const c = phase === 'drop' ? null : app.space.ok ? app.space.toCommon(at) : at;
+            if (!hosted()) { b.steer = c; return; }
+            const now = performance.now();                                 // (the host moves it: 20 words a second, and always the drop)
+            if (c && phase !== 'start' && now - steerSent < 50) return;
+            steerSent = now; bodyOf(i).ask('steer', { i, at: c });
+          } };
       });
     },
   },
@@ -77,8 +88,8 @@ app = await createApp({
     { id: 'data', title: 'data window', w: 0.55, bearing: 0.55, dist: 0.85, desktop: { x: -0.5, y: 0.5, h: 1.2, yaw: -1.2, pitch: 0.15 }, lay: () => L.dataLayout(dataInfo()) },
     { id: 'about', title: 'about window', w: 0.62, bearing: 1.1, dist: 0.95, desktop: { x: -0.9, y: -0.3, h: 1.2, yaw: -0.5, pitch: 0.15 }, lay: () => L.description(mode) },
   ],
-  bodies: () => L.TYPES.map((t, i) => ({ token: t.token, type: t.name, adapter: L.adapter(island, i, (s) => common(s), () => mode === 'island') }))
-    .concat([{ token: L.PILE.token, type: L.PILE.name, adapter: L.pileAdapter(pile, (s) => common(s), () => mode === 'pile') }]),
+  bodies: () => L.TYPES.map((t, i) => ({ token: t.token, type: t.name, policy: 'host', adapter: L.adapter(island, i, (s) => common(s), () => mode === 'island') }))
+    .concat([{ token: L.PILE.token, type: L.PILE.name, policy: 'host', adapter: L.pileAdapter(pile, (s) => common(s), () => mode === 'pile') }]),
   setup: ({ world: floor, S, life }) => {
     const geo = new THREE.BoxGeometry(L.SIZE, L.SIZE, L.SIZE), edges = new THREE.EdgesGeometry(geo);
     for (let i = 0; i < L.MAX_BOXES; i++) {
@@ -97,9 +108,10 @@ app = await createApp({
     const w = world(), t0 = performance.now();
     w.room = S.connected && app.space.ok ? (S.doc.room ? S.doc.room.data : null) : app.room.local();      // (the server's room is in the common frame; alone, the own scan is the plan)
     frameS = dt;
-    if (m !== 'drift') w.step(dt, t, common(hands));
-    // a reset (or a dropped pile): this page takes the boxes and the others follow what it sends
-    if (m !== 'drift' && now < claimUntil) for (const b of app.bodies) if ((b.token === L.PILE.token) === (m === 'pile')) S.claim(b.token, now);
+    pile.smooth = island.smooth = hosted();
+    if (m !== 'drift') { if (w.smooth) w.show(now); else w.step(dt, t, common(hands)); }
+    // a reset (or a dropped pile) with no host: this page takes the boxes and the others follow what it sends
+    if (m !== 'drift' && now < claimUntil && !hosted()) for (const b of app.bodies) if ((b.token === L.PILE.token) === (m === 'pile')) S.claim(b.token, now);
     const sim = performance.now() - t0;
     if (w.pw.lagged) lagFrames++;
     const r = perf.add(now, frameMs, sim);
@@ -119,11 +131,11 @@ app = await createApp({
   onAction: (id, from) => {
     const now = performance.now();
     if (id === 'reset') {
-      if (mode === 'pile') { pile.layout('grid', count); claimUntil = now + 1500; }
-      else if (mode === 'island') { island.layout('stack', L.ISLAND, STACK_AT); claimUntil = now + 1500; Object.assign(tot, { handovers: 0, jumps: 0, worst: 0, broken: 0 }); }
+      if (mode === 'pile') { if (hosted()) bodyOf(0).ask('layout', { kind: 'grid', n: count }); else { pile.layout('grid', count); claimUntil = now + 1500; } }
+      else if (mode === 'island') { if (hosted()) bodyOf(0).ask('layout', { kind: 'stack', n: L.ISLAND, at: STACK_AT }); else { island.layout('stack', L.ISLAND, STACK_AT); claimUntil = now + 1500; } Object.assign(tot, { handovers: 0, jumps: 0, worst: 0, broken: 0 }); }
       else drift.reset();
       app.say('Reset');
-    } else if (id === 'dropPile' && mode === 'pile') { pile.layout('pile', count, front()); claimUntil = now + 1500; app.say(`${count} cubes dropped`); }
+    } else if (id === 'dropPile' && mode === 'pile') { if (hosted()) bodyOf(0).ask('layout', { kind: 'pile', n: count, at: front() }); else { pile.layout('pile', count, front()); claimUntil = now + 1500; } app.say(`${count} cubes dropped`); }
     else if (id === 'driftStart' && mode === 'drift') { drift.start(now / 1000); app.life(`drift: started by ${from === null ? 'this page' : `player ${from + 1}`}`); app.say('Drift started: touch the cross with the index finger'); }
   },
   draw: ({ S }) => {

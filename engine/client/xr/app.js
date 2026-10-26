@@ -228,7 +228,7 @@ export async function createApp(o) {
   }
 
   // ---- every frame
-  let head = [0, 0, 0, 1.6, 0], redrawAt = 0, drag = null, statusAt = 0, headLogAt = 0;
+  let head = [0, 0, 0, 1.6, 0], redrawAt = 0, drag = null, statusAt = 0, headLogAt = 0, netAt = 0;
   const handPinch = new Map(), v3 = new THREE.Vector3(), planeState = {};
   function readHead(frame) {
     if (frame && xr) {
@@ -302,6 +302,8 @@ export async function createApp(o) {
     if (!xr) controls.update();
     renderer.render(scene, camera);
     if (now - statusAt > 300) status(now);
+    // every 5 s the network in the log: round trip, the other players' hand packets and the bodies' (rate, gaps, age)
+    if (S.connected && now - netAt > 5000) { netAt = now; life(M.presence.netLine(link.rtt, presence.report(now), bodies.filter((b) => !S.holds(b.token)).map((b) => ({ token: b.token, from: ownerText(S.holder(b.token)), r: b.report(now) })), (s) => ownerText(s))); }
   }
   // ---- the fist moves things (Marek, 2026-10-23: by default a full fist anywhere on something that can be moved moves the whole of
   // it): this player's room model, its menu, the viewer (along the walls). A hand whose fist took one of them holds nothing else: its

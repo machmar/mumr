@@ -190,7 +190,9 @@ test('the pile is shared: one packet carries every box, another page takes it in
   const a1 = L.pileAdapter(w1, (s) => s, () => true), a2 = L.pileAdapter(w2, (s) => s, () => true);
   const spec = M.wire.spec('labpile'), bytes = M.wire.encode('labpile', a1.pack(), 1), p = M.wire.decode(bytes);
   assert.strictEqual(spec.token, 'pile');
-  assert.strictEqual(bytes.length, 6 + (1 + 20 * 14) * 4);
+  assert.strictEqual(bytes.length, 6 + (1 + 20 * 15) * 4, 'the first packet has every box (none has gone out yet)');
+  const again = a1.pack();
+  assert.strictEqual((again.length - 1) / 15, w1.boxes.filter((q) => w1.isMoving(q)).length, 'the next one only the boxes that move');
   assert.ok(p && a2.apply(p.data, { first: true }));
   assert.strictEqual(w2.boxes.length, 20, 'the other page has as many boxes as the holder');
   w1.boxes.forEach((b, i) => assert.ok(Math.hypot(b.x - w2.boxes[i].x, b.y - w2.boxes[i].y, b.z - w2.boxes[i].z) < 1e-5, `box ${i} is where the holder has it`));
@@ -200,4 +202,48 @@ test('the pile is shared: one packet carries every box, another page takes it in
   assert.strictEqual(a2.reach([tip('h', 5, 5, 1)]), false);
   assert.strictEqual(L.pileAdapter(w2, (s) => s, () => false).reach([tip('h', b.x, b.y, b.z)]), false, 'not in another experiment');
   assert.strictEqual(spec.unpack(new DataView(new Uint8Array(12).buffer)), null, 'a short packet is refused');
+});
+
+test('a page the host feeds draws the boxes 50 ms behind, between two packets, and the requests reach the holder\'s world', () => {
+  const host = new L.World(10), page = new L.World(10), hp = L.pileAdapter(host, (q) => q, () => true), a = L.pileAdapter(page, (q) => q, () => true);
+  page.smooth = true;
+  // the host's clock is 1000 ms behind ours; packets take 20 ms, one of them 60 ms (late)
+  const send = (hostMs, transit, first) => a.apply(hp.pack(), { clock: hostMs, now: hostMs + 1000 + transit, first: !!first });
+  host.boxes[3].x = 0; host.boxes[3].vx = 0; send(0, 20, true);
+  host.boxes[3].x = 0.1; host.boxes[3].vx = 1; send(100, 20);
+  host.boxes[3].x = 0.2; send(200, 60);
+  page.show(1000 + 20 + 150 + 50);                                // (the host's 150 ms in ours (the quickest packet took 20 ms), drawn 50 ms behind)
+  assert.ok(Math.abs(page.boxes[3].x - 0.15) < 1e-6, `between the packets: x ${page.boxes[3].x}`);
+  assert.strictEqual(page.boxes[0].body.asleep, true, 'a box at rest at the host is at rest here');
+  page.show(1000 + 20 + 230 + 50);
+  assert.ok(Math.abs(page.boxes[3].x - 0.23) < 1e-6, `past the newest packet it goes on along its speed: x ${page.boxes[3].x}`);
+  assert.strictEqual(page.movingCount(), 1, 'only the moving one counts as moving');
+  // requests (body.ask) to the holder: steer a box, lay them out again
+  const h = L.pileAdapter(host, (q) => q, () => true);
+  assert.ok(h.do('steer', { i: 2, at: [1, 1, 0.3] }));
+  assert.deepStrictEqual(host.boxes[2].steer, [1, 1, 0.3]);
+  for (let i = 0; i < 72; i++) host.step(1 / 72, i / 72, []);
+  assert.ok(Math.hypot(host.boxes[2].x - 1, host.boxes[2].y - 1) < 0.05, 'the steered box went there');
+  h.do('steer', { i: 2, at: null });
+  assert.strictEqual(host.boxes[2].steer, null, 'and let go');
+  h.do('steer', { i: 2, at: [0, 0, 0.3] }); host.boxes[2].steerAt = Date.now() - 1000; host.step(1 / 72, 2, []);
+  assert.strictEqual(host.boxes[2].steer, null, 'a steer with no word for half a second ends (its drop was lost)');
+  assert.ok(h.do('layout', { kind: 'pile', n: 20, at: [0.4, 0.1] }));
+  assert.strictEqual(host.boxes.length, 20);
+  assert.strictEqual(h.do('layout', { kind: 'nonsense', n: 5 }), false);
+});
+
+test('the lab\'s hands are light: six shapes a tracked hand', () => {
+  const w = new L.World(1), j = Array.from({ length: 25 }, () => [5, 5, 1]);
+  w.step(1 / 72, 0, [{ id: 'h', joints: j, points: [] }]);
+  assert.strictEqual(w.pw.kin.spheres.length, 6);
+});
+
+test('a box at rest is still sent now and then: the newest state of every box reaches a page within REST_EVERY', () => {
+  const w = new L.World(5), a = L.pileAdapter(w, (q) => q, () => true);
+  for (const b of w.boxes) b.body.asleep = true;
+  a.pack();
+  for (const b of w.boxes) b.sentAt = Date.now() - 1000;
+  assert.strictEqual((a.pack().length - 1) / 15, 5);
+  assert.strictEqual(a.pack().length, 1, 'right after, nothing at rest goes again');
 });

@@ -10,12 +10,15 @@
   const M = typeof module !== 'undefined' ? require('../../engine/client/index.js') : globalThis.MUMR;
   const Q = M.physics.quat;
   const SIZE = 0.12, HALF = SIZE / 2, MAX_BOXES = 50, ISLAND = 5, FIRST_TYPE = 17;
-  const CFG = { gravity: 9.81, touch: 0.012, grab: 0.03, grabFist: 0.08, spring: 20, holdSpeed: 5, breakAway: 0.3, closeNear: 0.05, reach: 0.06, busy: 0.02 };
+  const CFG = { gravity: 9.81, touch: 0.012, palm: 0.025, grab: 0.03, grabFist: 0.08, spring: 20, holdSpeed: 5, breakAway: 0.3, closeNear: 0.05, reach: 0.06, busy: 0.02 };
   // The lab's boxes only touch each other and the room's big things, so its physics is coarser than the cube's (one substep per frame at 72 Hz, at
   // most 2 cm of movement in one, 8 solver rounds, a frame runs slow when its physics has taken 6 ms): a heap of 50 cost 48 ms a frame at the cube's
   // settings and 12 ms at these (Node), with no box inside another. Boxes sleep sooner, too.
   const PHYSICS = { budgetMs: 6, substep: 1 / 72, maxMove: 0.02, rounds: 8 }, SLEEP = { v: 0.03, w: 0.3, after: 0.3 };
   const HAND_MAX = 4;                           // m/s
+  const SHOW_DELAY = 50;                        // ms: a page that shows the host's boxes draws them this long ago, between two packets
+  // a hand's own speed (presence.js gives the other players' hands one, from their headset's clock): the mean of its thumb and index tips, or null
+  const handSpeed = (s) => { const v = ((s && s.points) || []).filter((p) => (p.name === 'thumb' || p.name === 'index') && p.v).map((p) => p.v); return v.length ? [0, 1, 2].map((i) => v.reduce((a, q) => a + q[i], 0) / v.length) : null; };
   const pt = (s, name) => (s.points || []).find((p) => p.name === name);
   const sub = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
   const heading = (q) => { const r = Q.rotate(q, [1, 0, 0]); return Math.atan2(r[1], r[0]); };
@@ -23,16 +26,18 @@
   // packets 17..21, one per island box (a token each, today's rule): the physics module's body packet (engine/client/physics.js, 56 bytes)
   const TYPES = Array.from({ length: ISLAND }, (_, i) => ({ type: FIRST_TYPE + i, name: `lab${i + 1}`, token: `b${i + 1}` }));
   for (const t of TYPES) M.physics.registerPacket(t);
-  // packet 22: the whole pile under one token (rule 1: every player sees and touches the same cubes). [n, then 14 numbers a box: the
-  // island packet's]; one holder simulates the heap with everybody's hands, the others follow
-  const BOX_N = 14, PILE = { type: FIRST_TYPE + ISLAND, name: 'labpile', token: 'pile' };
+  // packet 22: the whole pile under one token (rule 1: every player sees and touches the same cubes). [n (how many boxes there are), then
+  // for each box in this packet its index and 14 numbers (the island packet's)]. Only the boxes that move go out each time; one at rest
+  // goes out every REST_EVERY ms (Marek's run, 2026-10-26: all 50 boxes 45 times a second was more than a Quest Pro took in).
+  const BOX_N = 14, REST_EVERY = 250, PILE = { type: FIRST_TYPE + ISLAND, name: 'labpile', token: 'pile' };
   M.wire.register(Object.assign({}, PILE, {
     pack: (s) => { const b = new Uint8Array(s.length * 4), d = new DataView(b.buffer); s.forEach((v, i) => d.setFloat32(i * 4, +v || 0, true)); return b; },
     unpack: (d) => {
       if (d.byteLength < 4 || d.byteLength % 4) return null;
-      const n = d.getFloat32(0, true);
-      if (!Number.isInteger(n) || n < 1 || n > MAX_BOXES || d.byteLength !== (1 + n * BOX_N) * 4) return null;
-      const s = []; for (let i = 0; i < 1 + n * BOX_N; i++) s.push(d.getFloat32(i * 4, true));
+      const n = d.getFloat32(0, true), len = d.byteLength / 4;
+      if (!Number.isInteger(n) || n < 1 || n > MAX_BOXES || (len - 1) % (BOX_N + 1) || (len - 1) / (BOX_N + 1) > n) return null;
+      const s = []; for (let i = 0; i < len; i++) s.push(d.getFloat32(i * 4, true));
+      for (let o = 1; o < len; o += BOX_N + 1) if (!Number.isInteger(s[o]) || s[o] < 0 || s[o] >= n) return null;
       return s.every(Number.isFinite) ? s : null;
     },
   }));
@@ -64,6 +69,8 @@
       this.cfg = Object.assign({}, CFG);
       this.room = null;                    // room.js local(), or null: the floor only
       this.boxes = [];
+      this.smooth = false;                 // a page that only shows the host's boxes: feed() and show() instead of step() (see below)
+      this.clk = { cur: null, prev: null, at: 0 };
       this.layout('grid', n);
     }
     // 'grid': n boxes in rows on the floor (from `at`); 'stack': a tower; 'pile': a heap of boxes dropped around `at`
@@ -79,6 +86,7 @@
         return new Box(this.pw, x, y, z);
       });
       this.prev.clear(); this.free.clear();
+      for (const b of this.boxes) b.buf = [];
     }
     // how far a point is from a box's surface (0 inside)
     dist(b, x, y, z) {
@@ -123,7 +131,9 @@
           pw.wake(best.body);
         }
       }
-      // what is held, or steered from the room model (b.steer: [x, y, z]), follows its target as a motor; the rest is let go (and keeps its speed)
+      // what is held, or steered from the room model (b.steer: [x, y, z]), follows its target as a motor; the rest is let go (and keeps its speed).
+      // (a steer that came from another page, b.steerAt, ends when no word on it has come for half a second: its drop was lost)
+      for (const b of B) if (b.steerAt && Date.now() - b.steerAt > 500) { b.steer = null; b.steerAt = 0; }
       const holding = new Set();
       for (const b of B) {
         if (!b.held && !b.steer) { if (b.body.held) pw.release(b.body); continue; }
@@ -131,7 +141,8 @@
         if (b.held) {
           const g = grips.find((q) => q.id === b.held.by), H = b.held, hq = H.hold ? M.physics.handQuat((sources || []).find((s) => s.id === g.id)) : null;
           const o = hq ? Q.rotate(hq, H.hold.loff) : H.off;
-          target = { p: [g.at[0] + o[0], g.at[1] + o[1], g.at[2] + o[2]], q: hq ? Q.mul(hq, H.hold.qoff) : H.fix, v: this._vel(`${g.id}:hold`, g.at, t) };
+          const own = handSpeed((sources || []).find((s) => s.id === g.id)), v = this._vel(`${g.id}:hold`, g.at, t);
+          target = { p: [g.at[0] + o[0], g.at[1] + o[1], g.at[2] + o[2]], q: hq ? Q.mul(hq, H.hold.qoff) : H.fix, v: own || v };
           holding.add(H.by);
         } else target = { p: b.steer.slice(), q: b.body.q.slice() };
         if (pw.hold(b.body, target, { spring: C.spring, speed: C.holdSpeed, breakAway: b.held ? C.breakAway : Infinity }) === 'released' && b.held) { this.free.set(b.held.by, t + 0.3); b.held = null; }
@@ -141,7 +152,7 @@
       for (const s of sources || []) {
         if (s.foot) continue;
         const quiet = holding.has(s.id) || (this.free.get(s.id) || 0) > t || B.some((b) => this._closing(b, s));
-        hands.push({ id: s.id, spheres: quiet ? [] : M.physics.handSpheres(s, C.touch), plate: null });
+        hands.push({ id: s.id, spheres: quiet ? [] : M.physics.handLite(s, C.touch, C.palm), plate: null });
       }
       pw.setHands(hands, t);
       pw.step(dt);
@@ -151,7 +162,45 @@
         if (Math.hypot(b.x, b.y) > 8) { b.x = 0.5; b.y = 0; b.z = HALF; b.body.v = [0, 0, 0]; b.body.w = [0, 0, 0]; b.body.q = [0, 0, 0, 1]; b.held = null; }
       }
     }
-    isMoving(b) { return !!b.held || !!b.steer || !b.body.asleep; }
+    // A page that only shows what the host simulates (this.smooth): each box's states are kept with the time they were taken (the host's
+    // clock, turned into ours), and show() draws every box as it was SHOW_DELAY ms ago, between the two states around then (position and
+    // speed blended, the turn slerped); past the newest one it goes on along that one's speed (for at most 100 ms).
+    // The host's clock in ours: the smallest (arrival - its clock) of the last 2 to 4 s (the packet that came quickest).
+    hostTime(clock, nowMs) {
+      const c = this.clk, d = nowMs - clock;
+      if (nowMs - c.at > 2000) { c.prev = c.cur; c.cur = null; c.at = nowMs; }
+      if (c.cur === null || d < c.cur) c.cur = d;
+      return clock + Math.min(c.cur, c.prev === null ? Infinity : c.prev);
+    }
+    // a state of box i (s[o .. o + 13]) taken at t (ms, our clock)
+    feed(i, t, s, o) {
+      const b = this.boxes[i];
+      if (!b) return;
+      const buf = b.buf || (b.buf = []);
+      if (buf.length && t <= buf[buf.length - 1].t) return;
+      buf.push({ t, s: s.slice(o, o + BOX_N) });
+      if (buf.length > 12) buf.shift();
+    }
+    show(nowMs) {
+      const T = nowMs - SHOW_DELAY;
+      for (const b of this.boxes) {
+        const buf = b.buf || [], y = b.body;
+        if (!buf.length) continue;
+        let i = buf.length - 1;
+        while (i > 0 && buf[i - 1].t >= T) i--;
+        const a = buf[Math.max(0, i - 1)], c = buf[i];
+        let s;
+        if (T >= c.t) {                                                  // (past the newest: on along its speed and spin)
+          const k = Math.min(0.1, (T - c.t) / 1000), w = c.s.slice(10, 13), wn = Math.hypot(...w);
+          s = c.s.slice(); for (let j = 0; j < 3; j++) s[j] += s[7 + j] * k;
+          s.splice(3, 4, ...(wn > 1e-6 ? Q.normalize(Q.mul(Q.fromAxisAngle(w, wn * k), c.s.slice(3, 7))) : c.s.slice(3, 7)));
+        } else if (a === c || T <= a.t) s = a.s;
+        else { const f = (T - a.t) / (c.t - a.t); s = a.s.map((v, j) => v + (c.s[j] - v) * f); s.splice(3, 4, ...Q.slerp(a.s.slice(3, 7), c.s.slice(3, 7), f)); s[13] = c.s[13]; }
+        y.p = [s[0], s[1], Math.max(HALF * 0.5, s[2])]; y.q = s.slice(3, 7); y.v = s.slice(7, 10); y.w = s.slice(10, 13); y.held = null;
+        y.asleep = Math.hypot(...y.v) < SLEEP.v && Math.hypot(...y.w) < SLEEP.w; b.held = null; b.other = s[13] > 0.5; b.off = { x: 0, y: 0, z: 0 };
+      }
+    }
+    isMoving(b) { return !!b.held || !!b.steer || !!b.other || !b.body.asleep; }
     movingCount() { return this.boxes.filter((b) => this.isMoving(b)).length; }
     drawn(b) { return { x: b.x + b.off.x, y: b.y + b.off.y, z: b.z + b.off.z, yaw: heading(b.body.q), q: b.body.q.slice(), held: !!b.held || !!b.steer || b.other }; }
   }
@@ -164,7 +213,7 @@
   function applyBox(world, q, s, o, first) {
     const y = q.body, was = world.drawn(q);
     y.p = [s[o], s[o + 1], s[o + 2]]; y.q = [s[o + 3], s[o + 4], s[o + 5], s[o + 6]]; y.v = [s[o + 7], s[o + 8], s[o + 9]]; y.w = [s[o + 10], s[o + 11], s[o + 12]]; q.held = null; y.held = null;
-    world.pw.wake(y);
+    y.asleep = Math.hypot(...y.v) < SLEEP.v && Math.hypot(...y.w) < SLEEP.w; y.calm = 0;          // (still at the holder: still here, until a hand wakes it)
     const far = first || Math.hypot(was.x - q.x, was.y - q.y, was.z - q.z) > 0.25;
     q.off = far ? { x: 0, y: 0, z: 0 } : { x: was.x - q.x, y: was.y - q.y, z: was.z - q.z };
     q.other = s[o + 13] > 0.5;
@@ -175,11 +224,33 @@
       reach: (own) => active() && (!!b().steer || world.nearest(b(), common(own)) <= C.reach),            // (steered from this page's room model: it takes it)
       touching: (own) => active() && (!!b().steer || world.nearest(b(), common(own)) <= C.busy || (!!b().held && (own || []).some((s) => s.id === b().held.by))),
       pack: () => packBox(b()),
-      apply: (s, info) => { if (!active()) return false; applyBox(world, b(), s, 0, info.first); return true; },
+      apply: (s, info) => {
+        if (!active()) return false;
+        if (world.smooth) { if (info.first) b().buf = []; world.feed(i, world.hostTime(info.clock, info.now), s, 0); } else applyBox(world, b(), s, 0, info.first);
+        return true;
+      },
+      do: (what, args) => request(world, what, Object.assign({}, args, what === 'steer' ? { i } : {})),
       settle: (mine) => { if (mine) b().other = false; },
-      do: () => false,
       moving: () => world.isMoving(b()),
     };
+  }
+  // What another page asks of the holder (body.ask): 'steer' { i, at: [x, y, z] common, or null: let go } (a box moved in a room model),
+  // 'layout' { kind, n, at } (Reset, Drop the pile)
+  function request(world, what, a) {
+    a = a || {};
+    if (what === 'steer') {
+      const b = world.boxes[a.i | 0];
+      if (!b) return false;
+      const ok = Array.isArray(a.at) && a.at.length === 3 && a.at.every(Number.isFinite);
+      b.steer = ok ? a.at.slice() : null; b.steerAt = ok ? Date.now() : 0;
+      if (ok) world.pw.wake(b.body);
+      return true;
+    }
+    if (what === 'layout' && ['grid', 'stack', 'pile'].includes(a.kind) && Number.isFinite(a.n)) {
+      world.layout(a.kind, a.n, Array.isArray(a.at) && a.at.length === 2 && a.at.every(Number.isFinite) ? a.at : undefined);
+      return true;
+    }
+    return false;
   }
   // The whole pile as one Body adapter: a hand of this page near any box (or a box steered from its room model) takes the token
   function pileAdapter(world, common, active) {
@@ -187,16 +258,22 @@
     return {
       reach: (own) => active() && near(own, C.reach),
       touching: (own) => active() && (near(own, C.busy) || world.boxes.some((b) => !!b.held && (own || []).some((s) => s.id === b.held.by))),
-      pack: () => [world.boxes.length].concat(...world.boxes.map(packBox)),
+      // the boxes that move, and those at rest that have not gone out for REST_EVERY ms
+      pack: () => {
+        const now = Date.now(), out = [world.boxes.length];
+        world.boxes.forEach((b, i) => { if (world.isMoving(b) || !(now - (b.sentAt || 0) < REST_EVERY)) { b.sentAt = now; out.push(i, ...packBox(b)); } });
+        return out;
+      },
       apply: (s, info) => {
         if (!active()) return false;
-        const n = s[0];
+        const n = s[0], t = world.smooth ? world.hostTime(info.clock, info.now) : 0;
         if (world.boxes.length !== n) world.layout('grid', n);
-        world.boxes.forEach((q, i) => applyBox(world, q, s, 1 + i * BOX_N, info.first));
+        if (info.first) for (const q of world.boxes) q.buf = [];
+        for (let o = 1; o < s.length; o += BOX_N + 1) { const i = s[o]; if (world.smooth) world.feed(i, t, s, o + 1); else applyBox(world, world.boxes[i], s, o + 1, info.first); }
         return true;
       },
       settle: (mine) => { if (mine) for (const b of world.boxes) b.other = false; },
-      do: () => false,
+      do: (what, args) => request(world, what, args),
       moving: () => world.movingCount() > 0,
     };
   }

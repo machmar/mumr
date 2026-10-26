@@ -325,3 +325,35 @@ test('a pile of 30 dropped cubes settles, sleeps and has no cube inside another'
   for (let i = 0; i < 30; i++) for (let j = i + 1; j < 30; j++) assert.ok(Math.hypot(...bodies[i].p.map((v, k) => v - bodies[j].p[k])) > 0.1, `${i} and ${j} are inside each other`);
   assert.ok(ms < 4, `${ms.toFixed(2)} ms per frame over 10 s`);
 });
+
+test('handLite: a ball on each fingertip and a pill across the palm, and the pill pushes a box', () => {
+  const j = Array.from({ length: 25 }, (_, i) => [0.3 + i * 0.002, 0, 0.5]);
+  j[0] = [0, 0, 0.06]; j[11] = [0.1, 0, 0.06];
+  const s = P.handLite({ joints: j });
+  assert.strictEqual(s.length, 6);
+  assert.deepStrictEqual(s.slice(0, 5).map((q) => q.p), [4, 9, 14, 19, 24].map((i) => j[i]));
+  assert.ok(s[5].q && Math.abs(s[5].p[0] - 0.03) < 1e-9 && Math.abs(s[5].q[0] - 0.09) < 1e-9, 'the pill runs from the wrist side to the knuckles');
+  assert.strictEqual(P.handLite({ points: [{ x: 1, y: 2, z: 3 }] }).length, 1, 'no joints: the points');
+  // a pill lying along x, swept into a resting box from the side (its middle passes the box's middle height)
+  const w = new P.World(), b = w.add(P.makeBox({ size: [0.12, 0.12, 0.12], p: [0.3, 0, 0.06] }));
+  for (let i = 0; i < 40; i++) {
+    const x = 0.12 + i * 0.006;
+    w.setHands([{ id: 'h', spheres: [{ p: [x - 0.08, 0, 0.06], q: [x, 0, 0.06], r: 0.025 }], plate: null }], i / 72);
+    w.step(1 / 72);
+  }
+  assert.ok(b.p[0] > 0.33, `the box was pushed along (x ${b.p[0].toFixed(3)})`);
+});
+
+test('a hand shape with its own speed pushes at that speed, not at the speed its jumps between calls make', () => {
+  const run = (own) => {
+    const w = new P.World(), b = w.add(P.makeBox({ size: [0.12, 0.12, 0.12], p: [0.3, 0, 0.06] }));
+    // a fingertip at 0.3 m/s, but its position only changes every other step (as when packets come slower than the steps)
+    for (let i = 0; i < 60; i++) {
+      const x = 0.2 + Math.floor(i / 2) * 2 * 0.3 / 72;
+      w.setHands([{ id: 'h', spheres: [own ? { p: [x, 0, 0.06], r: 0.012, v: [0.3, 0, 0] } : { p: [x, 0, 0.06], r: 0.012 }], plate: null }], i / 72);
+      w.step(1 / 72);
+    }
+    return Math.hypot(...b.v);
+  };
+  assert.ok(run(true) < 0.45, `with its own speed the box goes about as fast as the hand (${run(true).toFixed(2)} m/s)`);
+});

@@ -50,6 +50,8 @@
   const add = (a, b, k = 1) => [a[0] + b[0] * k, a[1] + b[1] * k, a[2] + b[2] * k];
   const sub = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
   const mulv = (a, k) => [a[0] * k, a[1] * k, a[2] * k];
+  // the point of a hand shape nearest x: its middle for a ball, the nearest point of its segment for a pill ({ p, q })
+  const nearOn = (s, x) => { if (!s.q) return s.p; const d = sub(s.q, s.p), L = dot(d, d), t = L > 1e-12 ? Math.max(0, Math.min(1, dot(sub(x, s.p), d) / L)) : 0; return add(s.p, d, t); };
   // the world-frame inverse inertia applied to a vector
   // (b.ax: its three axes in the world, set once per substep by the world: the same turn without two quaternion products per call)
   const invI = (b, v) => {
@@ -95,7 +97,9 @@
     remove(b) { const i = this.bodies.indexOf(b); if (i >= 0) this.bodies.splice(i, 1); }
     setRoom(room) { this.room = room || null; for (const b of this.bodies) this.wake(b); }
     wake(b) { b.asleep = false; b.calm = 0; }
-    // The hands of this frame (floor plan) at time t (s): [{ id, spheres: [{ p, r }], plate: null | { centre, normal, axes: [u, v], half: [hu, hv] } }].
+    // The hands of this frame (floor plan) at time t (s): [{ id, spheres: [{ p, r, q? }], plate: null | { centre, normal, axes: [u, v], half: [hu, hv] } }].
+    // A sphere with q is a pill: the ball of radius r swept from p to q (handLite's palm). A sphere with v (m/s) moves at that speed (the
+    // hand's own, from its headset's clock: presence.js); without it the speed is worked out from the last call.
     // Their speed comes from the last call (clamped to HAND_MAX; a hand that jumps further than that in a frame is slow, not a launch);
     // anything not finite is ignored. They are kinematic: a body is pushed by them, they are not pushed back.
     setHands(list, t, solid = true) {
@@ -107,7 +111,13 @@
         return s > HAND_MAX ? mulv(v, HAND_MAX / s) : v;
       };
       for (const hd of list || []) {
-        (hd.spheres || []).forEach((s, i) => { if (s && s.p && fin(s.p) && Number.isFinite(s.r)) kin.spheres.push({ p: s.p.slice(), r: s.r, v: speed(hd.id + ':s' + i, s.p) }); });
+        (hd.spheres || []).forEach((s, i) => {
+          if (!s || !s.p || !fin(s.p) || !Number.isFinite(s.r) || (s.q && !fin(s.q))) return;
+          const own = speed(hd.id + ':s' + i, s.q ? mulv(add(s.p, s.q), 0.5) : s.p), sv = s.v && fin(s.v) ? s.v : null, n = sv ? Math.hypot(...sv) : 0;
+          const k = { p: s.p.slice(), r: s.r, v: sv ? (n > HAND_MAX ? mulv(sv, HAND_MAX / n) : sv.slice()) : own };
+          if (s.q) k.q = s.q.slice();
+          kin.spheres.push(k);
+        });
         const pl = hd.plate;
         if (pl && fin(pl.centre) && fin(pl.normal) && fin(pl.axes[0]) && fin(pl.axes[1]) && fin(pl.half)) kin.plates.push({ id: hd.id, centre: pl.centre.slice(), normal: pl.normal, axes: pl.axes, half: pl.half, v: speed(hd.id + ':plate', pl.centre) });
       }
@@ -115,7 +125,7 @@
       for (const b of this.bodies) {
         if (!b.asleep) continue;
         const R = Math.hypot(...b.size) / 2 + 0.05;
-        if (kin.spheres.some((s) => Math.hypot(...sub(s.p, b.p)) < R + s.r) || kin.plates.some((q) => Math.hypot(...sub(q.centre, b.p)) < R + Math.hypot(...q.half))) this.wake(b);
+        if (kin.spheres.some((s) => Math.hypot(...sub(nearOn(s, b.p), b.p)) < R + s.r) || kin.plates.some((q) => Math.hypot(...sub(q.centre, b.p)) < R + Math.hypot(...q.half))) this.wake(b);
       }
     }
     // Hold b towards target { p, q, v?, w? } (a motor: it goes towards the pose at most speed m/s faster than the target's own speed, and
@@ -215,8 +225,8 @@
         }
       }
       const bq2 = quat.conj(b.q), Rb0 = Math.hypot(...b.size) / 2 + MARGIN;
-      for (const s of this.kin.spheres) {
-        const rr = Rb0 + s.r;
+      for (const s0 of this.kin.spheres) {
+        const s = s0.q ? { p: nearOn(s0, b.p), r: s0.r, v: s0.v } : s0, rr = Rb0 + s.r;                  // (a pill: its ball where the segment comes nearest the box's middle)
         if (Math.abs(s.p[0] - b.p[0]) > rr || Math.abs(s.p[1] - b.p[1]) > rr || Math.abs(s.p[2] - b.p[2]) > rr) continue;                     // (far away: no need to turn it into the cube's frame)
         const l = quat.rotate(bq2, sub(s.p, b.p)), half = b.size.map((v) => v / 2), cl = l.map((v, i) => Math.max(-half[i], Math.min(half[i], v)));
         const diff = sub(l, cl), dist = Math.hypot(...diff);
@@ -401,8 +411,23 @@
   function handSpheres(source, margin = 0.012) {
     const out = [];
     // (a point that is not finite keeps its place in the list, as NaN, which the world ignores: every other point keeps the same index and so its speed)
-    for (const p of (source && source.points) || []) out.push({ p: [p.x, p.y, p.z], r: margin });
-    for (const j of (source && source.joints) || []) out.push({ p: [j[0], j[1], j[2]], r: margin });
+    const jv = (source && source.jv) || [];
+    for (const p of (source && source.points) || []) out.push(p.v ? { p: [p.x, p.y, p.z], r: margin, v: p.v } : { p: [p.x, p.y, p.z], r: margin });
+    ((source && source.joints) || []).forEach((j, i) => out.push(jv[i] ? { p: [j[0], j[1], j[2]], r: margin, v: jv[i] } : { p: [j[0], j[1], j[2]], r: margin }));
+    return out;
+  }
+  // A light hand for the physics: a ball on each fingertip and one pill across the palm (from the wrist side to the knuckles), 6 shapes
+  // instead of handSpheres' 25 to 37. A source with no joints (the desktop's mouse) keeps its points as balls.
+  //   handLite(source, tip = 0.012, palm = 0.025) -> [{ p, r }, ..., { p, q, r }]
+  const TIPS = [4, 9, 14, 19, 24];
+  function handLite(source, tip = 0.012, palm = 0.025) {
+    const j = source && source.joints;
+    if (!j || j.length < 25) return handSpheres(source, tip);
+    const lerp = (a, b, f) => [a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f, a[2] + (b[2] - a[2]) * f];
+    const jv = source.jv, out = TIPS.map((i) => (jv && jv[i] ? { p: [j[i][0], j[i][1], j[i][2]], r: tip, v: jv[i] } : { p: [j[i][0], j[i][1], j[i][2]], r: tip }));
+    const pill = { p: lerp(j[0], j[11], 0.3), q: lerp(j[0], j[11], 0.9), r: palm };
+    if (jv && jv[0] && jv[11]) pill.v = lerp(jv[0], jv[11], 0.6);
+    out.push(pill);
     return out;
   }
   // the flat hand of a grab.js grip (grip.palm: centre cx, cy and its top z there, normal nx ny nz, heading ang, half sizes hx hy) as a plate
@@ -435,5 +460,5 @@
       blend: (a, b, f) => { const q = quat.slerp(a.slice(3, 7), b.slice(3, 7), f); return a.map((v, i) => (i >= 3 && i <= 6 ? q[i - 3] : i === 13 ? a[13] : v + (b[i] - v) * f)); } });
   }
 
-  M.physics = { quat, makeBox, corners, World, handSpheres, plate, handQuat, registerPacket };
+  M.physics = { quat, makeBox, corners, World, handSpheres, handLite, plate, handQuat, registerPacket };
 })(typeof module !== 'undefined' ? (module.exports = require('./ns.js')) : (globalThis.MUMR = globalThis.MUMR || {}));
