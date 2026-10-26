@@ -132,7 +132,7 @@ test('the menu: the mode button cycles, the count only shows in the pile', () =>
   assert.strictEqual(L.press('nPlus', { mode: 'pile', n: 50 }).n, 60, 'plus adds 10');
   assert.strictEqual(L.press('nMinus', { mode: 'pile', n: 50 }).n, 40, 'minus takes away 10');
   assert.strictEqual(L.press('nMinus', { mode: 'pile', n: 10 }).n, 10, 'not below 10');
-  assert.strictEqual(L.press('nPlus', { mode: 'pile', n: L.MAX_BOXES }).n, L.MAX_BOXES, 'not above the most');
+  assert.strictEqual(L.press('nPlus', { mode: 'pile', n: 990 }).n, 1000, 'no most');
   assert.strictEqual(L.press('n', { mode: 'pile', n: 50 }), null, 'the Cubes box itself is not a button');
   assert.strictEqual(L.press('other', {}), null);
   const ids = (st) => L.menu(st, {}).buttons.map((x) => x.id);
@@ -149,7 +149,7 @@ test('the Cubes box: a plate that shows the count and cannot be pressed, with a 
   assert.strictEqual(at(minus), 'nMinus'); assert.strictEqual(at(plus), 'nPlus');
   assert.strictEqual(M.menus.hit(lay, (plate.x + 20) / lay.w, (plate.y + plate.h / 2) / lay.h), null, 'the plate is not a button');
   assert.ok(L.menu({ mode: 'pile', n: 10 }, {}).buttons.find((b) => b.id === 'nMinus').off, '- is off at 10');
-  assert.ok(L.menu({ mode: 'pile', n: L.MAX_BOXES }, {}).buttons.find((b) => b.id === 'nPlus').off, '+ is off at the most');
+  assert.ok(!L.menu({ mode: 'pile', n: 5000 }, {}).buttons.find((b) => b.id === 'nPlus').off, '+ is never off');
 });
 
 test('a box steered from the room model follows its target, and takes the others with it', () => {

@@ -50,17 +50,25 @@ async function load() {
       this.kin = { spheres: [], plates: [] };
       this.handPrev = new Map();
       this._roomSig = null; this._statics = []; this._shapes = new Map(); this._hands = new Map(); this._g = null;
+      this.opts = opts; this.cap = opts.maxBodies || 1024;
+      this._open();
+      this.rv = new J.RVec3(0, 0, 0); this.v1 = new J.Vec3(0, 0, 0); this.v2 = new J.Vec3(0, 0, 0);
+      this._applyGravity();
+      this._buildRoom(this.room, true);
+    }
+    // the Jolt system itself (its limits are fixed when it is made: _grow makes a bigger one when the bodies come near them)
+    _open() {
       const s = new J.JoltSettings(), ol = new J.ObjectLayerPairFilterTable(2);
       ol.EnableCollision(STATIC, MOVING); ol.EnableCollision(MOVING, MOVING);
       const bp = new J.BroadPhaseLayerInterfaceTable(2, 2);
       bp.MapObjectToBroadPhaseLayer(STATIC, new J.BroadPhaseLayer(0)); bp.MapObjectToBroadPhaseLayer(MOVING, new J.BroadPhaseLayer(1));
       s.mObjectLayerPairFilter = ol; s.mBroadPhaseLayerInterface = bp; s.mObjectVsBroadPhaseLayerFilter = new J.ObjectVsBroadPhaseLayerFilterTable(bp, 2, ol, 2);
-      s.mMaxBodies = 1024; s.mMaxBodyPairs = 16384; s.mMaxContactConstraints = 8192;     // (a heap of 200 cubes has thousands of contacts)
+      s.mMaxBodies = this.cap; s.mMaxBodyPairs = this.cap * 16; s.mMaxContactConstraints = this.cap * 8;      // (a heap has about 5 contacts a cube; the room for them grows with the cap)
       this.jolt = new J.JoltInterface(s); J.destroy(s);
       this.sys = this.jolt.GetPhysicsSystem(); this.bi = this.sys.GetBodyInterface();
       const ps = this.sys.GetPhysicsSettings();
-      ps.mTimeBeforeSleep = opts.sleepAfter || 0.5; ps.mPointVelocitySleepThreshold = opts.sleepV || 0.02;
-      ps.mPenetrationSlop = opts.slop || 0.004;      // (the default 2 cm is a sixth of a cube)
+      ps.mTimeBeforeSleep = this.opts.sleepAfter || 0.5; ps.mPointVelocitySleepThreshold = this.opts.sleepV || 0.02;
+      ps.mPenetrationSlop = this.opts.slop || 0.004;      // (the default 2 cm is a sixth of a cube)
       this.sys.SetPhysicsSettings(ps);
       // a hand is flesh, not hard plastic: a contact with a kinematic body (a hand) does not bounce (Jolt combines the two bodies' restitution by their maximum)
       this.listener = new J.ContactListenerJS();
@@ -70,9 +78,6 @@ async function load() {
       this.listener.OnContactPersisted = (a, b, m, st) => soft(a, b, st);
       this.listener.OnContactRemoved = () => {};
       this.sys.SetContactListener(this.listener);
-      this.rv = new J.RVec3(0, 0, 0); this.v1 = new J.Vec3(0, 0, 0); this.v2 = new J.Vec3(0, 0, 0);
-      this._applyGravity();
-      this._buildRoom(this.room, true);
     }
     // free everything of this world (each one holds a few MB of the WebAssembly's memory: a test or a reset makes many)
     destroy() {
@@ -85,6 +90,17 @@ async function load() {
       this._shapes.clear();
       for (const o of [this.rv, this.v1, this.v2, this.jolt, this.listener]) J.destroy(o);
       this.jolt = null;
+    }
+    // More bodies than the system was made for: the same world in a system twice as big. The bodies' state is in their plain objects, so
+    // they are made again from it (the hands again on their next call, the room now).
+    _grow() {
+      for (const b of this.bodies) if (b._j) { this._kill(b._j.id, true); b._j = null; }
+      for (const id of this._statics) this._kill(id, true);
+      for (const e of this._hands.values()) this._kill(e.id, e.on);
+      this._statics = []; this._hands.clear();
+      J.destroy(this.jolt); J.destroy(this.listener);
+      this.cap *= 2; this._open(); this._applyGravity(); this._buildRoom(this.room, true);
+      for (const b of this.bodies) this._create(b);
     }
     // Jolt hands back a BodyID that lives in one scratch slot the next call overwrites: a body's id is copied (and freed with the body)
     _mk(cs, act) { const raw = this.bi.CreateAndAddBody(cs, act); return new J.BodyID(raw.GetIndexAndSequenceNumber()); }
@@ -139,6 +155,7 @@ async function load() {
     // ---- bodies
     add(b) {
       if (this.bodies.includes(b)) return b;
+      if (this.bodies.length + this._statics.length + 64 > this.cap) this._grow();          // (64 for the hands)
       this.bodies.push(b); this._create(b); return b;
     }
     _create(b) {

@@ -16,6 +16,7 @@ import { createApp, PLAYER_COLOURS } from '/mumr/xr/app.js';
 const L = window.LAB, Q = window.MUMR.physics.quat;
 const pile = new L.World(10), island = new L.World(L.ISLAND), watch = new L.Watch(), perf = new L.Perf(), drift = new L.Drift();
 const STACK_AT = [0.5, 0], meshes = [];
+let addMesh = null;                                               // (makes one more cube mesh: the number of cubes has no limit, the meshes are made as they are needed)
 const tot = { handovers: 0, jumps: 0, worst: 0, broken: 0 };       // the island since its last reset
 let lagFrames = 0;                                                  // frames in this log window in which the physics hit its time budget and ran slow
 let app = null, mode = 'pile', count = 10, claimUntil = 0, lastFrame = 0, frameS = 1 / 60, last = { perf: null, island: null, drift: null }, mark = null;
@@ -92,11 +93,12 @@ app = await createApp({
     .concat([{ token: L.PILE.token, type: L.PILE.name, policy: 'host', adapter: L.pileAdapter(pile, (s) => common(s), () => mode === 'pile') }]),
   setup: ({ world: floor, S, life }) => {
     const geo = new THREE.BoxGeometry(L.SIZE, L.SIZE, L.SIZE), edges = new THREE.EdgesGeometry(geo);
-    for (let i = 0; i < L.MAX_BOXES; i++) {
+    addMesh = () => {
       const m = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color: 0xe8a33d, roughness: 0.55, metalness: 0.05 }));
       m.add(new THREE.LineSegments(edges, new THREE.LineBasicMaterial({ color: 0x14161c })));
       m.visible = false; floor.add(m); meshes.push(m);
-    }
+    };
+    for (let i = 0; i < L.ISLAND; i++) addMesh();
     mark = new THREE.Mesh(new THREE.RingGeometry(0.03, 0.04, 32).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0xf2c14e, side: THREE.DoubleSide }));
     mark.position.y = 0.003; mark.visible = false; floor.add(mark);
     S.on('drift', (e) => { if (e.slot !== S.me) life(`drift: player ${e.slot + 1} touched in round ${e.round}`); });
@@ -140,6 +142,7 @@ app = await createApp({
   },
   draw: ({ S }) => {
     const w = world();
+    while (addMesh && meshes.length < w.boxes.length) addMesh();
     meshes.forEach((m, i) => {
       const b = mode !== 'drift' ? w.boxes[i] : null;
       m.visible = !!b;

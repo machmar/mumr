@@ -9,7 +9,7 @@
 (function (L) {
   const M = typeof module !== 'undefined' ? require('../../engine/client/index.js') : globalThis.MUMR;
   const Q = M.physics.quat;
-  const SIZE = 0.12, HALF = SIZE / 2, MAX_BOXES = 200, ISLAND = 5, FIRST_TYPE = 17, STEP = 10, PER_PACKET = 64;
+  const SIZE = 0.12, HALF = SIZE / 2, ISLAND = 5, FIRST_TYPE = 17, STEP = 10, PER_PACKET = 64;
   const CFG = { gravity: 9.81, touch: 0.012, palm: 0.025, grab: 0.03, grabFist: 0.08, spring: 20, holdSpeed: 5, breakAway: 0.3, closeNear: 0.05, reach: 0.06, busy: 0.02 };
   // The lab's boxes only touch each other and the room's big things, so its physics is coarser than the cube's (one substep per frame at 72 Hz, at
   // most 2 cm of movement in one, 8 solver rounds, a frame runs slow when its physics has taken 6 ms): a heap of 50 cost 48 ms a frame at the cube's
@@ -29,13 +29,13 @@
   // packet 22: the whole pile under one token (rule 1: every player sees and touches the same cubes). [n (how many boxes there are), then
   // for each box in this packet its index and 14 numbers (the island packet's)]. Only the boxes that move go out each time; one at rest
   // goes out every REST_EVERY ms (Marek's run, 2026-10-26: all 50 boxes 45 times a second was more than a Quest Pro took in).
-  const BOX_N = 14, REST_EVERY = 250, PILE = { type: FIRST_TYPE + ISLAND, name: 'labpile', token: 'pile' };
+  const BOX_N = 14, REST_EVERY = 250, SANE_BOXES = 1e6, PILE = { type: FIRST_TYPE + ISLAND, name: 'labpile', token: 'pile' };
   M.wire.register(Object.assign({}, PILE, {
     pack: (s) => { const b = new Uint8Array(s.length * 4), d = new DataView(b.buffer); s.forEach((v, i) => d.setFloat32(i * 4, +v || 0, true)); return b; },
     unpack: (d) => {
       if (d.byteLength < 4 || d.byteLength % 4) return null;
       const n = d.getFloat32(0, true), len = d.byteLength / 4;
-      if (!Number.isInteger(n) || n < 1 || n > MAX_BOXES || (len - 1) % (BOX_N + 1) || (len - 1) / (BOX_N + 1) > n) return null;
+      if (!Number.isInteger(n) || n < 1 || n > SANE_BOXES || (len - 1) % (BOX_N + 1) || (len - 1) / (BOX_N + 1) > n) return null;
       const s = []; for (let i = 0; i < len; i++) s.push(d.getFloat32(i * 4, true));
       for (let o = 1; o < len; o += BOX_N + 1) if (!Number.isInteger(s[o]) || s[o] < 0 || s[o] >= n) return null;
       return s.every(Number.isFinite) ? s : null;
@@ -76,7 +76,7 @@
     }
     // 'grid': n boxes in rows on the floor (from `at`); 'stack': a tower; 'pile': a heap of boxes dropped around `at`
     layout(kind, n, at = [0.5, 0]) {
-      const N = Math.max(1, Math.min(MAX_BOXES, n | 0)), cols = Math.ceil(Math.sqrt(N));
+      const N = Math.max(1, n | 0), cols = Math.ceil(Math.sqrt(N));
       for (const b of this.pw.bodies.slice()) this.pw.remove(b);
       this.pw._warm = null;
       this.boxes = Array.from({ length: N }, (_, i) => {
@@ -384,7 +384,7 @@
     if (id === 'model') return Object.assign({}, st, { model: !st.model });
     if (id === 'handIrl') return Object.assign({}, st, { handIrl: !st.handIrl });
     if (id === 'mode') return Object.assign({}, st, { mode: MODES[(MODES.indexOf(st.mode) + 1) % MODES.length] });
-    if (id === 'nPlus') return Object.assign({}, st, { n: Math.min(MAX_BOXES, (st.n || 10) + STEP) });
+    if (id === 'nPlus') return Object.assign({}, st, { n: (st.n || 10) + STEP });
     if (id === 'nMinus') return Object.assign({}, st, { n: Math.max(STEP, (st.n || 10) - STEP) });
     if (id === 'ghost') return Object.assign({}, st, { ghost: !st.ghost });
     return null;
@@ -395,7 +395,7 @@
     const mode = st.mode || 'pile';
     return M.menus.grid({ w: 1024, title: 'MUMR lab', note: info.note || HELP[mode],
       rows: [
-        [{ id: 'mode', label: 'Experiment', value: mode, active: true }, mode === 'pile' ? { plate: true, span: 2, label: 'Cubes', value: String(st.n || 10), sub: [{ id: 'nMinus', label: '-', off: (st.n || 10) <= STEP }, { id: 'nPlus', label: '+', off: (st.n || 10) >= MAX_BOXES }] } : { label: 'Players', value: String(info.players || 1), span: 2 }, { id: 'ghost', label: 'Ghost fingers', value: st.ghost ? 'shown' : 'hidden', active: !!st.ghost }],
+        [{ id: 'mode', label: 'Experiment', value: mode, active: true }, mode === 'pile' ? { plate: true, span: 2, label: 'Cubes', value: String(st.n || 10), sub: [{ id: 'nMinus', label: '-', off: (st.n || 10) <= STEP }, { id: 'nPlus', label: '+' }] } : { label: 'Players', value: String(info.players || 1), span: 2 }, { id: 'ghost', label: 'Ghost fingers', value: st.ghost ? 'shown' : 'hidden', active: !!st.ghost }],
         [{ id: 'reset', label: 'Reset', value: mode === 'island' ? 'build the stack' : 'cubes on the floor' }].concat(mode === 'pile' ? [{ id: 'dropPile', label: 'Drop the pile', value: 'into one heap', span: 2 }] : mode === 'drift' ? [{ id: 'driftStart', label: 'Start drift', value: 'ten rounds', span: 2 }] : []),
         [{ id: 'model', label: 'Room model', value: st.model ? 'shown: move the windows and cubes' : 'rearrange the windows', active: !!st.model, span: 2 }, { id: 'handIrl', label: 'Show hand IRL', value: st.handIrl ? 'on' : 'off', active: !!st.handIrl }],
       ] });
@@ -421,7 +421,7 @@
   // what each experiment is for, what to try and what passes (the same as README.md)
   const DESCRIPTION = {
     pile: ['## What it is for', 'How many boxes one headset can simulate before the frame time suffers. The answer says whether sleeping bodies (phase 5) are needed or only nice.',
-      '## What to try', 'Add or take away 10 cubes at a time with the - and + in the Cubes box (up to 200). Press Drop the pile. Poke the heap with a finger, pinch a cube, throw one at it. Leave it alone and see that it comes to rest.',
+      '## What to try', 'Add or take away 10 cubes at a time with the - and + in the Cubes box (no limit: the PC is the limit). Press Drop the pile. Poke the heap with a finger, pinch a cube, throw one at it. Leave it alone and see that it comes to rest.',
       '## What passes', 'Frame time p95 under 13.9 ms (72 Hz) at 30 cubes, and the pile comes to rest. The numbers are on the data window and in the log every 5 s.',
       '## Note', 'The cubes are shared: every player sees the same pile and can touch it. The page whose hand is on it simulates it for everybody.'],
     island: ['## What it is for', 'What happens to a stack when two players touch it at once. Today each cube has a token of its own and changes hands on touch. This run is the baseline: it shows today\'s failure so that phase 5 (one token for a touching group) has something to beat.',
@@ -458,5 +458,5 @@
   }
   const dataLayout = (info) => textLayout('Data', dataLines(info), '', 62);
 
-  Object.assign(L, { SIZE, HALF, MAX_BOXES, ISLAND, TYPES, PILE, KINDS, World, adapter, pileAdapter, commonSource, Watch, Drift, Perf, MODES, STEP, GAME, PLAYER, ACTIONS, press, menu, wrap, textLayout, description, dataLines, dataLayout, DESCRIPTION });
+  Object.assign(L, { SIZE, HALF, ISLAND, TYPES, PILE, KINDS, World, adapter, pileAdapter, commonSource, Watch, Drift, Perf, MODES, STEP, GAME, PLAYER, ACTIONS, press, menu, wrap, textLayout, description, dataLines, dataLayout, DESCRIPTION });
 })(typeof module !== 'undefined' ? module.exports : (globalThis.LAB = {}));
