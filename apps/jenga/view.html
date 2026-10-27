@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MUMR jenga: PC view</title>
+<style>
+  body { margin: 0; background: #14161c; color: #ece9e2; font: 14px/1.45 system-ui, sans-serif; }
+  #view { display: block; width: 100vw; height: 100vh; }
+  #hud { position: fixed; left: 12px; bottom: 10px; margin: 0; color: #9aa3b2; font: 12px/1.45 ui-monospace, monospace; white-space: pre-wrap; pointer-events: none; }
+  #help { position: fixed; right: 12px; top: 10px; margin: 0; color: #9aa3b2; font: 12px/1.45 system-ui, sans-serif; text-align: right; }
+</style>
+<script type="importmap">
+{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js", "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/" } }
+</script>
+<script src="/mumr/all.js"></script>
+<script src="spec.js"></script>
+<script src="rules.js"></script>
+<script src="net.js"></script>
+<script src="logic.js"></script>
+<script src="music.js"></script>
+</head>
+<body>
+<canvas id="view"></canvas>
+<pre id="hud"></pre>
+<p id="help">drag: turn the view &nbsp; wheel: zoom &nbsp; right drag: move &nbsp; keys 1 2 3 4: tower, console, whole room, player's view &nbsp; M: music</p>
+<script type="module" src="view.js"></script>
+</body>
+</html>

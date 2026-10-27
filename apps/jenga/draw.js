@@ -164,7 +164,7 @@ export function createScene({ THREE, parent, playerColours = [0xf2c14e, 0x4ea1ff
   const bannerCv = document.createElement('canvas'); bannerCv.width = 1024; bannerCv.height = 256;
   const bannerTex = own(new THREE.CanvasTexture(bannerCv)); bannerTex.colorSpace = THREE.SRGBColorSpace;
   const banner = new THREE.Sprite(own(new THREE.SpriteMaterial({ map: bannerTex, transparent: true, depthTest: false, depthWrite: false }))); banner.renderOrder = 7; banner.visible = false; overlay.add(banner);
-  const wave = new THREE.Mesh(own(new THREE.RingGeometry(0.95, 1, 64)), own(new THREE.MeshBasicMaterial({ color: 0xff7a4a, transparent: true, opacity: 0, side: THREE.DoubleSide, depthWrite: false }))); wave.rotation.x = -Math.PI / 2; wave.visible = false; overlay.add(wave);
+  const wave = new THREE.Mesh(own(new THREE.RingGeometry(0.95, 1, 64)), own(new THREE.MeshBasicMaterial({ color: 0xffd9a0, transparent: true, opacity: 0, side: THREE.DoubleSide, depthWrite: false }))); wave.rotation.x = -Math.PI / 2; wave.visible = false; overlay.add(wave);
   let bannerText = null, waveAt = -1e9, trailKey = null, scoreKey = null, lastPhase = null;
   function drawBanner(lines) {
     const g = bannerCv.getContext('2d'); g.clearRect(0, 0, 1024, 256);
@@ -260,7 +260,7 @@ export function createScene({ THREE, parent, playerColours = [0xf2c14e, 0x4ea1ff
     if (state.phase !== lastPhase) { if (state.phase === 'fall') waveAt = now; lastPhase = state.phase; }
     const wa = (now - waveAt) / 1100;
     wave.visible = wa >= 0 && wa < 1;
-    if (wave.visible) { wave.position.set(towerAt[0], towerAt[1] + 0.004, towerAt[2]); wave.scale.setScalar((0.2 + 2.6 * wa) * Math.max(1, d.k) * 0.5); wave.material.opacity = 0.8 * (1 - wa); }
+    if (wave.visible) { wave.position.set(towerAt[0], towerAt[1] + 0.004, towerAt[2]); wave.scale.setScalar(L.plinth.half * (0.3 + 1.7 * wa)); wave.material.opacity = 0.7 * (1 - wa) * (1 - wa); }
     const mode = snap ? snap.mode : 0, fall = ['fall', 'replay'].includes(state.phase);
     let text = null;
     if (state.phase === 'fall') text = 'fall';

@@ -77,6 +77,8 @@
         reroll: () => { if (!['roll', 'pull'].includes(ph) || s.handled) return false; r.reroll('The die is rolled again'); this.tower.resetDie(); return true; },
         skip: () => { if (!this.replay) return false; this.replay.skip(); return true; },
         back: () => { if (ph !== 'place') return false; this.tower.bringBack(); return true; },
+        // (rehearsals and the scene videos only: JENGA_DEBUG=1 lets a script nudge the tower, as a hand that is hard to aim in a headless browser would)
+        shove: () => { if (!(typeof process !== 'undefined' && process.env && process.env.JENGA_DEBUG)) return false; const tw = this.tower, v = a.vx || 3; for (let i = 0; i < 6; i++) { const b = tw.blocks[i].body, d = i % 2 ? 1 : -1; b.v = [d * v * Math.cos(tw.place.yaw), d * v * Math.sin(tw.place.yaw), 0]; tw.world.wake(b); } return true; },
       }[what];
       const did = ok ? ok() : false;
       if (did) this.life(`jenga: ${what}${a.size ? ` ${a.size}` : ''}`);
