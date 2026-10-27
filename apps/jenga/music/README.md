@@ -14,12 +14,16 @@ decoded into memory). They are **not committed** (`.gitignore`): they are yours.
 - The game is always in one **scene**. When the scene changes, the next scene's track starts **under** the old one and the old one fades away: an equal-power crossfade of **30 s**
   (the fall and the end of the match fade in faster: 6 s and 12 s; `tracks.json` `fades`). A track that is about to end is followed the same way by the next track of its
   scene, or by itself again if the scene has only one. A scene with no tracks keeps the music of the nearest one; with no tracks at all a quiet generated pad plays.
+- **A track does not have to start at its beginning.** The ambient scenes (`calm`, `build`, `tense`, `danger`) bring a new track in at some point in the track (another place each round, the
+  same place on every headset), so a long track is not always heard from the same first minute. It keeps at least two crossfades (about a minute) of music to play, so a track shorter
+  than about 61 s starts at its beginning. The `finale` and `win` are shaped from their first second and always start at the beginning. To change which scenes may start anywhere, add
+  `"anywhere": ["calm", "build", "tense", "danger"]` to `tracks.json` (an empty list starts everything at the beginning; `build-manifest.js` keeps the line).
 - Every headset is in the same scene at the same time and picks the same track (a hash of the tower's seed): it is the room's music.
 - **Swells**: the music is not changed, only shaped. As the tower gets tense (missing blocks, a leaning top, blocks moving) it gets up to 32% louder and brighter (a filter opens), and a
   low generated drone comes in under it. One-shot moments make a short swell of their own: a die rolled, a block pulled out (a 4 s swell and a quiet riser), a block put on top (a bell, two or
   four for a good move), the **fall** (the music ducks to a whisper in a quarter of a second, a deep boom), the **replay** (a riser, and the music comes back over 7 s, louder than before),
   the end of the match (bells and a long swell). Block clacks, the die's thumps and these bells are generated; nothing else is needed.
-- So master the tracks with **headroom** (peaks at -3 dB or lower, about -18 LUFS), with **no silence or fade at the start and end**, and nothing that jumps out: the game adds the drama.
+- So master the tracks with **headroom** (peaks at -3 dB or lower, about -18 LUFS), with **no silence or fade at the start and end** (and nothing that must be heard from the beginning: a track can be entered anywhere), and nothing that jumps out: the game adds the drama.
   Long is good (3 to 10 minutes): with 30 s crossfades a long track is a long stay.
 
 ## Which kind of track goes where

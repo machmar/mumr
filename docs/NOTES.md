@@ -264,6 +264,9 @@ Kept from the first plan's section 6, plus what came after it:
      their own menu. The game frame now has the console beside the plinth and the board and scoreboard face where the placing player stands.
   6. A desktop rehearsal of a hand needs patience: a scripted pinch that starts while the hand is already rising is seen by the host 7 cm up (the page runs at 19 frames a second in a headless
      browser); close the fingers first, then move. `__mumr.poke(x, y, pinch, fist, z)` takes a height since this entry.
+  7. **A streamed track cannot start half way from a server that sends whole files.** The ambient tracks now come in at a place of their own (a hash of the seed, scene, round and file: the same on
+     every headset) instead of always at 0:00, which needs `audio.currentTime` to jump inside a file that has not been downloaded. Python's `SimpleHTTPRequestHandler` has no byte ranges, so
+     `serve.py` answers `Range: bytes=a-b` (206, 416 outside the file) since this entry; checked in Chromium (both tracks 206, entered at 0:55 and 0:24 of 3:20).
   Rehearsed through the real server and Jolt host with two tabs: Start on the board, the die thrown by a pinch and read, a block pulled out and put on top (+1, the next player), a fall with its replay
   (TIMBER, -3, rewind, 0.3x, aftermath, round end), the PC view, and music crossfading in a desktop browser. Not yet on a headset.
 

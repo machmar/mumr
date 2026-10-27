@@ -14,7 +14,7 @@ function pretend() {
     createBuffer(c, l) { return { getChannelData: () => new Float32Array(l) }; }, createBufferSource() { return new Node_(); },
     createMediaElementSource(el) { const n = new Node_(); n.el = el; this.made.push(['src', n]); return n; } };
   const audios = [];
-  const audio = () => { const el = { src: '', played: 0, paused: 0, currentTime: 0, duration: NaN, play() { this.played++; return Promise.resolve(); }, pause() { this.paused++; } }; audios.push(el); return el; };
+  const audio = () => { const el = { src: '', played: 0, paused: 0, currentTime: 0, duration: NaN, on: {}, play() { this.played++; return Promise.resolve(); }, pause() { this.paused++; }, addEventListener(ev, fn) { this.on[ev] = fn; }, loaded(dur) { this.duration = dur; if (this.on.loadedmetadata) this.on.loadedmetadata(); } }; audios.push(el); return el; };
   return { ctx, audio, audios };
 }
 const STATE = (o = {}) => Object.assign({ phase: 'roll', size: 'normal', seed: 5, round: 1, rounds: 3, moves: 0, players: [{ slot: 0, name: 'A' }], tower: { full: 17, top: 17, topCount: 3 }, place: { x: 0, y: 0, yaw: 0 }, handled: null, ticker: [] }, o);
@@ -117,6 +117,36 @@ test('a track that is nearly over is followed by the next one of its scene, over
   assert.ok(m.track === 'a.mp3' || m.track === 'b.mp3', 'danger has none: it keeps the nearest (tense, then build)');
   const q = pretend(), n = new Mu.Music({ ctx: q.ctx, audio: q.audio }); n.start(); n.setScene('calm', 1, 1);
   assert.strictEqual(q.audios.length, 0, 'no tracks at all: the generated pad only'); assert.strictEqual(n.padGain.gain.last()[1], 0.07);
+});
+
+test('a track comes in half way: the same place on every headset for a scene, once its length is known, and never so late that it has no time to be heard', () => {
+  const go = (seed, round, scene = 'calm', manifest = {}) => {
+    const p = pretend(), m = new Mu.Music({ ctx: p.ctx, audio: p.audio }); m.load(Object.assign({ crossfade: 30, scenes: { calm: ['c.mp3'], tense: ['t.mp3'], finale: ['f.mp3'] } }, manifest)); m.start();
+    m.setScene(scene, seed, round); return { p, m, el: p.audios[0] };
+  };
+  const a = go(5, 1); assert.strictEqual(a.el.currentTime, 0, 'its length is not known yet: it plays from the start');
+  a.el.loaded(300); const at = a.el.currentTime;
+  assert.ok(at > 0 && at <= 300 - 61, `somewhere in the first 239 s (${at})`);
+  a.el.currentTime = 77; a.m.tick(); assert.strictEqual(a.el.currentTime, 77, 'the jump is made once');
+  const b = go(5, 1); b.el.loaded(300); assert.strictEqual(b.el.currentTime, at, 'the same state, the same place, on any headset');
+  const places = new Set(); for (let r = 1; r <= 8; r++) { const x = go(5, r); x.el.loaded(300); places.add(x.el.currentTime); }
+  assert.ok(places.size >= 6, `another round, another place (${places.size} of 8)`);
+  const c = go(5, 1); c.el.duration = 300; c.m.tick(); assert.strictEqual(c.el.currentTime, at, 'a tick finds the length too, when no event came');
+  const d = go(5, 1); d.el.loaded(90); assert.ok(d.el.currentTime <= 29, `a short track keeps two crossfades to play (${d.el.currentTime})`);
+  const e = go(5, 1); e.el.loaded(60); assert.strictEqual(e.el.currentTime, 0, 'one too short for that: from the start');
+  const f = go(5, 1, 'finale'); f.el.loaded(300); assert.strictEqual(f.el.currentTime, 0, 'the finale is shaped from its first second');
+  const g = go(5, 1, 'calm', { anywhere: [] }); g.el.loaded(300); assert.strictEqual(g.el.currentTime, 0, 'tracks.json can ask for the beginning everywhere');
+  const h = go(5, 1, 'finale', { anywhere: ['finale'] }); h.el.loaded(300); assert.ok(h.el.currentTime > 0, 'or for another scene to start anywhere');
+  assert.strictEqual(Mu.startFraction(5, 'calm', 1, 'c.mp3'), at / (300 - 61), 'it is a fraction of the room the track has');
+});
+
+test('a track that follows another comes in somewhere else, also when it is the same track again', () => {
+  const p = pretend(), m = new Mu.Music({ ctx: p.ctx, audio: p.audio }); m.load({ crossfade: 30, scenes: { calm: ['c.mp3'] } }); m.start(); m.setScene('calm', 5, 1);
+  p.audios[0].loaded(300); const first = p.audios[0].currentTime;
+  p.audios[0].currentTime = 275; p.ctx.currentTime = 60; m.tick();
+  assert.strictEqual(p.audios.length, 2, 'it follows itself'); p.audios[1].loaded(300);
+  assert.notStrictEqual(p.audios[1].currentTime, first, 'from another place than the first time');
+  assert.strictEqual(p.audios[1].currentTime, Mu.startFraction(5, 'calm', 1, 'c.mp3', 1) * (300 - 61));
 });
 
 test('tension opens the filter and lifts the music; a block pulled swells it for a few seconds; a fall ducks it to a whisper and the replay brings it back louder', () => {

@@ -14,7 +14,7 @@ function build(dir = __dirname) {
     scenes[s] = fs.existsSync(d) ? fs.readdirSync(d).filter((f) => EXT.test(f)).sort().map((f) => `${s}/${f}`) : [];
   }
   const old = fs.existsSync(path.join(dir, 'tracks.json')) ? JSON.parse(fs.readFileSync(path.join(dir, 'tracks.json'), 'utf8')) : {};
-  return { crossfade: old.crossfade || 30, fades: old.fades || { finale: 6, win: 12 }, scenes };
+  return Object.assign({ crossfade: old.crossfade || 30, fades: old.fades || { finale: 6, win: 12 } }, old.anywhere ? { anywhere: old.anywhere } : {}, { scenes });
 }
 if (require.main === module) {
   const m = build();

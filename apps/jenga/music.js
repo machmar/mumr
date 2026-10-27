@@ -15,7 +15,7 @@
   const need = (n) => (typeof module !== 'undefined' ? require(`./${n}.js`) : J);
   const S = need('spec');
   const SCENES = ['calm', 'build', 'tense', 'danger', 'finale', 'win'];
-  const CFG = { crossfade: 30, fades: { finale: 6, win: 12 }, volumes: [0, 0.22, 0.45, 0.72, 1], swellMax: 0.32, minScene: 22 };      // seconds, gain per volume step, how much louder a tense moment is, s before the scene may drop
+  const CFG = { crossfade: 30, fades: { finale: 6, win: 12 }, volumes: [0, 0.22, 0.45, 0.72, 1], swellMax: 0.32, minScene: 22, anywhere: ['calm', 'build', 'tense', 'danger'] };      // seconds, gain per volume step, how much louder a tense moment is, s before the scene may drop, the scenes whose tracks may be entered half way
 
   const clamp01 = (v) => Math.max(0, Math.min(1, v));
   const hash = (s) => { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return h >>> 0; };
@@ -107,6 +107,10 @@
   // the same track on every headset for a scene: a hash of the tower's seed, the scene and the round
   function pickTrack(pool, seed, scene, round) { return pool && pool.length ? pool[hash(`${seed}|${scene}|${round || 0}`) % pool.length] : null; }
 
+  // where in a track it comes in, as a fraction of the room it has (0 to 1): a hash like the pick, so the same on every headset for a scene change;
+  // `n` is how many tracks have followed one another since (a track that follows itself comes in somewhere else each time)
+  function startFraction(seed, scene, round, file, n = 0) { return (hash(`${seed}|${scene}|${round || 0}|${file}|${n}`) % 1000) / 1000; }
+
   // ---- the sound ---------------------------------------------------------------------------------------------------------------------
   // io: { ctx (an AudioContext, or made on start() by ioNew), audio () -> an <audio>-like element, rand }, manifest: { crossfade, scenes: { name: [file] } }, base (the URL of the music folder)
   class Music {
@@ -119,6 +123,8 @@
     load(manifest) { this.manifest = Object.assign({ crossfade: CFG.crossfade, fades: CFG.fades, scenes: {} }, manifest || {}); this.manifest.scenes = this.manifest.scenes || {}; }
     // how long the crossfade into a scene takes: 30 s, except for the scenes that are short (the fall, the end of the match: tracks.json `fades`)
     fadeFor(scene) { const f = this.manifest.fades && this.manifest.fades[scene]; return Number.isFinite(f) ? f : this.manifest.crossfade; }
+    // may the tracks of a scene come in half way? (ambient ones need not start at the beginning; the finale and the win are shaped from their first second)
+    startsAnywhere(scene) { const a = this.manifest.anywhere; return (Array.isArray(a) ? a : this.cfg.anywhere).includes(scene); }
     get tracks() { return Object.values(this.manifest.scenes).reduce((a, p) => a + (p ? p.length : 0), 0); }
     // call from a user's click or touch (a page may make no sound before one)
     start() {
@@ -161,8 +167,9 @@
       for (const s of order) if (this.manifest.scenes[s] && this.manifest.scenes[s].length) return this.manifest.scenes[s];
       return null;
     }
-    _crossfadeTo(file, secs) {
+    _crossfadeTo(file, secs, n = 0) {
       const ctx = this.ctx, now = ctx.currentTime, first = !this.decks.some((x) => !x.dying), d = this._deck(file);
+      d.n = n; d.frac = this.startsAnywhere(this.scene) ? startFraction(this.seed, this.scene, this.round, file, n) : 0; this._seek(d);
       const fade = first ? Math.min(secs, 6) : secs;                       // (the first track of a visit comes in over 6 s at most)
       for (const o of this.decks) if (o !== d && !o.dying) this._fadeOut(o, now, fade);
       ramp(d.gain.gain, 0, 1, now, fade);
@@ -181,9 +188,24 @@
       const gain = ctx.createGain(); gain.gain.value = 0;
       const src = ctx.createMediaElementSource(el); src.connect(gain); gain.connect(this.tracksBus);
       const p = el.play(); if (p && p.catch) p.catch((e) => this.log(`music: ${file} would not play (${e && e.message ? e.message : e})`));
-      const d = { file, el, gain, src, dying: false, stopAt: null, fadeEnd: 0, followed: false };
+      const d = { file, el, gain, src, dying: false, stopAt: null, fadeEnd: 0, followed: false, n: 0, frac: 0, sought: false };
+      if (el.addEventListener) el.addEventListener('loadedmetadata', () => this._seek(d));
       this.decks.push(d);
       return d;
+    }
+    // a track that comes in half way: once its length is known, jump to the place its fraction names. It always keeps two crossfades (and a second) to
+    // play, so a long track is entered anywhere in its first part and a short one from the beginning; the gain is still near 0 when this happens
+    _seek(d) {
+      if (d.sought) return;
+      if (!(d.frac > 0)) { d.sought = true; return; }
+      const dur = d.el.duration;
+      if (!Number.isFinite(dur) || dur <= 0) return;                     // (not known yet: the loadedmetadata event or the next tick)
+      d.sought = true;
+      const room = dur - (2 * this.manifest.crossfade + 1);
+      if (room < 1) return;
+      const at = d.frac * room;
+      try { d.el.currentTime = at; } catch (e) { return; }
+      this.log(`music: ${d.file} comes in at ${Math.floor(at / 60)}:${String(Math.floor(at % 60)).padStart(2, '0')} of ${Math.floor(dur / 60)}:${String(Math.floor(dur % 60)).padStart(2, '0')}`);
     }
     // every second or so: a track that is about to end is followed by the next of the scene's tracks, a faded-out one is stopped
     tick() {
@@ -191,11 +213,12 @@
       const now = this.ctx.currentTime;
       for (const d of this.decks.slice()) {
         if (d.dying && d.stopAt !== null && now >= d.stopAt) { try { d.el.pause(); d.src.disconnect(); d.gain.disconnect(); } catch (e) { /* gone */ } this.decks.splice(this.decks.indexOf(d), 1); continue; }
+        if (!d.sought) this._seek(d);
         const dur = d.el.duration;
         if (!d.dying && !d.followed && Number.isFinite(dur) && dur > 0 && dur - d.el.currentTime <= this.manifest.crossfade + 1) {
           d.followed = true;
           const pool = this.manifest.scenes[this.scene] && this.manifest.scenes[this.scene].length ? this.manifest.scenes[this.scene] : this._fallbackPool() || [d.file], next = pool[(pool.indexOf(d.file) + 1) % pool.length] || d.file;
-          this._crossfadeTo(next, this.manifest.crossfade);
+          this._crossfadeTo(next, this.manifest.crossfade, d.n + 1);
         }
       }
     }
@@ -332,5 +355,5 @@
     }
   }
 
-  Object.assign(J, { Tension, Impacts, sceneFor, momentsBetween, pickTrack, Music, Soundtrack, MUSIC: CFG, SCENES, musicCurve: curve });
+  Object.assign(J, { Tension, Impacts, sceneFor, momentsBetween, pickTrack, startFraction, Music, Soundtrack, MUSIC: CFG, SCENES, musicCurve: curve });
 })(typeof module !== 'undefined' ? module.exports : (globalThis.JENGA = globalThis.JENGA || {}));
