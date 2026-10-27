@@ -92,6 +92,7 @@
       if (room !== tw.realRoom) tw.setRoom(room);
       tw.frozen = !!this.frozen;
       tw.step(dt, this.t, hands || []);
+      while (tw.log.length) this.life(`jenga: ${tw.log.shift()}`);
       if (ph === 'fall' || ph === 'replay') this.playReplay(nowMs);
       else if (ph === 'aftermath') { if (this.timer && nowMs >= this.timer) { this.timer = null; r.setPhase('round_end'); } }
       else {

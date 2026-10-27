@@ -18,12 +18,14 @@ module.exports = {
       reach: () => false, touching: () => false, pack: () => ref.pack(), apply: () => false, settle: () => {},
       do: (what, args) => ref.command(what, args), moving: () => ref.moving(),
     } });
-    let at = Date.now();
+    let at = Date.now(), maxHands = 0, pinches = 0, lastPinch = false;
     return {
       bodies: [body],
       step(dt, t, hands) {
         ref.step(dt, t * 1000, hands);
-        if (Date.now() - at >= 5000) { const st = ref.stats; life(`jenga host: ${ref.rules.phase}, ${ref.tower.moving()} bodies moving, up to ${hands.length} hands, step ${(st.ms / Math.max(1, st.steps)).toFixed(2)} ms (worst ${st.worst.toFixed(1)})`); ref.stats = { steps: 0, ms: 0, worst: 0 }; at = Date.now(); }
+        { const pv = hands.some((h) => h.pinch); if (pv !== lastPinch) { lastPinch = pv; life(`jenga host: pinch ${pv} at ${hands.map((h) => h.points[0].z.toFixed(3))} t=${(t % 1000).toFixed(2)}`); } }
+        maxHands = Math.max(maxHands, hands.length); if (hands.some((h) => h.pinch)) { pinches++; if (false) life(`jenga host: first pinch ${JSON.stringify(hands.map((h) => ({ id: h.id, pinch: h.pinch, p: h.points.map((q) => [q.name, +q.x.toFixed(3), +q.y.toFixed(3), +q.z.toFixed(3)]) })))}; die at ${ref.tower.die.body.p.map((v) => v.toFixed(3))}`); }
+        if (Date.now() - at >= 5000) { const st = ref.stats; life(`jenga host: ${ref.rules.phase}, ${ref.tower.moving()} bodies moving, up to ${maxHands} hands (${pinches} steps with a pinch), step ${(st.ms / Math.max(1, st.steps)).toFixed(2)} ms (worst ${st.worst.toFixed(1)})`); ref.stats = { steps: 0, ms: 0, worst: 0 }; maxHands = 0; pinches = 0; at = Date.now(); }
       },
     };
   },

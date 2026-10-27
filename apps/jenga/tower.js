@@ -31,7 +31,7 @@
       this.holds = new Map();               // grip id -> { i, off, q, kind, f (filtered point), last }
       this.quiet = new Map();               // hand id -> time (s) until which its fingers push nothing
       this.prev = new Map(); this.t = 0;
-      this.frozen = false;
+      this.frozen = false; this.log = [];
       this.handled = null; this.fellFirst = null; this.rest = null; this.counts = []; this.restLevel = []; this.out = new Set();
       this.build();
       if (opts.settle !== false) this.settle();
@@ -117,7 +117,7 @@
       // hands that let go
       for (const [id, h] of [...this.holds]) {
         const g = grips.find((q) => q.id === id);
-        if (!g || g.kind !== h.kind) { W.release(this.body(h.i)); this.holds.delete(id); this.quiet.set(id, t + SEEN); }
+        if (!g || g.kind !== h.kind) { W.release(this.body(h.i)); this.holds.delete(id); this.quiet.set(id, t + SEEN); this.log.push(`${id} let go of ${this.name(h.i)}`); }
       }
       // hands that take hold: a pinch takes the nearest block or the die within reach; a fist takes only the die
       for (const g of grips) {
@@ -131,7 +131,7 @@
           const b = this.body(best);
           this.holds.set(g.id, { i: best, off: sub(b.p, g.at), q: b.q.slice(), kind: g.kind, f: g.at.slice(), last: t });
           W.wake(b);
-          if (best === S.DIE) this.die.moved = true;
+          this.log.push(`${g.id} took ${this.name(best)} (${g.kind}, ${(bd * 1000).toFixed(0)} mm away)`);
         }
       }
       // holding: the point the hand holds, steadied, plus where the body was from it; a block is carried by a grip of limited strength
@@ -141,7 +141,7 @@
         for (let j = 0; j < 3; j++) h.f[j] += (g.at[j] - h.f[j]) * (h.i === S.DIE ? 1 : k);
         const v = handSpeed(src) || this._vel(`${id}:hold`, g.at, t), target = { p: [h.f[0] + h.off[0], h.f[1] + h.off[1], h.f[2] + h.off[2]], q: h.q, v };
         const opts = h.i === S.DIE ? { spring: 20, speed: 5, breakAway: 0.5 } : { spring: tun.hold.spring, speed: tun.hold.speed, breakAway: tun.hold.breakAway, force: tun.hold.force, omega: tun.hold.omega };
-        if (W.hold(b, target, opts) === 'released') { this.holds.delete(id); this.quiet.set(id, t + 0.3); }
+        if (W.hold(b, target, opts) === 'released') { this.holds.delete(id); this.quiet.set(id, t + 0.3); this.log.push(`${id} lost ${this.name(h.i)} (it came too far from the hand)`); }
       }
       // the fingertips and the palm push; the hand that holds something, or has just let go, pushes nothing
       const hands = [];
@@ -164,6 +164,7 @@
       this.prev.set(key, [p[0], p[1], p[2], t]);
       const s = len(v); return s > 4 ? v.map((c) => (c * 4) / s) : v;
     }
+    name(i) { return i === S.DIE ? 'the die' : `block ${i} (level ${Math.floor(i / S.PER)}, ${S.COLOURS[this.blocks[i].spec.colour].label})`; }
     heldBy(i) { for (const [id, h] of this.holds) if (h.i === i) return id; return null; }
 
     // ---- reading it

@@ -65,17 +65,20 @@
     return { p: [along ? 0 : off, along ? off : 0, plinthTop + d.H / 2 + level * d.H + 0.0002 * d.k], q: along ? [0, 0, 0, 1] : [0, 0, Math.SQRT1_2, Math.SQRT1_2] };
   }
 
-  // ---- where things stand (game frame)
+  // ---- where things stand (game frame: the tower at the origin, x from the player who put the game here towards the tower)
+  // P is where that player stands; the console is to the side of the plinth, and the board and the scoreboard face P (everybody else walks round).
   function layout(size) {
-    const d = dims(size), half = Math.max(0.16, 2 * d.L), top = d.plinth;
-    const cx = -(half + 0.55), tableH = 0.78, tray = 0.34;
+    const d = dims(size), half = Math.max(0.16, 2 * d.L), top = d.plinth, tableH = 0.78;
+    const P = [-(half + 0.8), 0], C = [-0.15, half + 0.62], face = (p) => Math.atan2(P[1] - p[1], P[0] - p[0]);
+    const bc = [C[0] + 0.12, C[1] + 0.22], sc = [C[0] + 0.95, C[1] + 0.15], tray = [C[0] - 0.3, C[1] - 0.06];
     return {
-      d, plinth: { half, top },
-      console: { c: [cx, 0], half: [0.28, 0.5], top: tableH },                                      // a low table: 0.56 m deep along x, 1 m wide along y
-      tray: { c: [cx + 0.1, 0.22], half: tray / 2, rim: 0.045, wall: 0.02 },                        // the die rolls here
-      board: { c: [cx - 0.12, -0.12], w: 0.64, bottom: tableH + 0.06, pitch: 0.2 },                // the shared menu stands at the back of the table
-      score: { c: [cx - 0.12, 0.7], w: 0.62, h: 0.86, bottom: tableH + 0.02 },                      // the scoreboard hangs beside it
-      die: { size: Math.max(0.04, Math.min(0.06, 0.04 * Math.sqrt(d.k))), at: [cx + 0.1, 0.22, tableH + 0.025] },
+      d, P, plinth: { half, top },
+      console: { c: C, half: [0.55, 0.3], top: tableH },                                            // a low table: 1.1 m wide (x), 0.6 m deep
+      tray: { c: tray, half: 0.17, rim: 0.045, wall: 0.02 },                                        // the die rolls here
+      board: { c: bc, w: 0.64, bottom: tableH + 0.06, pitch: 0.2, yaw: face(bc) },                  // the shared menu stands at the back of the table
+      score: { c: sc, w: 0.62, h: 0.86, bottom: tableH + 0.02, yaw: face(sc) },                     // the scoreboard hangs beside it
+      lantern: [C[0] - 0.45, C[1] + 0.2],
+      die: { size: Math.max(0.04, Math.min(0.06, 0.04 * Math.sqrt(d.k))), at: [tray[0], tray[1], tableH + 0.025] },
     };
   }
   // game frame <-> common frame

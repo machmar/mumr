@@ -306,7 +306,8 @@ export async function createApp(o) {
       const scan = readPlanes(xr, frame, space, planeState);
       if (scan !== undefined) room.setScan(scan);
     } else if (mouse) {
-      own = [{ id: 'mouse', pinch: !!mouse.pinch, fist: !!mouse.fist, points: [{ name: 'index', x: mouse.x, y: mouse.y, z: 0.05 }, { name: 'thumb', x: mouse.x, y: mouse.y, z: 0.05 }] }];
+      const mz = Number.isFinite(mouse.z) ? mouse.z : 0.05;           // (the pretend fingertip is 5 cm up unless a rehearsal script says otherwise: __mumr.poke)
+      own = [{ id: 'mouse', pinch: !!mouse.pinch, fist: !!mouse.fist, points: [{ name: 'index', x: mouse.x, y: mouse.y, z: mz }, { name: 'thumb', x: mouse.x, y: mouse.y, z: mz }] }];
     }
     // everybody's hands and what they are doing (grab.js): for the ghost fingers' colours, the hand wall and the app
     app.everyone = presence.hands(own, now);
@@ -321,7 +322,7 @@ export async function createApp(o) {
     }
     ownShoes.update(feet);
     mouseDot.visible = !xr && !!mouse;
-    if (mouse) mouseDot.position.set(mouse.x, 0.05, -mouse.y);
+    if (mouse) mouseDot.position.set(mouse.x, Number.isFinite(mouse.z) ? mouse.z : 0.05, -mouse.y);
     // lining up, then everything that is shared
     const tipList = M.hands.tips(own, Object.fromEntries(own.map((s) => [s.id, !!s.pinch])));
     lineup.update(now, dt, tipList);
@@ -687,6 +688,6 @@ export async function createApp(o) {
   renderer.setAnimationLoop(onFrame);
   // a page of another build reloads itself (outside mixed reality): a headset never runs an old page by accident
   setInterval(async () => { if (xr) return; try { const i = await (await fetch('/info')).json(); if (i.build && info.build && i.build !== info.build) location.reload(); } catch (e) { /* the server is away */ } }, 3000);
-  window.__mumr = Object.assign(app, { link, panels: panelsAll, controls, frame: () => onFrame(performance.now(), null), press: pressed, poke: (x, y, pinchOn, fistOn) => { mouse = x === undefined ? null : { x, y, pinch: !!pinchOn, fist: !!fistOn }; } });
+  window.__mumr = Object.assign(app, { link, panels: panelsAll, controls, frame: () => onFrame(performance.now(), null), press: pressed, poke: (x, y, pinchOn, fistOn, z) => { mouse = x === undefined ? null : { x, y, pinch: !!pinchOn, fist: !!fistOn, z }; } });
   return app;
 }
