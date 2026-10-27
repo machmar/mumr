@@ -1,0 +1,7 @@
+{
+  "title": "MUMR jenga",
+  "index": "index.html",
+  "bodies": ["jenga"],
+  "owned": { "23": "jenga" },
+  "host": "host.js"
+}

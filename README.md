@@ -45,7 +45,7 @@ engine/client/    util link align wire session presence body worldfeed life hand
 engine/client/xr/ session input ghost players3d panel3d   ES modules for WebXR, THREE handed in
 engine/test/      Node tests (hubfake.js: a pretend server for several pretend headsets in one process)
 engine/server/tests/   Python tests
-apps/      _template (the smallest app; tools/new-app.js copies it), cube (the XR demo, with a PC view), lab (experiments: a pile of any number of cubes, a stack, drift)
+apps/      _template (the smallest app; tools/new-app.js copies it), cube (the XR demo, with a PC view), lab (experiments: a pile of any number of cubes, a stack, drift), jenga (a game: a shared tower, one shared menu, scoring, a replay, a soundtrack)
 tools/     new-app.js (make an app), run.js (run one by name)
 docs/      ARCHITECTURE.md  HOWTO-NEW-APP.md  PLAN.md  NOTES.md (what was learnt, and what was streamlined)
 ```

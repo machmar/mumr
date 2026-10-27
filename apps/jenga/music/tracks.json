@@ -1,0 +1,15 @@
+{
+  "crossfade": 30,
+  "fades": {
+    "finale": 6,
+    "win": 12
+  },
+  "scenes": {
+    "calm": [],
+    "build": [],
+    "tense": [],
+    "danger": [],
+    "finale": [],
+    "win": []
+  }
+}

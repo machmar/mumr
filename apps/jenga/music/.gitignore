@@ -1,0 +1,8 @@
+# the soundtrack is yours: tracks are not committed (they are big, and not ours). tracks.json lists what is there.
+*/*.mp3
+*/*.ogg
+*/*.m4a
+*/*.wav
+*/*.flac
+*/*.opus
+*/*.aac

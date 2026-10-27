@@ -7,6 +7,12 @@
 // What differs from the hand-made World: Jolt has one friction number per body (the kinetic one is used) and none for rolling, so a cube comes
 // to rest by its angular damping only; the room's walls are thick (20 cm) two-sided slabs; a table or solid object is the convex hull of its
 // outline (a hollow outline is filled); `contacts(b)` does not exist. Hands are kinematic bodies that Jolt moves (at most 4 m/s) and resolves.
+// `hold(b, target, { force: N, omega })` is a grip with a limited strength: the body is pulled towards the target by a critically damped
+// spring (natural frequency omega, 80 rad/s) whose force is at most N newtons, applied inside every substep. It stays an
+// ordinary dynamic body, so it takes its share of a load like its neighbours, and a hold that is jammed gives instead of tearing what it
+// touches. The default velocity motor is cancelled by friction inside the same solver step when the body carries a load (a block under a
+// tower stays put while the motor says it moves): apps/jenga uses `force`.
+// World options for things that must stand still under a load: velocitySteps, positionSteps, speculative, baumgarte, minBounceV (Jolt's own).
 const M = require('./index.js');
 const path = require('node:path');
 const { pathToFileURL } = require('node:url');
@@ -69,6 +75,12 @@ async function load() {
       const ps = this.sys.GetPhysicsSettings();
       ps.mTimeBeforeSleep = this.opts.sleepAfter || 0.5; ps.mPointVelocitySleepThreshold = this.opts.sleepV || 0.02;
       ps.mPenetrationSlop = this.opts.slop || 0.004;      // (the default 2 cm is a sixth of a cube)
+      // (solver knobs for things that must stand still under a load, a tower of small blocks: more rounds make a stack stiffer)
+      if (this.opts.velocitySteps) ps.mNumVelocitySteps = this.opts.velocitySteps;
+      if (this.opts.positionSteps) ps.mNumPositionSteps = this.opts.positionSteps;
+      if (this.opts.speculative !== undefined) ps.mSpeculativeContactDistance = this.opts.speculative;
+      if (this.opts.baumgarte !== undefined) ps.mBaumgarte = this.opts.baumgarte;
+      if (this.opts.minBounceV !== undefined) ps.mMinVelocityForRestitution = this.opts.minBounceV;
       this.sys.SetPhysicsSettings(ps);
       // a hand is flesh, not hard plastic: a contact with a kinematic body (a hand) does not bounce (Jolt combines the two bodies' restitution by their maximum)
       this.listener = new J.ContactListenerJS();
@@ -279,7 +291,7 @@ async function load() {
     hold(b, target, opts = {}) {
       const o = Object.assign({ spring: 20, speed: 5, breakAway: 0.3 }, opts);
       if (!target || !fin(target.p) || !target.q || !fin(target.q) || !(Math.hypot(...target.q) > 1e-6) || Math.hypot(...sub(target.p, b.p)) > o.breakAway) { b.held = null; return 'released'; }
-      b.held = { p: target.p, q: target.q, v: target.v || [0, 0, 0], w: target.w || [0, 0, 0], spring: o.spring, speed: o.speed, age: 0 };
+      b.held = { p: target.p, q: target.q, v: target.v || [0, 0, 0], w: target.w || [0, 0, 0], spring: o.spring, speed: o.speed, age: 0, force: o.force > 0 ? o.force : 0, omega: o.omega > 0 ? o.omega : 80 };
       this.wake(b); return 'holding';
     }
     release(b) { b.held = null; }
@@ -289,6 +301,21 @@ async function load() {
       let qe = Q.mul(H.q, Q.conj(b.q)); if (qe[3] < 0) qe = qe.map((c) => -c);
       let w = add(H.w, [qe[0], qe[1], qe[2]], 2 * H.spring); const ws = Math.hypot(...w); if (ws > HOLD_W) w = mulv(w, HOLD_W / ws);
       this.v1.Set(v[0], v[1], v[2]); this.v2.Set(w[0], w[1], w[2]); this.bi.SetLinearAndAngularVelocity(b._j.id, this.v1, this.v2);
+      H.age += h;
+    }
+    // A hold with a limited force: a critically damped spring to the target (natural frequency H.omega, rad/s), as a force of at most H.force
+    // newtons applied inside the substep. Free, it tracks the target smoothly; jammed under a load it lags until the spring has the force to
+    // free it (at H.force it lags m w^2 metres less than the force: tune omega so that this is a few centimetres) and it gives instead of
+    // tearing what it touches. It turns by the motor's spin (a body held by a hand does not roll over in it).
+    _force(b, h) {
+      const H = b.held, id = b._j.id, bi = this.bi, w0 = H.omega;
+      this._pullPose(b);
+      const e = sub(add(H.p, H.v, H.age), b.p), cur = bi.GetLinearVelocity(id), ev = sub(H.v, [cur.GetX(), cur.GetY(), cur.GetZ()]);
+      let f = mulv(add(mulv(e, w0 * w0), ev, 2 * w0), b.mass); const fl = Math.hypot(...f); if (fl > H.force) f = mulv(f, H.force / fl);
+      this.v1.Set(f[0], f[1], f[2]); bi.AddForce(id, this.v1);
+      let qe = Q.mul(H.q, Q.conj(b.q)); if (qe[3] < 0) qe = qe.map((x) => -x);
+      let w = add(H.w, [qe[0], qe[1], qe[2]], 2 * H.spring); const ws = Math.hypot(...w); if (ws > HOLD_W) w = mulv(w, HOLD_W / ws);
+      this.v2.Set(w[0], w[1], w[2]); bi.SetAngularVelocity(id, this.v2);
       H.age += h;
     }
     // ---- one frame
@@ -318,7 +345,7 @@ async function load() {
       for (const e of this._hands.values()) if (!e.seen && e.on) { this.bi.RemoveBody(e.id); e.on = false; }
       for (let i = 0; i < n; i++) {
         const f = (i + 1) / n;
-        for (const b of this.bodies) if (b.held) { this._pullPose(b); this._motor(b, h); }
+        for (const b of this.bodies) if (b.held) { if (b.held.force) this._force(b, h); else { this._pullPose(b); this._motor(b, h); } }
         for (const a of hands) {
           const p = add(a.p0, sub(a.p1, a.p0), f), q = Q.slerp(a.q0, a.q1, f);
           // (Jolt moves a kinematic body by its speed in the step: it is put one step behind where it is to end, with the hand's speed)
