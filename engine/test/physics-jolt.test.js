@@ -171,7 +171,7 @@ function loaded() {                     // three slabs side by side with a 0.7 k
 }
 const pullTo = (W, b, force, secs = 3) => {
   let t = 0;
-  run(W, secs, () => { t += 1 / 60; W.hold(b, { p: [b.p[0] * 0 + Math.min(0.1, 0.05 * t), 0, 0.0075], q: [0, 0, 0, 1], v: [0.05, 0, 0] }, { force, speed: 0.3, spring: 20, breakAway: 1 }); }, 60);
+  run(W, secs, () => { t += 1 / 60; W.hold(b, { p: [b.p[0] * 0 + Math.min(0.1, 0.05 * t), 0, 0.0075], q: [0, 0, 0, 1], v: [0.05, 0, 0] }, { force, omega: 80, spring: 20, breakAway: 1 }); }, 60);
   W.release(b);
 };
 

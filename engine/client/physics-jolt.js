@@ -7,8 +7,8 @@
 // What differs from the hand-made World: Jolt has one friction number per body (the kinetic one is used) and none for rolling, so a cube comes
 // to rest by its angular damping only; the room's walls are thick (20 cm) two-sided slabs; a table or solid object is the convex hull of its
 // outline (a hollow outline is filled); `contacts(b)` does not exist. Hands are kinematic bodies that Jolt moves (at most 4 m/s) and resolves.
-// `hold(b, target, { force: N })` is a grip with a limited strength: the body is pulled towards the target by a force of at most N newtons,
-// worked out and applied inside every substep (the velocity error closes in 1/16 of a substep, as far as the force allows). It stays an
+// `hold(b, target, { force: N, omega })` is a grip with a limited strength: the body is pulled towards the target by a critically damped
+// spring (natural frequency omega, 80 rad/s) whose force is at most N newtons, applied inside every substep. It stays an
 // ordinary dynamic body, so it takes its share of a load like its neighbours, and a hold that is jammed gives instead of tearing what it
 // touches. The default velocity motor is cancelled by friction inside the same solver step when the body carries a load (a block under a
 // tower stays put while the motor says it moves): apps/jenga uses `force`.
@@ -36,7 +36,7 @@ async function load() {
   const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
   const fin = (a) => a.every(Number.isFinite);
   const differs = (a, b) => a[0] !== b[0] || a[1] !== b[1] || a[2] !== b[2] || (a.length > 3 && a[3] !== b[3]);
-  const FORCE_GAIN = 1 / 16, MAX_DT = 0.05, HAND_MAX = 4, HOLD_W = 10, V_MAX = 30, W_MAX = 100, WALL_T = 0.2, PLATE_T = 0.01, FAR = 0.5, NEAR_WAKE = 0.05, GROUND = 100, MAX_SUB = 32, CATCH_TAU = 0.05, CATCH_UP = 2;
+  const MAX_DT = 0.05, HAND_MAX = 4, HOLD_W = 10, V_MAX = 30, W_MAX = 100, WALL_T = 0.2, PLATE_T = 0.01, FAR = 0.5, NEAR_WAKE = 0.05, GROUND = 100, MAX_SUB = 32, CATCH_TAU = 0.05, CATCH_UP = 2;
   const STATIC = 0, MOVING = 1;
   const nearOn = (s, x) => { if (!s.q) return s.p; const d = sub(s.q, s.p), L = dot(d, d), t = L > 1e-12 ? Math.max(0, Math.min(1, dot(sub(x, s.p), d) / L)) : 0; return add(s.p, d, t); };
   // the turn that takes the y axis to direction d (unit)
@@ -291,7 +291,7 @@ async function load() {
     hold(b, target, opts = {}) {
       const o = Object.assign({ spring: 20, speed: 5, breakAway: 0.3 }, opts);
       if (!target || !fin(target.p) || !target.q || !fin(target.q) || !(Math.hypot(...target.q) > 1e-6) || Math.hypot(...sub(target.p, b.p)) > o.breakAway) { b.held = null; return 'released'; }
-      b.held = { p: target.p, q: target.q, v: target.v || [0, 0, 0], w: target.w || [0, 0, 0], spring: o.spring, speed: o.speed, age: 0, force: o.force > 0 ? o.force : 0 };
+      b.held = { p: target.p, q: target.q, v: target.v || [0, 0, 0], w: target.w || [0, 0, 0], spring: o.spring, speed: o.speed, age: 0, force: o.force > 0 ? o.force : 0, omega: o.omega > 0 ? o.omega : 80 };
       this.wake(b); return 'holding';
     }
     release(b) { b.held = null; }
@@ -303,15 +303,15 @@ async function load() {
       this.v1.Set(v[0], v[1], v[2]); this.v2.Set(w[0], w[1], w[2]); this.bi.SetLinearAndAngularVelocity(b._j.id, this.v1, this.v2);
       H.age += h;
     }
-    // A hold with a limited force: the same law as _motor says the velocity wanted, and a force of at most H.force newtons closes the gap.
-    // It turns by the motor's spin (a body held by a hand does not roll over in it).
+    // A hold with a limited force: a critically damped spring to the target (natural frequency H.omega, rad/s), as a force of at most H.force
+    // newtons applied inside the substep. Free, it tracks the target smoothly; jammed under a load it lags until the spring has the force to
+    // free it (at H.force it lags m w^2 metres less than the force: tune omega so that this is a few centimetres) and it gives instead of
+    // tearing what it touches. It turns by the motor's spin (a body held by a hand does not roll over in it).
     _force(b, h) {
-      const H = b.held, id = b._j.id, bi = this.bi;
+      const H = b.held, id = b._j.id, bi = this.bi, w0 = H.omega;
       this._pullPose(b);
-      const e = sub(add(H.p, H.v, H.age), b.p), cap = H.speed + Math.hypot(...H.v);
-      let v = add(H.v, e, H.spring); const s = Math.hypot(...v); if (s > cap) v = mulv(v, cap / s);
-      const cur = bi.GetLinearVelocity(id), have = [cur.GetX(), cur.GetY(), cur.GetZ()];
-      let f = mulv(sub(v, have), b.mass / (FORCE_GAIN * h)); const fl = Math.hypot(...f); if (fl > H.force) f = mulv(f, H.force / fl);
+      const e = sub(add(H.p, H.v, H.age), b.p), cur = bi.GetLinearVelocity(id), ev = sub(H.v, [cur.GetX(), cur.GetY(), cur.GetZ()]);
+      let f = mulv(add(mulv(e, w0 * w0), ev, 2 * w0), b.mass); const fl = Math.hypot(...f); if (fl > H.force) f = mulv(f, H.force / fl);
       this.v1.Set(f[0], f[1], f[2]); bi.AddForce(id, this.v1);
       let qe = Q.mul(H.q, Q.conj(b.q)); if (qe[3] < 0) qe = qe.map((x) => -x);
       let w = add(H.w, [qe[0], qe[1], qe[2]], 2 * H.spring); const ws = Math.hypot(...w); if (ws > HOLD_W) w = mulv(w, HOLD_W / ws);
