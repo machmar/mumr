@@ -8,7 +8,8 @@
 //
 //   const app = await createApp({ THREE, OrbitControls,
 //     session: { game, player, actions, press },        the app's settings and buttons (the engine adds its own)
-//     menu: (state, info) => layout,                     the app's floating menu (menus.grid), for this player, the others and the PC view
+//     menu: (state, info) => layout | false,             the app's floating menu (menus.grid), for this player, the others and the PC view;
+//                                                        false: the app has no menu of each player's own (it has boards)
 //     bodies: ({ S, space, say, life }) => [{ token, type, adapter }],   the app's bodies (body.js); packets of their types reach them
 //     setup(app),                                        (optional) once, before the first frame: the app adds its meshes to app.world
 //     step(dt, t, hands, own),                           the app's simulation, every frame (hands: everybody's; own: this page's)
@@ -34,6 +35,13 @@
 //                                                        (bearing, dist: where it first appears, rad from ahead + is left, 0.8 m; desktop: its
 //                                                        pose without a room). Drawn from lay(): a menus.grid layout, redrawn four times a
 //                                                        second (a cell with `left: true` is a line of text: `head`, `size`, `flat`). w: metres wide (0.5)
+//     boards: [{ id, w, pose(app, now), lay(app, now), press(id, app) }],   (optional) menus that are ONE thing for everybody (rule 1): a panel
+//                                                        standing in the room where the app's shared data puts it, drawn the same for every
+//                                                        player and pressed by anybody's fingertip. w: metres wide; pose: { x, y, h, yaw, pitch }
+//                                                        in the COMMON frame (h above the common floor), or null for no board; lay: a menus.grid
+//                                                        layout worked out from shared data; press: what a button does on the page whose
+//                                                        player pressed it (it asks the shared world: body.ask, session.emit ...). The press
+//                                                        and the fingertip's depth are seen on every page like a menu's.
 //     anchorKey, name })                                 (optional) where the anchor is kept; who this page is in the log
 //   app: { THREE, scene, world, camera, S, space, presence, menus, lineup, sys, room, grips, handMask, feet, life, say, head(), xr(), bodies,
 //          ownerText(slot), gestures (this frame: everybody's hands' grab.js states), everyone (this frame: everybody's hand sources) }
@@ -152,6 +160,8 @@ export async function createApp(o) {
   const bodies = (typeof o.bodies === 'function' ? o.bodies({ S, space, say, life }) : o.bodies || []).map((b) => new M.body.Body(S, b));
   const clicks = new M.clicks.Clicks();
   const pinch = new M.hands.Pinch(), poke = new M.menus.Poke(), follower = new M.follow.Follower(), grips = new M.grab.Grips();
+  const HAS_MENU = o.menu !== false;
+  const boards = (o.boards || []).map((d) => ({ d, id: d.id, key: `board:${d.id}`, w: d.w || 0.6, lay: null, layAt: -1e9, pose: null }));
   const wins = (o.windows || []).map((d, i) => ({ d, id: d.id, w: d.w || 0.5, h: 0.3, f: new M.follow.Follower({ dist: d.dist || 0.8, bearing: d.bearing === undefined ? 0.5 : d.bearing }),
     panel: null, lay: null, layAt: -1e9, redraw: false, pinch: new Map(), drag: null, order: i }));
   const isHost = (slot) => { const p = S.peers.get(slot); return slot === HOST || !!(p && p.host); };
@@ -248,7 +258,11 @@ export async function createApp(o) {
     click('press', flash.key, id);
     act(owner, id);
   }
-  const act = (owner, id) => S.press(owner === S.me ? null : owner, id);
+  // (a board's owner is its key, a string: its button is handled by the page whose player pressed it; a menu's owner is a slot or null)
+  const act = (owner, id) => {
+    if (typeof owner === 'string') { const b = boards.find((q) => q.key === owner); if (b && b.d.press) b.d.press(id, app); return; }
+    S.press(owner === S.me ? null : owner, id);
+  };
   let remoteHeld = new Set(), panelList = [];                                           // this frame's panels (menus.js Poke's), for where a click comes from
   function click(kind, key, id) {
     const pn = panelList.find((q) => q.key === key), at = pn && M.menus.buttonAt(pn, id);
@@ -375,7 +389,7 @@ export async function createApp(o) {
       const ms = modelSpace(), F = RM && ms.room && modelPose ? M.model.frameOf(ms.room) : null, vs = handWall && handWall.spot;
       let took = null;
       if (F && M.model.inside(ms.poseTo(modelPose), F, ms.to(p), 0.03)) took = { what: 'model', off: [modelPose.x - p[0], modelPose.y - p[1], modelPose.z - p[2]] };
-      else if (follower.pose && onPanel(follower.pose, MENU_W, lastMenuH, p)) { const P = follower.pose; took = { what: 'menu', off: [P.x - p[0], P.y - p[1], P.h - space.floorY - p[2]] }; }
+      else if (HAS_MENU && follower.pose && onPanel(follower.pose, MENU_W, lastMenuH, p)) { const P = follower.pose; took = { what: 'menu', off: [P.x - p[0], P.y - p[1], P.h - space.floorY - p[2]] }; }
       else if (wins.some((w) => winPose(w) && onPanel(winPose(w), w.w, w.h, p))) { const w = wins.find((q) => winPose(q) && onPanel(winPose(q), q.w, q.h, p)), P = winPose(w); took = { what: `win:${w.id}`, off: [P.x - p[0], P.y - p[1], P.h - space.floorY - p[2]] }; }
       else if (vs && onPanel({ x: vs.x, y: vs.y, h: vs.h + space.floorY, yaw: vs.yaw, pitch: 0 }, WALL_SIZE.w, WALL_SIZE.h, p)) took = { what: 'viewer', off: [vs.x - p[0], vs.y - p[1], vs.h - p[2]] };
       if (took) { fists.set(g.id, took); life(`fist: took the ${took.what}`); }
@@ -501,14 +515,24 @@ export async function createApp(o) {
     const at = { x: hd[0], y: hd[1], th: hd[2], py: hd[3] + space.floorY };
     if (!follower.pose) { if (xr) follower.snap(at); else follower.set({ x: 0.9, y: 0.55, h: 0.95, yaw: -2.4, pitch: 0.15 }); }
     const sysInfo = sys.info(), ownInfo = { players: S.others + 1, sys: sysInfo, model: modelPose ? { k: +(modelPose.k || 1).toFixed(3) } : undefined };
-    const want = new Set(['own:main']), busyKeys = new Set();
-    const list = [{ key: 'own:main', owner: null, id: 'main', pose: follower.pose, w: MENU_W, lay: o.menu(S.stateOf(null), ownInfo) }];
+    const want = new Set(HAS_MENU ? ['own:main'] : []), busyKeys = new Set();
+    const list = HAS_MENU ? [{ key: 'own:main', owner: null, id: 'main', pose: follower.pose, w: MENU_W, lay: o.menu(S.stateOf(null), ownInfo) }] : [];
     const leftHand = handsXR.find((h) => h.id === M.sysmenu.WRIST_SIDE && h.jp);
     const wristPose = xr ? sys.place(hd, leftHand ? leftHand.jp : null, space.floorY) : { x: 0.55, y: 0.85, h: 0.95, yaw: -2.0, pitch: 0.15 };
     if (wristPose) { want.add('own:wrist'); list.push({ key: 'own:wrist', owner: null, id: 'wrist', pose: wristPose, w: SysMenu.width(sysInfo), lay: SysMenu.layout(sysInfo), ignore: M.sysmenu.WRIST_SIDE }); }
+    // the boards: where the app's shared data puts them (the common frame), the same for everybody; their layouts are worked out four times a second
+    for (const b of boards) {
+      const cp = b.d.pose(app, now);
+      if (!cp) continue;
+      if (!b.lay || now - b.layAt > 100) { b.lay = b.d.lay(app, now); b.layAt = now; }
+      const lp = space.ok ? space.poseFromCommon({ x: cp.x, y: cp.y, yaw: cp.yaw || 0, h: cp.h }) : { x: cp.x, y: cp.y, yaw: cp.yaw || 0, h: cp.h };
+      list.push({ key: b.key, owner: b.key, id: b.id, pose: { x: lp.x, y: lp.y, h: lp.h + space.floorY, yaw: lp.yaw, pitch: cp.pitch || 0 }, w: b.w, lay: b.lay });
+      want.add(b.key);
+    }
     for (const q of menus.others(now)) for (const p of q.panels) {
       if (p.id === 'model') continue;                                    // (a room model is not a menu: modelFrame)
       const key = `${q.slot}:${p.id}`, oi = q.info || {}, wrist = p.id === 'wrist';
+      if (!wrist && !HAS_MENU) continue;
       const prev = panelsAll.get(key), cur = prev && prev.pose ? prev.pose : p.pose, k = 1 - Math.exp(-dt * 18);
       const eased = { x: cur.x + (p.pose.x - cur.x) * k, y: cur.y + (p.pose.y - cur.y) * k, h: cur.h + (p.pose.h - cur.h) * k, yaw: cur.yaw + M.util.wrap(p.pose.yaw - cur.yaw) * k, pitch: p.pose.pitch };
       if (p.pose.q) { const a = cur.q || p.pose.q, b = p.pose.q, d = a[0] * b[0] + a[1] * b[1] + a[2] * b[2] + a[3] * b[3] < 0 ? -1 : 1, m = a.map((v, i) => v + (b[i] * d - v) * k), l = Math.hypot(...m) || 1; eased.q = m.map((v) => v / l); }
@@ -516,7 +540,8 @@ export async function createApp(o) {
       want.add(key);
     }
     for (const pn of list) pn.h = pn.w * pn.lay.h / pn.lay.w;
-    lastMenuH = list[0].h; lastHandsXR = handsXR;
+    if (HAS_MENU) lastMenuH = list[0].h;
+    lastHandsXR = handsXR;
     panelList = list;
     // what fingertips touch (docs/WRIST-MENU-SPEC.md, "A press"): ours, the mouse's click, and the other players' (they come in the `M` packet's
     // info.touch, so that a button pressed by someone else goes down on every page)
@@ -524,7 +549,7 @@ export async function createApp(o) {
     const addTouch = (key, button, held, d) => { const s = M.menus.shape(held, d); if (!touching.has(key)) touching.set(key, []); touching.get(key).push({ button, top: s.top, push: s.push, held }); };
     const r = poke.update(list, tips, now);
     for (const key of r.busy) busyKeys.add(key);
-    for (const t of r.touches) { addTouch(t.key, t.button, t.held, t.d); if (mine.length < 4) mine.push({ o: t.owner === null ? -1 : t.owner, p: t.panel, b: t.button, h: t.held ? 1 : 0, d: Math.round(t.d * 1000) }); }
+    for (const t of r.touches) { addTouch(t.key, t.button, t.held, t.d); if (mine.length < 4) mine.push({ o: typeof t.owner === 'string' ? -2 : t.owner === null ? -1 : t.owner, p: t.panel, b: t.button, h: t.held ? 1 : 0, d: Math.round(t.d * 1000) }); }
     for (const pr of r.presses) { click('press', pr.key, pr.button); act(pr.owner, pr.button); }
     for (const rl of r.releases) click('release', rl.key, rl.button);
     if (flash.id) { if (now - flash.t < 250) addTouch(flash.key, flash.id, true, 0.012); else { click('release', flash.key, flash.id); flash.id = null; } }
@@ -532,7 +557,7 @@ export async function createApp(o) {
     const heldNow = new Set();
     for (const q of menus.others(now)) for (const t of (q.info && Array.isArray(q.info.touch) ? q.info.touch.slice(0, 4) : [])) {
       if (!t || typeof t.p !== 'string' || typeof t.b !== 'string' || !Number.isFinite(t.d) || !Number.isFinite(t.o)) continue;
-      const key = t.o === -1 ? `${q.slot}:${t.p}` : t.o === S.me ? `own:${t.p}` : `${t.o}:${t.p}`;
+      const key = t.o === -2 ? `board:${t.p}` : t.o === -1 ? `${q.slot}:${t.p}` : t.o === S.me ? `own:${t.p}` : `${t.o}:${t.p}`;
       addTouch(key, t.b, !!t.h, t.d / 1000);
       if (t.h) { const id = `${q.slot}|${key}|${t.b}`; heldNow.add(id); if (!remoteHeld.has(id)) click('press', key, t.b); }
     }
@@ -542,21 +567,21 @@ export async function createApp(o) {
     clicks.listen(camPos, [cp * Math.cos(hd[2]), Math.sin(hd[4] || 0), -cp * Math.sin(hd[2])], [0, 1, 0]);
     // the handle under our menu: a pinch that starts at it carries the menu; where it is let go is where it stays
     let handle = 'idle';
-    for (const h of handsXR) {
+    if (HAS_MENU) for (const h of handsXR) {
       const d = M.menus.handleDist(follower.pose, list[0].h, h.at), was = handPinch.get(h.id) || false;
       handPinch.set(h.id, h.pinch);
       if (d < 0.06) { handle = 'near'; busyKeys.add('own:main'); }
       if (!drag && h.pinch && !was && d < 0.05) { const P = follower.pose; drag = { id: h.id, off: [P.x - h.at[0], P.h - h.at[1], P.y + h.at[2]] }; }
     }
-    if (drag) {
+    if (HAS_MENU && drag) {
       const h = handsXR.find((q) => q.id === drag.id);
       if (!h || !h.pinch) drag = null;
       else { follower.place(h.at[0] + drag.off[0], -h.at[2] + drag.off[2], h.at[1] + drag.off[1], at); handle = 'held'; busyKeys.add('own:main'); }
     }
     if ([...fists.values()].some((f) => f.what === 'menu')) { handle = 'held'; busyKeys.add('own:main'); }      // (carried by a fist)
-    if (xr) follower.update(at, dt, busyKeys.has('own:main'));
-    list[0].pose = follower.pose;
-    menus.send(now, [{ id: 'main', pose: follower.pose }].concat(wristPose ? [{ id: 'wrist', pose: wristPose }] : [],
+    if (HAS_MENU && xr) follower.update(at, dt, busyKeys.has('own:main'));
+    if (HAS_MENU) list[0].pose = follower.pose;
+    menus.send(now, (HAS_MENU ? [{ id: 'main', pose: follower.pose }] : []).concat(wristPose ? [{ id: 'wrist', pose: wristPose }] : [],
       modelPose ? [{ id: 'model', pose: { x: modelPose.x, y: modelPose.y, h: modelPose.z + space.floorY, yaw: modelPose.yaw, pitch: 0 } }] : []), ownInfo);
     const redraw = now - redrawAt > 100;
     if (redraw) redrawAt = now;
@@ -573,8 +598,8 @@ export async function createApp(o) {
       if (redraw || force) {
         const sayNote = pn.owner === null && now - sayT < 3000 ? $('say').textContent : undefined;
         q.panel.draw(pn.lay, {
-          edge: pn.owner === null ? null : PLAYER_COLOURS[pn.owner % PLAYER_COLOURS.length],
-          note: sayNote || (pn.id === 'wrist' ? (pn.owner === null ? lineup.note() : (otherNote(pn.owner) || `player ${pn.owner + 1}`)) : (pn.owner === null ? '' : `player ${pn.owner + 1}`)) });
+          edge: pn.owner === null || typeof pn.owner === 'string' ? null : PLAYER_COLOURS[pn.owner % PLAYER_COLOURS.length],
+          note: sayNote || (typeof pn.owner === 'string' ? undefined : pn.id === 'wrist' ? (pn.owner === null ? lineup.note() : (otherNote(pn.owner) || `player ${pn.owner + 1}`)) : (pn.owner === null ? '' : `player ${pn.owner + 1}`)) });
       }
     }
     for (const [key, q] of [...panelsAll]) if (!want.has(key)) { q.panel.dispose(); panelsAll.delete(key); }

@@ -102,6 +102,11 @@ const app = await createApp({ THREE, OrbitControls, anchorKey: 'myapp.anchor',
 The page needs `#view`, `#enter`, `#xrNote`, `#say` and `#status` (copy the cube's `index.html`). What `createApp` wires, piece by
 piece, for an app that needs something else:
 
+- **One menu for everybody** (`boards`, `menu: false`; apps/jenga): a board is a menu panel standing in the room, where the app's shared data puts
+  it (`pose(app, now)` in the common frame), drawn from shared data (`lay(app, now)`) and pressed by anybody's fingertip (or the mouse on the
+  desktop); `press(id, app)` runs on the page whose player pressed it and asks the shared world (`body.ask`, `session.emit`). Its press, and how
+  deep a fingertip is in a button, are shown on every page. `menu: false` leaves out each player's own floating menu (and its handle); the wrist
+  menu stays. A board is not a player's thing, so it is not sent in the `M` stream: every page works out the same one from the document.
 - The engine's menu is on the wrist: `new MUMR.sysmenu.SysMenu(session, lineup, { exit, roomSetup, roomUsed })`; add `SysMenu.ACTIONS`
   to the session's `actions` and call `sys.press(id)` first from the `action` listener; draw it at `sys.place(head, leftHandJoints,
   floorY)` with `SysMenu.layout(sys.info())`, and send it as panel `wrist` with `{ sys: sys.info() }` in the menus' info. The app's own
