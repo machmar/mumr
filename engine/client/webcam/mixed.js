@@ -17,6 +17,7 @@
 import * as THREE from 'three';
 import { createWebcamView } from './webcamview.js';
 import { createLensPass } from './lenspass.js';
+import { createDim3d } from '../xr/dim3d.js';
 import { buildPage } from './page.js';
 
 export async function startMixedView(V) {
@@ -49,6 +50,8 @@ export async function startMixedView(V) {
   let tex = null, lastInfo = 0;
   // a camera with a lens: the overlay is bent to match its picture, which is drawn as it comes (lenspass.js); with no lens in the camera's profile this does nothing
   const lensPass = createLensPass({ renderer, scene, camera, getVideo: () => tex });
+  // the room's dim (dim.js), as on the headsets; this page has no hand cutouts (and its occluders must not keep it off the walls): it covers the whole picture
+  const dim = createDim3d({ THREE, scene, cutouts: false });
   const viewUpdate = orbit.update.bind(orbit);
 
   function info(now) {
@@ -170,11 +173,15 @@ export async function startMixedView(V) {
     const P = poseNow();
     lensPass.setPlan(P && WCV.running ? M.overlaylens.renderPlan(calib.lens, calib.W, calib.H, P.hfov, P.aspect) : null);
     occ.visible = !!(P && show.occlude);
+    // the room's dim on the picture, at the moment the picture shows (DELAY ms ago); none on the PC view, which has no real room
+    const sn = feed.serverNow();
+    dim.linear = !!(lensPass.plan.distort && tex);                   // (the lens pass draws the world into a linear target, over the picture)
+    dim.update(WCV.running ? M.dim.level(feed.doc.dim, sn === null ? null : sn - DELAY.ms) : M.dim.level(null));
     if (camMarks) { if (P) camMarks.exclude.add(myCam.id); else camMarks.exclude.delete(myCam.id); }              // (the camera this page looks through is not drawn in it)
     publishCamera(performance.now(), P);
     return out;
   };
 
-  window.mixed = { WCV, calib, feed, get DELAY() { return DELAY; }, show, myCam, ADJ, KEEP, occ, lensPass };
+  window.mixed = { WCV, calib, feed, get DELAY() { return DELAY; }, show, myCam, ADJ, KEEP, occ, lensPass, dim };
   return window.mixed;
 }

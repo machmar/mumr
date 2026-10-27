@@ -79,6 +79,13 @@ link.onBin = (b) => { const p = MUMR.wire.decode(b); if (p.name === 'presence') 
   cube's `app.js`; open and the full-size hand are two player settings the app's menu toggles). The room: `app.room.local()`, and
   `MUMR.room.support / ceiling / pushOut` for physics (move in steps shorter than the thing's radius and pass `from`: nothing goes
   through a wall). `apps/cube/cube.js` uses all of it.
+- The room's dim: `app.dim({ dark, mute, over, fade })` (`session.dim` without createApp) darkens (`dark` 0..1) and greys (`mute`
+  0..1) the real room, the passthrough on every headset and the picture on every webcam page, at the same moment for everybody; the
+  virtual world stays at full strength over it, so a thing the app makes glow stands out. `over` (default true) dims the real hands
+  too; false keeps the hand cutouts bright. `fade` ms eases from the look as it is now; a value left out stays as asked before. A
+  dip and a slow return is two calls: `app.dim({ dark: 0.8, fade: 150 })`, then `app.dim({ dark: 0, fade: 4000 })`. It is in the
+  document (`doc.dim`, `engine/client/dim.js`): let one page ask (the one that sees the piece fall: the host, the holder).
+  `app.dimLevel()` says the look now.
 - Every page simulates every body with **everybody's** hands, including what is derived from them (Nudgy's palm platform: the other
   player's hand had none, so a loco dropped on it fell through).
 - Requests from a page that does not hold the body: `ball.ask('place', { x, y })` in the common frame.

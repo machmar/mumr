@@ -15,6 +15,7 @@
 //   check    each player's check mark (the third spot), in the common frame                 { k:'check', slot, x, y, z }
 //   do       a request to whoever holds a token (put the loco here, drop a ball)            { k:'do', token, what, args }
 //   room     the room's scan in the common frame (room.js), kept by the server              { k:'room', data, by (slot), at (ms) }
+//   dim      how dark and grey the real room is drawn (dim.js; session.dim(want))           { k:'dim', dark, mute, over, fade, at, from }
 //
 // A button belongs to a menu, and a menu to its owner: press(owner, id) by anyone goes to the owner's page, which works out what it
 // changes there (opts.press), or, for an action of that headset (opts.actions: leave, room setup ...), tells the app ('action').
@@ -83,6 +84,11 @@
       keep: () => ({ key: 'room' }),
       apply(S, e, from) { if (!e.data || typeof e.data !== 'object') return; S.doc.room = { data: e.data, by: Number.isInteger(e.by) ? e.by : null, at: U().num(e.at) ? e.at : null }; S.notify('room', S.doc.room, from); },
     },
+    // the room's dim (dim.js): how dark and how grey the real room is drawn, for everybody
+    dim: {
+      keep: () => ({ key: 'dim' }),
+      apply(S, e, from) { S.doc.dim = M.dim.clean(e); S.notify('dim', S.doc.dim, from); },
+    },
     // a real camera of the room (cams.js), owned by the page that aligned it: a webcam page (a viewer) or a player
     'cam+': {
       keep: (e) => ({ key: `cam:${e.id}`, own: true, gone: { k: 'cam-', id: e.id } }),
@@ -136,7 +142,7 @@
       }
     }
     _fresh() {
-      const d = { game: {}, players: {}, lined: {}, checks: {}, room: null, cameras: {} };
+      const d = { game: {}, players: {}, lined: {}, checks: {}, room: null, cameras: {}, dim: null };
       if (this.opts.init) this.opts.init(d);
       return d;
     }
@@ -206,6 +212,11 @@
       const e = this.myCheck ? { k: 'check', slot: this.me, x: this.myCheck[0], y: this.myCheck[1], z: this.myCheck[2] } : { k: 'check', slot: this.me };
       this.emit(e);
     }
+    // The room's dim (dim.js): want { dark, mute, over, fade (ms) }, a value left out stays as it was asked. Every page eases from the look
+    // as it is now on the server's clock, so they all match. Let one page decide (the one that sees the piece fall: the host, the holder).
+    dim(want) { this.emit(M.dim.event(this.doc.dim, want, this.serverNow())); }
+    // the server's clock (ms), or this page's own while alone or not synced yet
+    serverNow() { const t = this.link && this.link.serverNow ? this.link.serverNow() : null; return t === null ? U().nowMs() : t; }
     // A button on `owner`'s menu, pressed here.
     press(owner, id) {
       if (this.connected && owner !== null && owner !== undefined && owner !== this.me) { this.link.sendText({ t: 'to', to: owner, m: { k: 'press', id } }); return; }
