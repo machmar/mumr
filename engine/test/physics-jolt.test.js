@@ -157,3 +157,53 @@ t('a hand whose packets come in bunches (gaps of 170 ms) sends a cube off at the
   }
 });
 function cube_() { return cube({ p: [0.5, 0, H] }); }
+
+// ---- apps/jenga: a hold with a limited force, and solver knobs for a stack of small blocks
+// a block of 15 x 25 x 75 mm (pine) under a load, as in a tower
+const slab = (o = {}) => P.makeBox(Object.assign({ size: [0.075, 0.025, 0.015], density: 600, restitution: 0.1, friction: { s: 0.4, k: 0.4 } }, o));
+const small = { sleepAfter: 0.4, sleepV: 0.02, substep: 1 / 240, slop: 0.0005, maxMove: 0.004, velocitySteps: 20, positionSteps: 6 };
+function loaded() {                     // three slabs side by side with a 0.7 kg weight over all of them (the middle one is pulled), as in a tower
+  const b = slab({ p: [0, 0, 0.0075] }), sides = [-0.025, 0.025].map((y) => slab({ p: [0, y, 0.0075], density: 20000 }));      // (heavy: they do not follow the load)
+  const top = P.makeBox({ size: [0.075, 0.075, 0.03], density: 4000, friction: { s: 0.4, k: 0.4 }, p: [0, 0, 0.015 + 0.015] });
+  const W = worldWith([b, top].concat(sides), small);
+  run(W, 1, null, 60);
+  return { b, top, W };
+}
+const pullTo = (W, b, force, secs = 3) => {
+  let t = 0;
+  run(W, secs, () => { t += 1 / 60; W.hold(b, { p: [b.p[0] * 0 + Math.min(0.1, 0.05 * t), 0, 0.0075], q: [0, 0, 0, 1], v: [0.05, 0, 0] }, { force, speed: 0.3, spring: 20, breakAway: 1 }); }, 60);
+  W.release(b);
+};
+
+t('hold with a force: a block under a load is pulled out by a strong enough grip, and the load stays where it is', () => {
+  const { b, top, W } = loaded(), top0 = top.p.slice();
+  pullTo(W, b, 4);
+  assert.ok(b.p[0] > 0.09, `the block came out (${b.p[0]})`);
+  assert.ok(Math.abs(top.p[0] - top0[0]) < 0.01, `the load stayed (${top.p[0] - top0[0]})`);
+});
+
+t('hold with a force: a grip that is too weak gives instead of tearing (the block stays under the load)', () => {
+  const { b, W } = loaded();
+  pullTo(W, b, 0.2);
+  assert.ok(b.p[0] < 0.01, `the block did not come out (${b.p[0]})`);
+});
+
+t('hold without a force is the velocity motor of before (an unloaded body is carried to the target)', () => {
+  const b = slab({ p: [0, 0, 0.5] }), W = worldWith([b], small);
+  run(W, 2, () => W.hold(b, { p: [0.3, 0, 0.5], q: [0, 0, 0, 1] }, { spring: 20, speed: 5, breakAway: 1 }), 60);
+  near(b.p[0], 0.3, 0.01, 'carried');
+});
+
+t('solver knobs: a tower of 54 blocks stands still on 20 velocity and 6 position steps, and sleeps', () => {
+  const L = 0.075, Wd = 0.025, Hh = 0.015, blocks = [];
+  for (let lv = 0; lv < 18; lv++) for (let i = 0; i < 3; i++) {
+    const along = lv % 2 === 0, off = (i - 1) * Wd;
+    blocks.push(slab({ size: along ? [L, Wd, Hh] : [Wd, L, Hh], p: [along ? 0 : off, along ? off : 0, Hh / 2 + lv * Hh] }));
+  }
+  const W = worldWith(blocks, small);
+  run(W, 6, null, 60);
+  assert.ok(blocks.every((b) => b.asleep), 'asleep');
+  const drift = Math.max(...blocks.map((b, i) => Math.hypot(b.p[0] - (Math.floor(i / 3) % 2 ? ((i % 3) - 1) * Wd : 0), b.p[1] - (Math.floor(i / 3) % 2 ? 0 : ((i % 3) - 1) * Wd))));
+  assert.ok(drift < 0.004, `drift ${drift}`);
+  near(blocks[53].p[2], Hh / 2 + 17 * Hh, 0.004, 'top block');
+});
