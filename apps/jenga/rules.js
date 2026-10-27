@@ -19,7 +19,7 @@
       this.cfg = Object.assign({}, RULES, opts.rounds ? { rounds: opts.rounds } : {});
       this.now = opts.now || (() => Date.now());
       this.present = opts.present || (() => true);
-      this.s = { v: 1, rev: 0, size: 'normal', seed: 1, place: null, phase: 'lobby', round: 0, rounds: this.cfg.rounds, players: [], turn: 0, roll: null, moves: 0, scores: {}, ticker: [], handled: null, fall: null, winner: null, last: null };
+      this.s = { v: 1, rev: 0, size: 'normal', seed: 1, place: null, phase: 'lobby', round: 0, rounds: this.cfg.rounds, players: [], turn: 0, roll: null, moves: 0, scores: {}, ticker: [], handled: null, fall: null, winner: null, last: null, tower: { full: 17, top: 17, topCount: 3 } };
       this.lastPlacedAt = -1e9;
     }
     get phase() { return this.s.phase; }
@@ -27,6 +27,8 @@
     // the state as the document keeps it: a plain object (a copy)
     view() { return JSON.parse(JSON.stringify(this.s)); }
     _touch() { this.s.rev++; return this.s; }
+    // what the board shows about the tower (the highest complete level: blocks may be taken from the levels below it)
+    setTower(t) { const j = JSON.stringify(t); if (JSON.stringify(this.s.tower) !== j) { this.s.tower = JSON.parse(j); this._touch(); } }
     say(text) { this.s.ticker.push(text); if (this.s.ticker.length > TICKER) this.s.ticker.shift(); }
     name(slot) { const p = this.s.players.find((q) => q.slot === slot); return p ? p.name : `Player ${slot + 1}`; }
 

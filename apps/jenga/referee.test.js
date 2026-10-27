@@ -1,0 +1,130 @@
+// The referee (referee.js) on real physics with a pretend clock, pretend hands and a pretend server: a whole turn (roll, pull, put on top, the
+// score), a fall (freeze, rewind, slow motion, the collapse finishing in real time), rounds and the end of the match.
+const { test, before } = require('node:test');
+const assert = require('node:assert');
+const M = require('../../engine/client/index.js');
+const jolt = require('../../engine/client/physics-jolt.js');
+const S = require('./spec.js');
+const N = require('./net.js');
+const { Referee } = require('./referee.js');
+let ok = true;
+before(async () => { try { await jolt.load(); } catch (e) { ok = false; } });
+let made = [];
+const t = (name, fn) => test(name, (c) => { if (!ok) return c.skip('jolt-physics is not installed'); try { return fn(); } finally { made.forEach((x) => x.tower && x.tower.destroy()); made = []; } });
+
+function session(slots = [0, 1]) { return { peers: new Map(slots.map((s) => [s, {}])), events: [], doc: {}, emit(e) { this.events.push(e); } }; }
+function referee(o = {}) {
+  const sess = o.session || session(), ref = new Referee({ Engine: M.physics.JoltWorld, session: sess, seed: 11, size: o.size || 'normal' });
+  made.push(ref); ref.sess = sess; ref.clock = 0; return ref;
+}
+const DT = 1 / 90;
+const drive = (ref, secs, hands = () => []) => { for (let i = 0; i < secs / DT; i++) { ref.clock += DT * 1000; ref.step(DT, ref.clock, hands(i * DT)); } };
+const hand = (id, at, pinch, v) => ({ id, pinch, points: [{ name: 'thumb', x: at[0] - 0.004, y: at[1], z: at[2], v }, { name: 'index', x: at[0] + 0.004, y: at[1], z: at[2], v }, { name: 'palm', x: at[0], y: at[1], z: at[2] + 0.05 }] });
+const lerp = (a, b, f) => a.map((v, i) => v + (b[i] - v) * f);
+
+// pull block i out along its length, carry it over the tower and put it on top; the hand holds it by its end
+function pullAndPlace(ref, i) {
+  const tw = ref.tower, b = tw.blocks[i].body, p0 = b.p.slice(), h = S.qRot(b.q, [1, 0, 0]), beyond = tw.d.L / 2 + 0.012, k = tw.d.k;
+  const at = (d) => [p0[0] + h[0] * (d + beyond), p0[1] + h[1] * (d + beyond), p0[2]], sh = (p) => [p[0] + h[0] * beyond, p[1] + h[1] * beyond, p[2]];
+  const level = tw.levels().top + 1, top = sh(S.toCommon(tw.place, [0, 0, tw.top() + (level + 0.5) * tw.d.H + 0.006 * k])), out = at(0.12 * k);
+  const hi = [out[0], out[1], top[2] + 0.06 * k], over = [top[0], top[1], top[2] + 0.06 * k];
+  const T = [4, 5.5, 7, 8]; const path = (s) => (s < T[0] ? at(Math.min(0.12 * k, 0.04 * k * s)) : s < T[1] ? lerp(out, hi, (s - T[0]) / 1.5) : s < T[2] ? lerp(hi, over, (s - T[1]) / 1.5) : lerp(over, top, Math.min(1, (s - T[2]) / 1)));
+  drive(ref, 9.5, (s) => [hand('r', path(s), s > 0.2 && s < T[3] + 0.3)]);
+}
+
+t('the host boots in the lobby with the tower standing and its state in the document; Start game builds the match', () => {
+  const ref = referee();
+  assert.strictEqual(ref.rules.phase, 'lobby');
+  assert.strictEqual(ref.sess.events.at(-1).k, 'jstate'); assert.strictEqual(ref.sess.events.at(-1).s.phase, 'lobby');
+  assert.strictEqual(ref.pack().items.length, 55);
+  assert.deepStrictEqual(ref.rules.s.tower, { full: 17, top: 17, topCount: 3 });
+  assert.strictEqual(ref.command('round'), false, 'only from the end of a round');
+  assert.strictEqual(ref.command('start'), true);
+  assert.strictEqual(ref.rules.phase, 'roll'); assert.strictEqual(ref.rules.s.players.length, 2); assert.strictEqual(ref.sess.events.at(-1).s.phase, 'roll');
+  assert.strictEqual(ref.command('size', { size: 'giant' }), false, 'the size is chosen in the lobby');
+});
+
+t('size and place are set in the lobby and the tower is built there: three sizes, three heights', () => {
+  const ref = referee();
+  for (const [size, h] of [['huge', 0.75], ['giant', 1.5], ['normal', 0.27]]) {
+    assert.strictEqual(ref.command('size', { size }), true);
+    assert.ok(Math.abs(ref.tower.d.height - h) < 1e-9); assert.strictEqual(ref.rules.s.size, size);
+  }
+  assert.strictEqual(ref.command('place', { x: 2, y: -1, yaw: 1 }), true);
+  assert.deepStrictEqual(ref.rules.s.place, { x: 2, y: -1, yaw: 1 });
+  assert.ok(Math.abs(ref.tower.blocks[0].body.p[0] - 2) < 0.15, 'the tower stands where it was put');
+  assert.strictEqual(ref.command('place', { x: NaN, y: 0, yaw: 0 }), false);
+});
+
+t('a turn: the die is rolled and read, a block of that colour is pulled and put on top, it is scored, and the next player rolls', () => {
+  const ref = referee(); ref.command('start');
+  drive(ref, 1);
+  const tw = ref.tower, d = tw.die.body;
+  d.p = S.toCommon(tw.place, [tw.lay.tray.c[0], tw.lay.tray.c[1], tw.lay.console.top + 0.2]); d.q = [0.2, 0.4, 0.1, 0.89]; d.v = [0.2, 0, -1]; d.w = [8, 3, 6]; tw.world.wake(d);
+  drive(ref, 4);
+  assert.strictEqual(ref.rules.phase, 'pull', `the die was read (${ref.rules.phase})`);
+  const colour = ref.rules.s.roll;
+  assert.strictEqual(colour, tw.dieRead().up.colour);
+  // a block of that colour from a side slot of a level in the middle of the tower
+  const i = tw.blocks.findIndex((b) => b.spec.colour === colour && b.spec.slot !== 1 && b.spec.level >= 5 && b.spec.level <= 12);
+  assert.ok(i >= 0);
+  const level = tw.restLevel[i];
+  pullAndPlace(ref, i);
+  assert.strictEqual(ref.rules.s.moves, 1, `the move was scored (${ref.rules.phase}, handled ${tw.handled})`);
+  assert.strictEqual(ref.rules.phase, 'roll'); assert.strictEqual(ref.rules.player.slot, 1, 'the next player');
+  assert.strictEqual(ref.rules.s.scores[0][0], level < 6 ? 2 : 1);
+  assert.strictEqual(ref.rules.s.last.note, level < 6 ? 'from the bottom third' : 'clean');
+  assert.strictEqual(ref.rules.s.tower.top, 18, 'a new level was started');
+  assert.strictEqual(ref.rules.s.tower.topCount, 1);
+  assert.strictEqual(ref.tower.fell(), null);
+  assert.ok(tw.dieRead().onTray && !tw.dieRead().moved, 'the die is back on its tray');
+});
+
+t('a block of the wrong colour scores nothing; the move still counts', () => {
+  const ref = referee(); ref.command('start'); drive(ref, 1);
+  const tw = ref.tower; ref.rules.rolled(2);
+  const i = tw.blocks.findIndex((b) => b.spec.colour !== 2 && b.spec.slot === 0 && b.spec.level >= 6 && b.spec.level <= 12);
+  pullAndPlace(ref, i);
+  assert.strictEqual(ref.rules.s.last.pts, 0); assert.strictEqual(ref.rules.s.last.note, 'the wrong colour'); assert.strictEqual(ref.rules.s.moves, 1);
+});
+
+t('the tower falls: frozen at the first block on the ground, rewound, slow motion, then it finishes falling in real time; -3 and the round is over', () => {
+  const ref = referee(); ref.command('start'); drive(ref, 1);
+  const tw = ref.tower, top = tw.blocks[52].body;
+  top.v = [2, 1, 0]; tw.world.wake(top);
+  const mid = S.toCommon(tw.place, [-0.2, 0, tw.top() + 0.1]), end = S.toCommon(tw.place, [0.2, 0, tw.top() + 0.1]);
+  const modes = new Set(); let frozenPose = null, phases = new Set();
+  for (let k = 0; k < 90 * 25 && ref.rules.phase !== 'round_end'; k++) {
+    ref.clock += DT * 1000; const s = k * DT;
+    ref.step(DT, ref.clock, s > 0.3 && s < 0.6 ? [hand('r', lerp(mid, end, (s - 0.3) / 0.15 > 1 ? 1 : (s - 0.3) / 0.15), false, [3 * Math.cos(tw.place.yaw), 3 * Math.sin(tw.place.yaw), 0])] : []);
+    const p = ref.pack(); modes.add(p.mode); phases.add(ref.rules.phase);
+    if (p.mode === N.MODE.frozen && !frozenPose) frozenPose = p.items.map((x) => x.p.slice());
+    if (p.mode === N.MODE.frozen) assert.deepStrictEqual(p.items.map((x) => x.p), frozenPose, 'nothing moves while it is frozen');
+  }
+  assert.strictEqual(ref.rules.phase, 'round_end', [...phases].join(','));
+  assert.ok([...modes].includes(N.MODE.frozen) && modes.has(N.MODE.rewind) && modes.has(N.MODE.slow) && modes.has(N.MODE.after), `modes ${[...modes]}`);
+  assert.ok(['fall', 'replay', 'aftermath'].every((p) => phases.has(p)));
+  assert.strictEqual(ref.rules.s.fall.by, 0); assert.strictEqual(ref.rules.s.scores[0][0], -3);
+  assert.ok(ref.rules.s.fall.trail.length > 5, 'the trail of the block that toppled it');
+  const down = tw.blocks.filter((b, i) => tw.restLevel[i] >= 1 && tw.low(b.body) < tw.top() + 0.01).length;
+  assert.ok(down >= 1, `a block of the upper levels lies on the plinth (${down})`);
+  assert.ok(ref.sess.events.filter((e) => e.k === 'jstate').length >= 6, 'every change went to the document');
+});
+
+t('skip ends the replay at once; the next round builds the tower again; three rounds end the match; New match goes back to the lobby', () => {
+  const ref = referee(); ref.command('start');
+  for (let round = 1; round <= 3; round++) {
+    drive(ref, 0.5);
+    const tw = ref.tower; tw.blocks[40].body.v = [1.5, 0, 0]; tw.world.wake(tw.blocks[40].body); tw.blocks[41].body.v = [1.5, 0.5, 0]; tw.world.wake(tw.blocks[41].body);
+    const mid = S.toCommon(tw.place, [-0.2, 0, tw.top() + 0.1]), end = S.toCommon(tw.place, [0.2, 0, tw.top() + 0.1]);
+    let k = 0;
+    while (!['replay', 'fall'].includes(ref.rules.phase) && k < 90 * 10) { ref.clock += DT * 1000; ref.step(DT, ref.clock, k * DT < 0.3 ? [hand('r', lerp(mid, end, Math.min(1, k * DT / 0.15)), false, [3 * Math.cos(tw.place.yaw), 3 * Math.sin(tw.place.yaw), 0])] : []); k++; }
+    assert.ok(['fall', 'replay'].includes(ref.rules.phase), `round ${round} fell`);
+    assert.strictEqual(ref.command('skip'), true);
+    drive(ref, 6);
+    assert.strictEqual(ref.rules.phase, round < 3 ? 'round_end' : 'match_end', `end of round ${round}: ${ref.rules.phase}`);
+    if (round < 3) { assert.strictEqual(ref.command('round'), true); assert.strictEqual(ref.rules.s.round, round + 1); assert.strictEqual(ref.rules.phase, 'roll'); }
+  }
+  assert.ok(ref.rules.s.winner.length >= 1);
+  assert.strictEqual(ref.command('lobby'), true); assert.strictEqual(ref.rules.phase, 'lobby');
+});

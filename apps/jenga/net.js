@@ -95,5 +95,10 @@
     return out;
   }
 
-  Object.assign(J, { TYPE, TOKEN, BODIES, F, MODE, pack, unpack, blend, register, Stream, snapshot });
+  // The body adapter of a page (headset or PC view): it never simulates or claims anything, it only takes in what the host sends (body.js).
+  // The page's Body is made with slowEvery: 0 so that it sends nothing, not even when the server gives it the token for a moment (the first
+  // player into an empty server holds the 'bodies' until the next frame, when body.js hands it to the host).
+  const pageAdapter = (stream) => ({ reach: () => false, touching: () => false, pack: () => ({ mode: 0, progress: 0, items: [] }), apply: (d, info) => { stream.feed(d, info); return true; }, settle: () => {}, do: () => false, moving: () => false });
+
+  Object.assign(J, { TYPE, TOKEN, BODIES, F, MODE, pack, unpack, blend, register, Stream, snapshot, pageAdapter });
 })(typeof module !== 'undefined' ? module.exports : (globalThis.JENGA = globalThis.JENGA || {}));

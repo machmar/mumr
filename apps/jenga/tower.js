@@ -168,7 +168,7 @@
 
     // ---- reading it
     // After every step: the pulled block, the first block on the ground, the die. Nothing here changes the physics.
-    _track() {
+    _track(dt) {
       if (!this.rest) return;
       const L = this.d.L, H = this.d.H, still = this.tun.still;
       // blocks that are out of the tower: far from where they rested (half a block out, lifted, or turned over)
@@ -195,8 +195,8 @@
       }
       // the die: it has "moved" once a hand has had it or it is no longer where it lay (3 cm, or turned over by more than 30 degrees)
       const d = this.die, db = d.body, moving = len(db.v) > 0.05 || len(db.w) > 0.5 || !db.asleep;
-      d.still = moving && !(len(db.v) < 0.03 && len(db.w) < 0.3) ? 0 : d.still + 1;
-      if (!d.home && d.still > 20) d.home = { p: db.p.slice(), q: db.q.slice() };
+      d.still = moving && !(len(db.v) < 0.03 && len(db.w) < 0.3) ? 0 : d.still + dt;       // (seconds)
+      if (!d.home && d.still > 0.3) d.home = { p: db.p.slice(), q: db.q.slice() };
       if (d.home && !d.moved) {
         let dq = Q.mul(db.q, Q.conj(d.home.q)); if (dq[3] < 0) dq = dq.map((c) => -c);
         if (this.heldBy(S.DIE) !== null || Math.hypot(db.p[0] - d.home.p[0], db.p[1] - d.home.p[1]) > 0.03 || 2 * Math.acos(Math.min(1, dq[3])) > 0.52) d.moved = true;
@@ -219,7 +219,7 @@
     }
     // the colour block i is
     colourOf(i) { return this.blocks[i].spec.colour; }
-    // the die as the rules read it: { moved (it has been thrown), rest (frames it has been still), up: { colour, tilt }, onTray, held }
+    // the die as the rules read it: { moved (it has been thrown), rest (seconds it has been still), up: { colour, tilt }, onTray, held }
     dieRead() {
       const d = this.die, b = d.body, l = this.local(b.p), t = this.lay.tray;
       return { moved: d.moved, rest: d.still, up: S.dieUp(b.q), onTray: Math.abs(l[0] - t.c[0]) < t.half && Math.abs(l[1] - t.c[1]) < t.half && l[2] > this.lay.console.top - 0.01, held: this.heldBy(S.DIE) !== null };

@@ -83,7 +83,7 @@ t('the die: read where it lies once it is still, with its colour and how far fro
   run(w, 4);
   const r = w.dieRead();
   assert.ok(r.moved, 'it was thrown');
-  assert.ok(r.rest > 30, `still for ${r.rest} frames`);
+  assert.ok(r.rest > 0.5, `still for ${r.rest} s`);
   assert.ok(r.up.tilt < 8, `flat (${r.up.tilt} degrees)`);
   assert.ok(r.up.colour >= 0 && r.up.colour < 6);
   assert.ok(r.onTray, 'on the tray');
