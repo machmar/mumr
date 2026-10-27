@@ -60,10 +60,12 @@
     return { i, level, slot, along, colour: colourOrder(seed)[i], size: [d.L, d.W, d.H + dh], dh };      // (always long along its own x: an odd level turns it by 90 degrees, blockHome)
   }
   // where block i starts (game frame, z above the plinth's top) and its turn about z (0 or 90 degrees), as a quaternion
-  function blockHome(i, size, plinthTop) {
-    const d = dims(size), level = Math.floor(i / PER), slot = i % PER, along = level % 2 === 0, off = (slot - 1) * (d.W + 0.00005 * d.k);
+  // where a slot of a level is (game frame), whatever the level (a block put on top starts a level above the 18th)
+  function slotHome(level, slot, size, plinthTop) {
+    const d = dims(size), along = level % 2 === 0, off = (slot - 1) * (d.W + 0.00005 * d.k);
     return { p: [along ? 0 : off, along ? off : 0, plinthTop + d.H / 2 + level * d.H + 0.0002 * d.k], q: along ? [0, 0, 0, 1] : [0, 0, Math.SQRT1_2, Math.SQRT1_2] };
   }
+  const blockHome = (i, size, plinthTop) => slotHome(Math.floor(i / PER), i % PER, size, plinthTop);
 
   // ---- where things stand (game frame: the tower at the origin, x from the player who put the game here towards the tower)
   // P is where that player stands; the console is to the side of the plinth, and the board and the scoreboard face P (everybody else walks round).
@@ -123,5 +125,5 @@
     return { face: best, colour: DIE_COLOURS[best], tilt: Math.acos(Math.max(-1, Math.min(1, bz))) * 180 / Math.PI };
   }
 
-  Object.assign(J, { LEVELS, PER, BLOCKS, DIE, BASE, SIZES, SIZE_KEYS, COLOURS, WOOD, dims, tuning, rng, colourOrder, blockSpec, blockHome, layout, toCommon, fromCommon, qYaw, qMul, qCommon, qRot, furniture, withFurniture, DIE_FACES, DIE_COLOURS, dieUp });
+  Object.assign(J, { LEVELS, PER, BLOCKS, DIE, BASE, SIZES, SIZE_KEYS, COLOURS, WOOD, dims, tuning, rng, colourOrder, blockSpec, blockHome, slotHome, layout, toCommon, fromCommon, qYaw, qMul, qCommon, qRot, furniture, withFurniture, DIE_FACES, DIE_COLOURS, dieUp });
 })(typeof module !== 'undefined' ? module.exports : (globalThis.JENGA = globalThis.JENGA || {}));

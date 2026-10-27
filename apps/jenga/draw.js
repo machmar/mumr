@@ -283,7 +283,7 @@ export function createScene({ THREE, parent, playerColours = [0xf2c14e, 0x4ea1ff
     trailLine.visible = !!trail && trail.length > 1;
     if (trailLine.visible) {
       const tk = `${state.rev}|${trail.length}`;
-      if (tk !== trailKey) { trailKey = tk; trailLine.geometry.setFromPoints(trail.map((p) => new THREE.Vector3(...toV(p)))); }
+      if (tk !== trailKey) { trailKey = tk; trailLine.geometry.dispose(); trailLine.geometry = new THREE.BufferGeometry().setFromPoints(trail.map((p) => new THREE.Vector3(...toV(p)))); }       // (a new one each time: setFromPoints of a shorter trail into an old geometry throws)
     }
   }
 

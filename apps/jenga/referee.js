@@ -8,6 +8,7 @@
   const S = need('spec'), { Tower } = need('tower'), { Rules } = need('rules'), N = need('net'), R = need('replay');
   const T = { dieStill: 0.7, cocked: 12, aftermath: 4500, backAfter: 3, putBack: 1.2, restWait: 0.3 };      // seconds, degrees, ms
   const DEFAULT_PLACE = { x: 1.6, y: 0.6, yaw: 0 };
+  const DEBUG = () => typeof process !== 'undefined' && !!process.env && !!process.env.JENGA_DEBUG;
 
   class Referee {
     // opts: { Engine (the physics world class), session ({ peers: Map, emit(e), doc }), room (room.js Room: local() is the real room in the common frame), life, now (ms), seed, size }
@@ -78,7 +79,25 @@
         skip: () => { if (!this.replay) return false; this.replay.skip(); return true; },
         back: () => { if (ph !== 'place') return false; this.tower.bringBack(); return true; },
         // (rehearsals and the scene videos only: JENGA_DEBUG=1 lets a script nudge the tower, as a hand that is hard to aim in a headless browser would)
-        shove: () => { if (!(typeof process !== 'undefined' && process.env && process.env.JENGA_DEBUG)) return false; const tw = this.tower, v = a.vx || 3; for (let i = 0; i < 6; i++) { const b = tw.blocks[i].body, d = i % 2 ? 1 : -1; b.v = [d * v * Math.cos(tw.place.yaw), d * v * Math.sin(tw.place.yaw), 0]; tw.world.wake(b); } return true; },
+        // (JENGA_DEBUG only) a game in progress at once: n blocks from the lower levels put on top, scored for the players in turn; for the scene videos
+        stage: () => {
+          if (!DEBUG() || ph !== 'roll') return false;
+          const tw = this.tower, n = Math.max(0, Math.min(30, a.moves | 0)), pickOrder = [];
+          for (let round = 0; round < 2; round++) for (const lv of [2, 5, 8, 11, 14, 3, 6, 9, 12, 15, 4, 7, 10, 13, 1]) pickOrder.push(lv * 3 + (round ? 2 : 0));
+          const levels = tw.levels(); let top = levels.top, count = 0;
+          for (let k = 0; k < n && k < pickOrder.length; k++) {
+            if (count === 0) { top++; count = 0; }
+            const b = tw.blocks[pickOrder[k]].body, h = S.slotHome(top, count, tw.size, tw.top());
+            b.p = S.toCommon(tw.place, h.p); b.q = S.qCommon(tw.place, h.q); b.v = [0, 0, 0]; b.w = [0, 0, 0]; tw.world.wake(b);
+            if (++count === 3) count = 0;
+          }
+          for (let t = 0; t < 150; t++) tw.world.step(1 / 60);
+          tw.captureRest(); r.setTower(this.towerInfo());
+          for (let k = 0; k < n; k++) { const p = r.s.players[k % r.s.players.length]; if (p) r.s.scores[p.slot][r.s.round - 1] += k % 3 === 0 ? 2 : 1; r.s.moves++; }
+          r.s.turn = n % Math.max(1, r.s.players.length); r._touch(); return true;
+        },
+        setroll: () => { if (!DEBUG() || !['roll', 'pull'].includes(ph)) return false; if (ph === 'pull') { r.s.phase = 'roll'; } return r.rolled(a.colour | 0); },
+        shove: () => { if (!DEBUG()) return false; const tw = this.tower, v = a.vx || 3; for (let i = 0; i < 6; i++) { const b = tw.blocks[i].body, d = i % 2 ? 1 : -1; b.v = [d * v * Math.cos(tw.place.yaw), d * v * Math.sin(tw.place.yaw), 0]; tw.world.wake(b); } return true; },
       }[what];
       const did = ok ? ok() : false;
       if (did) this.life(`jenga: ${what}${a.size ? ` ${a.size}` : ''}`);
