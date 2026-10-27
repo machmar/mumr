@@ -8,7 +8,8 @@ import { createScene } from './draw.js';
 
 const J = window.JENGA;
 const stream = new J.Stream(60);
-let scene3d = null, common = null, app = null;
+const sound = new J.Soundtrack({ base: 'music/' });
+let scene3d = null, common = null, app = null, lastDraw = performance.now();
 const sampleBoard = J.board(J.waiting(), {}), aspect = sampleBoard.h / sampleBoard.w;
 const state = () => (app && app.S.doc.jenga) || J.waiting();
 const hostHere = () => !!app && (app.S.hostHere || app.S.isHost);
@@ -42,8 +43,19 @@ app = await createApp({
   draw: (a, now) => {
     const sp = a.space;
     if (sp.ok) { common.position.set(sp.frame.x, sp.fz, -sp.frame.y); common.rotation.set(0, sp.frame.yaw, 0); } else { common.position.set(0, 0, 0); common.rotation.set(0, 0, 0); }
-    scene3d.update({ state: state(), snap: stream.at(now), now, camera: a.camera });
+    const snap = stream.at(now);
+    scene3d.update({ state: state(), snap, now, camera: a.camera });
+    // the soundtrack follows the shared state and the bodies (every headset hears the same scene: it is worked out from the same data)
+    if (sound.music.ctx) sound.update(app.S.doc.jenga || null, snap ? snap.items : null, Math.min(0.1, (now - lastDraw) / 1000), app.S.game('music'));
+    lastDraw = now;
   },
   status: () => { const s = app && app.S.doc.jenga; return s ? `${s.phase}, round ${s.round}/${s.rounds}, ${s.moves} moves${hostHere() ? '' : '   NO HOST'}` : 'waiting for the host'; },
 });
-window.__jenga = Object.assign(app, { stream, scene3d });
+// the music: the tracks Marek supplies (music/tracks.json, made by `node apps/jenga/music/build-manifest.js`); a page may make no sound before a tap or a click
+fetch('music/tracks.json').then((r) => (r.ok ? r.json() : null)).catch(() => null).then((m) => { sound.music.load(m || {}); app.life(`music: ${sound.music.tracks} tracks`); });
+sound.music.log = (t) => app.life(t);
+const wake = () => { if (!sound.music.ctx) { try { sound.music.start(); app.life('music: started'); } catch (e) { app.life(`music: no audio (${e.message})`); } } else sound.music.start(); };
+for (const ev of ['pointerdown', 'keydown', 'touchstart']) addEventListener(ev, wake, { passive: true });
+document.getElementById('enter')?.addEventListener('click', wake);
+setInterval(() => sound.music.tick(), 1000);
+window.__jenga = Object.assign(app, { stream, scene3d, sound });
