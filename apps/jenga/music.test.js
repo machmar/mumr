@@ -139,3 +139,22 @@ test('the soundtrack object: fed the shared state it picks the scenes, plays the
   p.ctx.currentTime = 80; st.update(STATE({ phase: 'fall' }), towerItems(), 0.03, 3); assert.strictEqual(st.scene, 'finale'); assert.strictEqual(st.music.track, 'f.mp3');
   assert.ok(st.music.swellGain.gain.ev.some((e) => e[1] === 0.12), 'the fall ducked the music');
 });
+
+test('impacts: a block that falls and stops clacks once, in proportion; one that is carried, or slides smoothly, does not', () => {
+  const im = new Mu.Impacts(), at = (z, flags = 0) => [{ i: 3, p: [0, 0, z], flags }], hits = [];
+  let z = 0.5, v = 0; const dt = 1 / 60;
+  for (let k = 0; k < 120; k++) { v += 9.81 * dt; z = Math.max(0.0075, z - v * dt); if (z <= 0.0075) v = 0; hits.push(...im.update(at(z), dt, 1)); }
+  assert.strictEqual(hits.length, 1, `one clack (${hits.length})`); assert.ok(hits[0].strength > 0.5, `a drop of 0.5 m is a good clack (${hits[0].strength})`);
+  const q = new Mu.Impacts(), moved = []; for (let k = 0; k < 120; k++) moved.push(...q.update(at(0.3 + 0.002 * k), dt, 1)); assert.strictEqual(moved.length, 0, 'slow and steady');
+  const r = new Mu.Impacts(), carried = []; let zz = 1; for (let k = 0; k < 60; k++) { zz += (k < 30 ? 0.02 : -0.04); carried.push(...r.update(at(zz, 1), dt, 1)); } assert.strictEqual(carried.length, 0, 'a held block is not hitting anything');
+  const big = new Mu.Impacts(), a2 = []; for (const [zb, kk] of [[0.3, 5.5], [0.3, 5.5], [0.14, 5.5], [0.0, 5.5]]) a2.push(...big.update(at(zb), dt, kk)); assert.ok(Array.isArray(a2));
+});
+
+test('a clack is panned to where it is, quieter far away, and the soundtrack plays the loudest few a frame', () => {
+  const p = pretend(), m = new Mu.Music({ ctx: p.ctx, audio: p.audio }); m.load({}); m.start();
+  const n0 = p.ctx.made.length; m.clack(0.8, -0.7, 1, 1); assert.ok(p.ctx.made.length > n0, 'a sound was made');
+  const st = new Mu.Soundtrack({ ctx: p.ctx, audio: p.audio }); st.music.load({}); st.music.start(); let clacks = 0; st.music.clack = () => { clacks++; };
+  const mk = (z) => Array.from({ length: 54 }, (_, i) => ({ i, p: [i * 0.01, 0, z], flags: 0 }));
+  for (const z of [1, 0.9, 0.7, 0.4, 0.4, 0.4]) st.update(STATE(), mk(z), 1 / 60, 2, { x: 0, y: 1, yaw: 0 });
+  assert.ok(clacks > 0 && clacks <= 5, `${clacks} clacks, at most 5 a frame`);
+});

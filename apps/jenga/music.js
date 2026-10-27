@@ -52,6 +52,29 @@
     }
   }
 
+  // The clacks of wood on wood and on the plinth, found in the bodies the page already has (nothing extra is sent): a body that was moving and is
+  // suddenly much slower, or turned back, has hit something. update(items, dt, k) -> [{ i, p, strength 0..1 }]; k is the size's scale (a giant block's
+  // speeds are those of a small one times sqrt(k), for the same fall).
+  class Impacts {
+    constructor() { this.prev = new Map(); this.cool = new Map(); this.t = 0; }
+    update(items, dt, k = 1) {
+      this.t += dt;
+      const out = [], r = Math.sqrt(Math.max(1, k));
+      if (!(dt > 0) || !items) { this.prev.clear(); return out; }
+      const seen = new Set();
+      for (const it of items) {
+        seen.add(it.i);
+        const o = this.prev.get(it.i), v = o ? [(it.p[0] - o.p[0]) / dt, (it.p[1] - o.p[1]) / dt, (it.p[2] - o.p[2]) / dt] : null;
+        this.prev.set(it.i, { p: it.p.slice(), v });
+        if (!o || !o.v || !v || (it.flags & 1)) continue;                                    // (a block a hand holds is not hitting anything)
+        const s0 = Math.hypot(...o.v), s1 = Math.hypot(...v), dv = Math.hypot(v[0] - o.v[0], v[1] - o.v[1], v[2] - o.v[2]);
+        if (s0 > 0.22 * r && dv > 0.45 * s0 && dv > 0.2 * r && this.t - (this.cool.get(it.i) || -1) > 0.05) { this.cool.set(it.i, this.t); out.push({ i: it.i, p: it.p, strength: clamp01(dv / (2.2 * r)) }); }
+      }
+      for (const i of [...this.prev.keys()]) if (!seen.has(i)) this.prev.delete(i);
+      return out;
+    }
+  }
+
   // which scene is playing: by phase, and while the game is on by how far it has got and how tense it is. `held` is how long the scene has lasted (s).
   function sceneFor(state, tension, cur, held) {
     const ph = state ? state.phase : 'lobby';
@@ -205,6 +228,18 @@
     _duck() { const t = this.ctx.currentTime, g = this.swellGain.gain; g.cancelScheduledValues(t); g.setValueAtTime(g.value || 1, t); g.linearRampToValueAtTime(0.12, t + 0.25); this.filter.frequency.cancelScheduledValues(t); this.filter.frequency.setTargetAtTime(380, t, 0.12); }
     _rise(secs) { const t = this.ctx.currentTime, g = this.swellGain.gain; g.cancelScheduledValues(t); g.setValueAtTime(g.value || 0.12, t); g.linearRampToValueAtTime(1.45, t + 2.5); g.linearRampToValueAtTime(1, t + secs); this.filter.frequency.cancelScheduledValues(t); this.filter.frequency.setTargetAtTime(11000, t, 1.2); }
     // ---- generated sounds (no sample files)
+    // wood on wood: a bright click and a short body, higher for a small block; pan -1..1 (left to right), near 0..1 (how close it is)
+    clack(strength, pan = 0, near = 1, pitch = 1) {
+      const ctx = this.ctx, t = ctx.currentTime, gain = 0.05 + 0.5 * strength * strength, att = 0.25 + 0.75 * near;
+      const n = this._noiseSource(), f = ctx.createBiquadFilter(), g = ctx.createGain(), o = ctx.createOscillator(), og = ctx.createGain();
+      f.type = 'bandpass'; f.frequency.value = (1500 + 1800 * Math.random()) * pitch; f.Q.value = 2.5;
+      g.gain.setValueAtTime(gain * att, t); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.035 + 0.05 * strength);
+      o.type = 'triangle'; o.frequency.setValueAtTime((260 + 120 * Math.random()) * pitch, t); o.frequency.exponentialRampToValueAtTime(110 * pitch, t + 0.09);
+      og.gain.setValueAtTime(gain * att * 0.7, t); og.gain.exponentialRampToValueAtTime(0.0001, t + 0.11);
+      let out = this.sfx;
+      if (ctx.createStereoPanner) { const p = ctx.createStereoPanner(); p.pan.value = Math.max(-1, Math.min(1, pan)); p.connect(this.sfx); out = p; }
+      n.connect(f); f.connect(g); g.connect(out); o.connect(og); og.connect(out); n.start(t); n.stop(t + 0.12); o.start(t); o.stop(t + 0.14);
+    }
     bell(freq, gain = 0.2, delay = 0) {
       const ctx = this.ctx, t = ctx.currentTime + delay;
       for (const [r, a, d] of [[1, 1, 5], [2.76, 0.45, 3], [5.4, 0.2, 1.6], [8.93, 0.08, 0.8]]) {
@@ -268,8 +303,9 @@
 
   // The page's whole music in one object: the director plus the sound, fed the shared state and the bodies every frame.
   class Soundtrack {
-    constructor(io = {}) { this.music = new Music(io); this.tension = new Tension(); this.state = null; this.scene = null; this.sceneSince = 0; this.t = 0; this.last = null; }
-    update(state, items, dt, volume) {
+    constructor(io = {}) { this.music = new Music(io); this.tension = new Tension(); this.impacts = new Impacts(); this.state = null; this.scene = null; this.sceneSince = 0; this.t = 0; this.last = null; }
+    // listener: { x, y, yaw } in the common frame, where the ears are (the clacks are panned and softened by it)
+    update(state, items, dt, volume, listener) {
       this.t += dt;
       const m = this.music;
       if (volume !== undefined && volume !== m.vol) m.setVolume(volume);
@@ -282,9 +318,17 @@
         this.state = state;
       }
       m.update(k, dt);
+      if (state && items) {
+        const size = S.dims(state.size), hits = this.impacts.update(items, dt, size.k).sort((a, b) => b.strength - a.strength).slice(0, 5);
+        for (const h of hits) {
+          let pan = 0, near = 1;
+          if (listener) { const dx = h.p[0] - listener.x, dy = h.p[1] - listener.y, d = Math.hypot(dx, dy), a = Math.atan2(dy, dx) - listener.yaw; pan = -Math.sin(a) * Math.min(1, d / 0.6); near = 1 / (1 + 0.8 * d); }
+          m.clack(h.strength, pan, near, 1 / Math.pow(Math.max(1, size.k), 0.28));
+        }
+      }
       return k;
     }
   }
 
-  Object.assign(J, { Tension, sceneFor, momentsBetween, pickTrack, Music, Soundtrack, MUSIC: CFG, SCENES, musicCurve: curve });
+  Object.assign(J, { Tension, Impacts, sceneFor, momentsBetween, pickTrack, Music, Soundtrack, MUSIC: CFG, SCENES, musicCurve: curve });
 })(typeof module !== 'undefined' ? module.exports : (globalThis.JENGA = globalThis.JENGA || {}));

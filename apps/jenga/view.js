@@ -99,7 +99,7 @@ function frame() {
   }
   for (const [slot, o] of [...drawn]) if (!here.has(slot)) { world.remove(o.head, o.dots); drawn.delete(slot); }
   // the soundtrack follows the same shared state
-  if (sound.music.ctx) sound.update(S.doc.jenga || null, snap ? snap.items : null, dt, S.game('music'));
+  if (sound.music.ctx) { const fw = new THREE.Vector3(); camera.getWorldDirection(fw); sound.update(S.doc.jenga || null, snap ? snap.items : null, dt, S.game('music'), { x: camera.position.x, y: -camera.position.z, yaw: Math.atan2(-fw.z, fw.x) }); }
   controls.update();
   renderer.render(scene, camera);
   if (now - hudAt < 5) hud.textContent = `${state.phase}  round ${state.round}/${state.rounds}  ${S.hostHere ? '' : 'NO HOST  '}players ${S.others}  ${smp ? 'bodies ok' : 'waiting for bodies'}  ${sound.music.ctx ? `music ${sound.scene || ''}` : 'press M for the music'}`;

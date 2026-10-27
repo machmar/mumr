@@ -246,3 +246,24 @@ Kept from the first plan's section 6, plus what came after it:
   Rehearsed through the real server with a painted floor seen through a lens (a1 -0.12): the camera came out at its true place, the lens pass drew the world
   over it, a second tab (a player) saw the camera, moved it (the page kept its aim: yaw 2.191 to 2.245) and reset it. 374 Node tests, 373 pass (the physics pile
   test was already failing before this work), 48 Python. Nothing has run with a real webcam or a headset.
+- **2026-10-27: Jenga** (Marek: a Jenga game as a demo of the physics engine, "use the engine as if you were an external developer", build it in a branch, squash and
+  merge, keep the branch). What the engine had to learn, and what was learnt about it:
+  1. **A block cannot be pulled from under a load with the old hold.** The hold was a velocity set before the solver's step; with 7 N of tower on a 17 g block, friction cancelled the
+     velocity inside the same step (the block moved 3 mm of an 85 mm pull and then shot out). A kinematic grip moved it but is infinitely stiff, so it carried the whole load and the
+     stack above came out with it. The fix is a **grip of limited strength**: a critically damped spring (omega 80 rad/s) whose force is capped (4 N at normal size, x scale cubed),
+     applied inside every substep (`hold(b, target, { force, omega })`). My first version closed the velocity error in 1/16 of a substep: stable while friction held the block, a runaway
+     the moment it came free (a gain above 2 in an explicit step); found when the block shot ahead of the hand.
+  2. **A tower of 54 small blocks needs the solver's knobs** (20 velocity and 6 position steps at 1/240 s; the slop, the sleeping speed and the movement cap scaled with the block):
+     with Jolt's defaults 5 of 18 single pulls brought it down, with these none. The physics is scale-invariant: the same blocks come out or bring it down at 27 cm, 75 cm and 1.5 m.
+  3. **A menu that is one thing for everybody** needed a new place in `createApp` (`boards`): a panel in the room that every player presses, its pose from shared data. The engine's menus were
+     all somebody's (`session.press(owner, id)`); a board's owner is its key, and its press runs on the page whose player pressed it and asks the host (`body.ask`).
+  4. **The game is the host's.** Policy `host` bodies need `bodies: ["jenga"]` in mumr.json (the host gets the token from the first player's page, which gives it up the next frame); a page's
+     Body is made with `slowEvery: 0` so that it never sends. The state is ONE kept event (`jstate`, key `jenga:state`) that the host sends when its revision changes; a host that restarts
+     takes it from the document and builds a fresh tower.
+  5. **Layout mistake worth remembering**: the first layout put the console between the player and the tower with the board facing the tower, so the player who placed the game saw the back of
+     their own menu. The game frame now has the console beside the plinth and the board and scoreboard face where the placing player stands.
+  6. A desktop rehearsal of a hand needs patience: a scripted pinch that starts while the hand is already rising is seen by the host 7 cm up (the page runs at 19 frames a second in a headless
+     browser); close the fingers first, then move. `__mumr.poke(x, y, pinch, fist, z)` takes a height since this entry.
+  Rehearsed through the real server and Jolt host with two tabs: Start on the board, the die thrown by a pinch and read, a block pulled out and put on top (+1, the next player), a fall with its replay
+  (TIMBER, -3, rewind, 0.3x, aftermath, round end), the PC view, and music crossfading in a desktop browser. Not yet on a headset.
+
