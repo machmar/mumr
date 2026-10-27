@@ -27,6 +27,8 @@ class ServeTest(unittest.TestCase):
         app = cls.app = os.path.join(cls.dir.name, "app")
         write(os.path.join(app, "index.html"), "<p>hi</p>")
         write(os.path.join(app, "game.js"), "1")
+        with open(os.path.join(app, "track.mp3"), "wb") as f:
+            f.write(bytes(i % 251 for i in range(1000)))
         write(os.path.join(app, "server.py"), "secret")
         write(os.path.join(app, ".hidden", "a.js"), "no")
         write(os.path.join(app, "tests", "t.js"), "no")
@@ -58,6 +60,35 @@ class ServeTest(unittest.TestCase):
         code, body = self.get("/mumr/link.js")
         self.assertEqual(code, 200)
         self.assertIn(b"connect", body)
+
+    def ranged(self, path, spec):
+        req = urllib.request.Request(self.base + path, headers={"Range": spec})
+        try:
+            with urllib.request.urlopen(req, timeout=5) as r:
+                return r.status, r.headers, r.read()
+        except urllib.error.HTTPError as e:
+            return e.code, e.headers, b""
+
+    def test_a_part_of_a_file_is_served_for_a_track_that_starts_half_way(self):
+        whole = bytes(i % 251 for i in range(1000))
+        code, h, body = self.ranged("/track.mp3", "bytes=100-199")
+        self.assertEqual((code, h["Content-Range"], h["Content-Length"], body), (206, "bytes 100-199/1000", "100", whole[100:200]))
+        self.assertEqual(h["Accept-Ranges"], "bytes"); self.assertEqual(h["Content-Type"], "audio/mpeg")
+        code, h, body = self.ranged("/track.mp3", "bytes=900-")
+        self.assertEqual((code, h["Content-Range"], body), (206, "bytes 900-999/1000", whole[900:]), "to the end")
+        code, h, body = self.ranged("/track.mp3", "bytes=0-5000")
+        self.assertEqual((code, h["Content-Range"], len(body)), (206, "bytes 0-999/1000", 1000), "an end past the file is the end")
+        code, h, body = self.ranged("/track.mp3", "bytes=-50")
+        self.assertEqual((code, h["Content-Range"], body), (206, "bytes 950-999/1000", whole[950:]), "the last 50 bytes")
+        code, h, _ = self.ranged("/track.mp3", "bytes=1000-")
+        self.assertEqual((code, h["Content-Range"]), (416, "bytes */1000"), "a start past the end")
+        code, h, body = self.ranged("/track.mp3", "bytes=0-1,5-6")
+        self.assertEqual((code, body), (200, whole), "several ranges: the whole file")
+        code, h, body = self.ranged("/track.mp3", "bytes=abc")
+        self.assertEqual((code, body), (200, whole), "nonsense: the whole file")
+        self.assertEqual(self.get("/track.mp3"), (200, whole), "no Range: the whole file")
+        self.assertEqual(self.ranged("/server.py", "bytes=0-2")[0], 404, "what is refused stays refused")
+        self.assertEqual(self.ranged("/nothing.mp3", "bytes=0-2")[0], 404)
 
     def test_what_a_page_does_not_need_is_refused(self):
         for path in ("/server.py", "/.hidden/a.js", "/tests/t.js", "/mumr.json/../server.py", "/"):
