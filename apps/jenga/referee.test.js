@@ -128,3 +128,32 @@ t('skip ends the replay at once; the next round builds the tower again; three ro
   assert.ok(ref.rules.s.winner.length >= 1);
   assert.strictEqual(ref.command('lobby'), true); assert.strictEqual(ref.rules.phase, 'lobby');
 });
+
+t('a staged game (the scene videos: JENGA_DEBUG) has blocks moved to the top and a tower that stands', () => {
+  process.env.JENGA_DEBUG = '1';
+  try {
+    const ref = referee(); ref.command('start'); drive(ref, 0.5);
+    assert.strictEqual(ref.command('stage', { moves: 8 }), true);
+    drive(ref, 3);
+    assert.strictEqual(ref.rules.phase, 'roll', 'it did not fall'); assert.strictEqual(ref.tower.fell(), null);
+    const lv = ref.tower.levels(); assert.strictEqual(lv.top, 20, `eight blocks on top: levels 18 to 20 (${lv.top})`); assert.strictEqual(lv.topCount, 2);
+    assert.strictEqual(ref.rules.s.moves, 8);
+    assert.ok(ref.tower.blocks.every((b, i) => ref.tower.restLevel[i] >= 0), 'every block is in the tower');
+  } finally { delete process.env.JENGA_DEBUG; }
+});
+
+t('a nudge (JENGA_DEBUG) moves the top levels of a standing tower', () => {
+  process.env.JENGA_DEBUG = '1';
+  try {
+    const ref = referee(); ref.command('start'); drive(ref, 0.5);
+    ref.command('stage', { moves: 4 }); drive(ref, 2);
+    assert.strictEqual(ref.command('nudge', { v: 0.1 }), true);
+    const top = ref.tower.levels().top, moved = ref.tower.blocks.filter((b) => ref.tower.restLevel[b.i] >= top - 2 && Math.hypot(b.body.v[0], b.body.v[1]) > 0.05);
+    assert.ok(moved.length >= 3, `the top levels took the push (${moved.length})`);
+  } finally { delete process.env.JENGA_DEBUG; }
+});
+
+t('the debug commands do nothing without JENGA_DEBUG', () => {
+  const ref = referee(); ref.command('start'); delete process.env.JENGA_DEBUG;
+  assert.strictEqual(ref.command('stage', { moves: 3 }), false); assert.strictEqual(ref.command('shove'), false); assert.strictEqual(ref.command('nudge'), false); assert.strictEqual(ref.command('setroll', { colour: 1 }), false);
+});

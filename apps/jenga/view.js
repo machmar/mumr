@@ -50,6 +50,7 @@ function playerObj(slot) {
 const sound = new J.Soundtrack({ base: 'music/' });
 // the director's view, with or without sound: which scene the music is in, how tense it is, and the moments it answers (?hud=0 hides it)
 const dir = { tension: new J.Tension(), scene: null, since: 0, t: 0, prev: null, moments: [] };
+const FAST = new URLSearchParams(location.search).get('fast') === '1';               // (?fast=1: the scene the music is heading for, without the dwell: for the scene videos)
 const hudBox = document.createElement('div');
 hudBox.style.cssText = 'position:fixed;left:14px;top:12px;font:600 13px system-ui,sans-serif;color:#fff3d6;text-shadow:0 1px 3px #000;pointer-events:none;display:' + (new URLSearchParams(location.search).get('hud') === '0' ? 'none' : 'block');
 document.body.appendChild(hudBox);
@@ -82,7 +83,7 @@ function frame() {
   const smp = feed.sample('jenga', null, at), snap = smp ? smp.data : null;
   scene3d.update({ state, snap, now, camera });
   dir.t += dt; const tn = dir.tension.update(S.doc.jenga || null, snap ? snap.items : null, dt);
-  const sc = J.sceneFor(S.doc.jenga || null, tn, dir.scene, dir.t - dir.since); if (sc !== dir.scene) { dir.scene = sc; dir.since = dir.t; }
+  const sc = J.sceneFor(S.doc.jenga || null, tn, dir.scene, dir.t - dir.since, FAST ? 0 : undefined); if (sc !== dir.scene) { dir.scene = sc; dir.since = dir.t; }
   for (const w of J.momentsBetween(dir.prev, S.doc.jenga || null)) dir.moments.push({ text: MOMENT[w] || w, t: now });
   dir.prev = S.doc.jenga || null; dir.moments = dir.moments.filter((m) => now - m.t < 4500);
   hudBox.innerHTML = `<div style="font-size:15px">music scene: <b style="color:#ffcf8a">${dir.scene}</b></div><div style="margin:4px 0;width:190px;height:9px;background:rgba(0,0,0,.45);border-radius:5px"><div style="width:${Math.round(tn * 100)}%;height:100%;border-radius:5px;background:linear-gradient(90deg,#8fd0a0,#ffcf8a,#ff6a3a)"></div></div><div style="font-weight:500;opacity:.9">tension ${Math.round(tn * 100)}%</div>${dir.moments.map((m) => `<div style="margin-top:3px;color:#ffe2b0">\u266a ${m.text}</div>`).join('')}`;

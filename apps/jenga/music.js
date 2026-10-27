@@ -76,14 +76,16 @@
   }
 
   // which scene is playing: by phase, and while the game is on by how far it has got and how tense it is. `held` is how long the scene has lasted (s).
-  function sceneFor(state, tension, cur, held) {
+  const RANK = { calm: 0, build: 1, tense: 2, danger: 3 };
+  function sceneFor(state, tension, cur, held, dwell = CFG.minScene) {
     const ph = state ? state.phase : 'lobby';
     if (ph === 'fall' || ph === 'replay') return 'finale';
     if (ph === 'match_end') return 'win';
     if (ph === 'aftermath' || ph === 'round_end' || ph === 'lobby' || !state) return 'calm';
     const moves = state.moves || 0;
     let want = tension > 0.62 ? 'danger' : moves >= 5 || tension > 0.32 ? 'tense' : 'build';
-    if (cur && want !== cur && held < CFG.minScene && !['finale', 'win', 'calm'].includes(cur)) want = cur;               // (no flapping: a scene lasts a while)
+    // (no flapping: a scene lasts a while before it may drop to a calmer one; a tenser one is answered at once)
+    if (cur && want !== cur && held < dwell && RANK[cur] !== undefined && RANK[want] < RANK[cur]) want = cur;
     return want;
   }
   // the one-shot moments between two states: ['rolled', 'pulled', 'placed', 'fall', 'replay', 'aftermath', 'roundEnd', 'matchEnd', 'start']

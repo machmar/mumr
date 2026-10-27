@@ -82,8 +82,8 @@
         // (JENGA_DEBUG only) a game in progress at once: n blocks from the lower levels put on top, scored for the players in turn; for the scene videos
         stage: () => {
           if (!DEBUG() || ph !== 'roll') return false;
-          const tw = this.tower, n = Math.max(0, Math.min(30, a.moves | 0)), pickOrder = [];
-          for (let round = 0; round < 2; round++) for (const lv of [2, 5, 8, 11, 14, 3, 6, 9, 12, 15, 4, 7, 10, 13, 1]) pickOrder.push(lv * 3 + (round ? 2 : 0));
+          const tw = this.tower, n = Math.max(0, Math.min(15, a.moves | 0)), pickOrder = [];
+          for (const lv of [2, 4, 6, 8, 10, 12, 14, 16, 3, 5, 7, 9, 11, 13, 15]) pickOrder.push(lv * 3 + ((lv >> 1) % 2 ? 2 : 0));         // (one block a level, the sides taking turns, the odd levels last)
           const levels = tw.levels(); let top = levels.top, count = 0;
           for (let k = 0; k < n && k < pickOrder.length; k++) {
             if (count === 0) { top++; count = 0; }
@@ -91,12 +91,14 @@
             b.p = S.toCommon(tw.place, h.p); b.q = S.qCommon(tw.place, h.q); b.v = [0, 0, 0]; b.w = [0, 0, 0]; tw.world.wake(b);
             if (++count === 3) count = 0;
           }
-          for (let t = 0; t < 150; t++) tw.world.step(1 / 60);
+          for (const b of tw.all()) tw.world.wake(b);                       // (a block taken out from under sleeping ones leaves them floating: they must feel it)
+          for (let t = 0; t < 240; t++) tw.world.step(1 / 60);
           tw.captureRest(); r.setTower(this.towerInfo());
           for (let k = 0; k < n; k++) { const p = r.s.players[k % r.s.players.length]; if (p) r.s.scores[p.slot][r.s.round - 1] += k % 3 === 0 ? 2 : 1; r.s.moves++; }
           r.s.turn = n % Math.max(1, r.s.players.length); r._touch(); return true;
         },
         setroll: () => { if (!DEBUG() || !['roll', 'pull'].includes(ph)) return false; if (ph === 'pull') { r.s.phase = 'roll'; } return r.rolled(a.colour | 0); },
+        nudge: () => { if (!DEBUG()) return false; const tw = this.tower, v = a.v || 0.12, top = tw.levels().top; for (const b of tw.blocks) { const lv = tw.restLevel[b.i]; if (lv >= top - 2) { b.body.v = [v * Math.cos(tw.place.yaw), v * Math.sin(tw.place.yaw), 0]; tw.world.wake(b.body); } } return true; },
         shove: () => { if (!DEBUG()) return false; const tw = this.tower, v = a.vx || 3; for (let i = 0; i < 6; i++) { const b = tw.blocks[i].body, d = i % 2 ? 1 : -1; b.v = [d * v * Math.cos(tw.place.yaw), d * v * Math.sin(tw.place.yaw), 0]; tw.world.wake(b); } return true; },
       }[what];
       const did = ok ? ok() : false;

@@ -51,6 +51,8 @@ test('scenes: by phase, then by how far the game has got and how tense it is, an
   assert.strictEqual(Mu.sceneFor(STATE({ phase: 'fall' }), 0.1, 'danger', 0), 'finale'); assert.strictEqual(Mu.sceneFor(STATE({ phase: 'replay' }), 0, 'tense', 0), 'finale');
   assert.strictEqual(Mu.sceneFor(STATE({ phase: 'aftermath' }), 0, 'finale', 0), 'calm'); assert.strictEqual(Mu.sceneFor(STATE({ phase: 'match_end' }), 0, 'calm', 0), 'win');
   assert.strictEqual(Mu.sceneFor(STATE({ moves: 7 }), 0.1, 'danger', 5), 'danger', 'it does not flap');
+  assert.strictEqual(Mu.sceneFor(STATE({ moves: 7 }), 0.8, 'tense', 3), 'danger', 'a tenser scene is answered at once');
+  assert.strictEqual(Mu.sceneFor(STATE({ moves: 7 }), 0.1, 'danger', 5, 0), 'tense', 'with no dwell (the PC view of the director) it drops at once');
   assert.strictEqual(Mu.sceneFor(STATE({ moves: 7 }), 0.1, 'danger', 40), 'tense', 'after a while it may come down');
   assert.strictEqual(Mu.sceneFor(STATE({ phase: 'fall' }), 0, 'danger', 1), 'finale', 'a fall changes it at once');
 });
