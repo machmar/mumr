@@ -63,7 +63,7 @@ NOTES 1, 2026-10-22).
 | `engine/server/ws.py` | WebSocket frames (RFC 6455), standard library | - |
 | `engine/server/hub.py` | roles (player 0-3, viewer 100+), version check, numbered events, the kept document (`key/drop/clear/scope/own/gone`), `ask`, tokens (`bodies` and tokens made by a claim; busy, release, silence), motion with the slot byte written by the hub and owned types checked, newest packets for newcomers, `Outbox` | - |
 | `engine/server/serverlog.py` | the always-on log: pages fetched, sockets (why they ended), tokens, the pages' life lines | - |
-| `engine/server/serve.py` | https with a self-signed certificate (`~/.mumr/cert`), the app's folder and `/mumr/`, `/ws`, `/log`, `/info`, build stamp, the app's routes, `mumr.json` | hub, ws, serverlog |
+| `engine/server/serve.py` | https with a self-signed certificate (`~/.mumr/cert`), the app's folder (files also in parts, `Range: bytes=`, so that a media element can seek) and `/mumr/`, `/ws`, `/log`, `/info`, build stamp, the app's routes, `mumr.json` | hub, ws, serverlog |
 | `engine/client/util.js` | `num`, `wrap`, `clone`, `Emitter` | - |
 | `engine/client/link.js` | the WebSocket: join, reconnect with back-off, watchdog (4 s, ignoring a paused page), ping and round trip, the server's clock, close codes | - |
 | `engine/client/align.js` | frames, `Space`, `Aligner` (the line-up with knobs, locks, save/load against an anchor, `rebase`), `Resets` | - |

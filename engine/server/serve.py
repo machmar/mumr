@@ -191,6 +191,50 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         self.send_header("Cache-Control", "no-store")   # the headset always gets the files as they are now
         super().end_headers()
 
+    def _ranged(self):
+        """A part of a file (Range: bytes=a-b, a-, -n), as a media element asks to start a track half way: 206 with that part, 416 for one outside the
+        file. False when the request is not such a one (no Range, several ranges, not a file): the whole file is sent."""
+        spec = self.headers.get("Range", "").strip()
+        if not spec.startswith("bytes=") or "," in spec:
+            return False
+        path = self.translate_path(self.path)
+        if not os.path.isfile(path):
+            return False
+        first, _, last = spec[6:].partition("-")
+        try:
+            size = os.path.getsize(path)
+            if first.strip() == "":
+                start, end = max(0, size - int(last)), size - 1
+            else:
+                start, end = int(first), min(size - 1, int(last)) if last.strip() else size - 1
+        except (ValueError, OSError):
+            return False
+        if start > end or start >= size or start < 0:
+            self.send_response(416)
+            self.send_header("Content-Range", "bytes */%d" % size)
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return True
+        try:
+            with open(path, "rb") as f:
+                self.send_response(206)
+                self.send_header("Content-Type", self.guess_type(path))
+                self.send_header("Accept-Ranges", "bytes")
+                self.send_header("Content-Range", "bytes %d-%d/%d" % (start, end, size))
+                self.send_header("Content-Length", str(end - start + 1))
+                self.end_headers()
+                f.seek(start)
+                left = end - start + 1
+                while left > 0:
+                    chunk = f.read(min(65536, left))
+                    if not chunk:
+                        break
+                    self.wfile.write(chunk)
+                    left -= len(chunk)
+        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+            self.close_connection = True             # (a player that seeks again drops the part it was reading)
+        return True
+
     def log_message(self, fmt, *args):
         line = fmt % args
         if "/log " not in line and "/info " not in line:
@@ -229,6 +273,8 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             pass
         elif self._refused():
             self.send_error(404)
+        elif self._ranged():
+            pass
         else:
             super().do_GET()
 
