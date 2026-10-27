@@ -157,3 +157,40 @@ t('the debug commands do nothing without JENGA_DEBUG', () => {
   const ref = referee(); ref.command('start'); delete process.env.JENGA_DEBUG;
   assert.strictEqual(ref.command('stage', { moves: 3 }), false); assert.strictEqual(ref.command('shove'), false); assert.strictEqual(ref.command('nudge'), false); assert.strictEqual(ref.command('setroll', { colour: 1 }), false);
 });
+
+// ---- the focus: the room's dim follows the game
+function dimSession(settings = {}) { const s = session(); s.settings = settings; s.dims = []; s.dim = function (want) { this.dims.push(want); }; s.game = function (k) { return this.settings[k]; }; return s; }
+
+t('the room dims with the game: as it is in the lobby, receding for a round, out at the fall and back after (the host asks the engine)', () => {
+  process.env.JENGA_DEBUG = '1';
+  try {
+    const sess = dimSession(), ref = referee({ session: sess });
+    drive(ref, 0.5);
+    assert.deepStrictEqual([sess.dims[0].dark, sess.dims[0].mute], [0, 0], 'the first thing the host says: the room as it is (a host that came back must not leave a dark one)');
+    ref.command('start'); drive(ref, 1);
+    const roll = sess.dims.at(-1); assert.deepStrictEqual([roll.dark, roll.mute, roll.fade, roll.over], [0.3, 0.2, 2500, true], 'the room recedes for the die');
+    ref.command('shove', { vx: 3 });
+    for (let k = 0; k < 90 * 8 && !['fall', 'replay'].includes(ref.rules.phase); k++) drive(ref, DT);
+    assert.ok(['fall', 'replay'].includes(ref.rules.phase)); drive(ref, 0.3);
+    const fall = sess.dims.find((d) => d.fade === 150 && d.mute === 1); assert.ok(fall, 'the freeze: out in 150 ms');
+    assert.ok(fall.dark >= 0.85 && sess.dims.indexOf(fall) > sess.dims.indexOf(roll));
+    ref.command('skip'); drive(ref, 1);
+    const after = sess.dims.at(-1); assert.strictEqual(ref.rules.phase, 'aftermath'); assert.ok(after.dark < fall.dark && after.dark > 0 && after.fade >= 3000, 'it comes back slowly');
+    drive(ref, 6); assert.strictEqual(ref.rules.phase, 'round_end'); assert.ok(sess.dims.at(-1).dark <= 0.15);
+    assert.ok(sess.dims.length < 14, `a few asks, not a stream (${sess.dims.length})`);
+  } finally { delete process.env.JENGA_DEBUG; }
+});
+
+t('the Room dim setting is read from the shared settings: off keeps the room as it is, a change is answered at once', () => {
+  const sess = dimSession({ dim: 0 }), ref = referee({ session: sess });
+  ref.command('start'); drive(ref, 1.5);
+  assert.ok(sess.dims.length >= 1 && sess.dims.every((d) => d.dark === 0 && d.mute === 0), 'off: the room stays as it is');
+  sess.settings.dim = 2; drive(ref, 0.3);
+  assert.deepStrictEqual([sess.dims.at(-1).dark, sess.dims.at(-1).mute], [0.3, 0.2]);
+  sess.settings.dim = 1; drive(ref, 0.3);
+  assert.deepStrictEqual([sess.dims.at(-1).dark, sess.dims.at(-1).mute], [0.15, 0.1], 'gentle: half');
+});
+
+t('a session with no dim (the other tests\' pretend one) is left alone', () => {
+  const ref = referee(); ref.command('start'); drive(ref, 1); assert.strictEqual(ref.rules.phase, 'roll');
+});

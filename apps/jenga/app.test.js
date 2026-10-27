@@ -72,6 +72,26 @@ t('the settings buttons: the music is one setting for everybody, the ghost finge
   assert.strictEqual(a.sess.stateOf(null).ghost, false); assert.strictEqual(b.sess.stateOf(null).ghost, true, 'a player\'s own');
   for (let k = 0; k < 6; k++) b.sess.press(null, 'musicDown'); hub.flush();
   assert.strictEqual(a.sess.game('music'), 0);
+  assert.strictEqual(a.sess.game('dim'), 2, 'the room is dimmed in full by default'); a.sess.press(null, 'dimDown'); hub.flush();
+  assert.strictEqual(a.sess.game('dim'), 1); assert.strictEqual(b.sess.game('dim'), 1, 'the room is one for everybody: the dim is too');
+  for (let k = 0; k < 4; k++) b.sess.press(null, 'dimDown'); hub.flush(); assert.strictEqual(a.sess.game('dim'), 0, 'down to off');
+  for (let k = 0; k < 4; k++) a.sess.press(null, 'dimUp'); hub.flush(); assert.strictEqual(b.sess.game('dim'), 2, 'and up to full');
+  const bd = L.board(L.waiting(), { here: 2, game: a.sess.stateOf(null), mine: a.sess.stateOf(null) });
+  assert.ok(bd.buttons.some((x) => x.id === 'dimDown') && bd.buttons.some((x) => x.id === 'dimUp' && x.off), 'the Room dim - and + are on the board (+ is off at full)');
+});
+
+t('the host dims the real room with the game and every page has the same look: the lobby as it is, a round receding, the setting off', async () => {
+  const hub = new Hub({ bodies: ['jenga'], owned: { 23: 'jenga' } });
+  const h = await host(hub); hub.flush(); h.sess.notify('first'); hub.flush();
+  const a = player(hub, 'A'), b = player(hub, 'B'); hub.flush(); tick(h, hub, 12);
+  assert.deepStrictEqual([a.sess.doc.dim.dark, a.sess.doc.dim.mute], [0, 0], 'the lobby: the room as it is');
+  a.body.ask('start', {}); hub.flush(); tick(h, hub, 15);
+  for (const p of [a, b]) { assert.strictEqual(p.sess.doc.jenga.phase, 'roll'); assert.deepStrictEqual([p.sess.doc.dim.dark, p.sess.doc.dim.mute, p.sess.doc.dim.over], [0.3, 0.2, true], 'a round: the room recedes'); }
+  assert.strictEqual(JSON.stringify(a.sess.doc.dim), JSON.stringify(b.sess.doc.dim), 'the same for both');
+  const late = player(hub, 'C'); hub.flush(); assert.strictEqual(late.sess.doc.dim.dark, 0.3, 'a newcomer is at the same look at once');
+  const lv = M.dim.level(a.sess.doc.dim, a.sess.serverNow() + 5000); assert.ok(Math.abs(lv.dark - 0.3) < 1e-9, 'and the fade is over by then');
+  a.sess.press(null, 'dimDown'); a.sess.press(null, 'dimDown'); hub.flush(); tick(h, hub, 15);
+  assert.deepStrictEqual([a.sess.doc.dim.dark, a.sess.doc.dim.mute], [0, 0], 'off: the room as it is');
 });
 
 t('the board follows the phase: what can be pressed in the lobby, in a round, after a fall, at the end', () => {

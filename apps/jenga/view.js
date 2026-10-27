@@ -85,8 +85,9 @@ function frame() {
   dir.t += dt; const tn = dir.tension.update(S.doc.jenga || null, snap ? snap.items : null, dt);
   const sc = J.sceneFor(S.doc.jenga || null, tn, dir.scene, dir.t - dir.since, FAST ? 0 : undefined); if (sc !== dir.scene) { dir.scene = sc; dir.since = dir.t; }
   for (const w of J.momentsBetween(dir.prev, S.doc.jenga || null)) dir.moments.push({ text: MOMENT[w] || w, t: now });
+  const dl = M.dim.level(S.doc.dim, sn);                           // (what the headsets' passthrough is drawn at: this view has no real room to dim)
   dir.prev = S.doc.jenga || null; dir.moments = dir.moments.filter((m) => now - m.t < 4500);
-  hudBox.innerHTML = `<div style="font-size:15px">music scene: <b style="color:#ffcf8a">${dir.scene}</b></div><div style="margin:4px 0;width:190px;height:9px;background:rgba(0,0,0,.45);border-radius:5px"><div style="width:${Math.round(tn * 100)}%;height:100%;border-radius:5px;background:linear-gradient(90deg,#8fd0a0,#ffcf8a,#ff6a3a)"></div></div><div style="font-weight:500;opacity:.9">tension ${Math.round(tn * 100)}%</div>${dir.moments.map((m) => `<div style="margin-top:3px;color:#ffe2b0">\u266a ${m.text}</div>`).join('')}`;
+  hudBox.innerHTML = `<div style="font-size:15px">music scene: <b style="color:#ffcf8a">${dir.scene}</b></div><div style="margin:4px 0;width:190px;height:9px;background:rgba(0,0,0,.45);border-radius:5px"><div style="width:${Math.round(tn * 100)}%;height:100%;border-radius:5px;background:linear-gradient(90deg,#8fd0a0,#ffcf8a,#ff6a3a)"></div></div><div style="font-weight:500;opacity:.9">tension ${Math.round(tn * 100)}%</div><div style="font-weight:500;opacity:.9">room dim ${Math.round(dl.dark * 100)}%, grey ${Math.round(dl.mute * 100)}%</div>${dir.moments.map((m) => `<div style="margin-top:3px;color:#ffe2b0">\u266a ${m.text}</div>`).join('')}`;
   // the first time the game's place is known: the camera looks at it
   const key = `${state.size}|${state.place.x}|${state.place.y}|${state.place.yaw}`;
   if (key !== placedKey) { placedKey = key; aim(4); }

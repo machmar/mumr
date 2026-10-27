@@ -5,7 +5,7 @@
 // hands and a pretend clock.
 (function (J) {
   const need = (n) => (typeof module !== 'undefined' ? require(`./${n}.js`) : J);
-  const S = need('spec'), { Tower } = need('tower'), { Rules } = need('rules'), N = need('net'), R = need('replay');
+  const S = need('spec'), { Tower } = need('tower'), { Rules } = need('rules'), N = need('net'), R = need('replay'), Mu = need('music'), F = need('focus');
   const T = { dieStill: 0.7, cocked: 12, aftermath: 4500, backAfter: 3, putBack: 1.2, restWait: 0.3 };      // seconds, degrees, ms
   const DEFAULT_PLACE = { x: 1.6, y: 0.6, yaw: 0 };
   const DEBUG = () => typeof process !== 'undefined' && !!process.env && !!process.env.JENGA_DEBUG;
@@ -21,6 +21,7 @@
       this.seed = opts.seed === undefined ? 1 : opts.seed;
       this.rec = new R.Recorder(); this.replay = null; this.frozen = null; this.timer = null; this.mode = N.MODE.live; this.progress = 0; this.culprit = null;
       this.lastRev = -1; this.t = 0; this.stats = { steps: 0, ms: 0, worst: 0 };
+      this.focus = new F.Focus(); this.tension = new Mu.Tension(); this.fAcc = 0; this.fState = null;          // the room's dim follows the game (focus.js)
       this.tower = null; this.makeTower();
       this.publish();
     }
@@ -123,7 +124,20 @@
         if (['roll', 'pull', 'place'].includes(ph)) this.play(dt, nowMs);
       }
       this.publish();
+      this.focusStep(dt, nowMs);
       if (t0) { const ms = performance.now() - t0; this.stats.steps++; this.stats.ms += ms; this.stats.worst = Math.max(this.stats.worst, ms); }
+    }
+    // ---- the focus: ten times a second the tension is read off the tower, and the room's dim (engine dim.js) is asked for when the look has to change
+    dimLevel() { const g = this.session && this.session.game ? this.session.game('dim') : undefined; return g === undefined ? 2 : g; }
+    focusStep(dt, nowMs) {
+      this.fAcc += dt;
+      if (this.fAcc < 0.1 || !this.session || !this.session.dim) return;
+      const d = this.fAcc, view = this.rules.view(); this.fAcc = 0;
+      const k = this.tension.update(view, this.pack().items, d);
+      for (const w of Mu.momentsBetween(this.fState, view)) if (w === 'pulled') this.focus.pulse(nowMs);
+      this.fState = view;
+      const ask = this.focus.update(view, k, this.dimLevel(), nowMs);
+      if (ask) { this.session.dim(ask); this.life(`jenga: the room ${ask.dark ? `dims to ${ask.dark} and greys to ${ask.mute}` : 'is as it is'} over ${ask.fade} ms (${view.phase}, tension ${k.toFixed(2)})`); }
     }
     // ---- a game in play: roll, pull, place; and the tower falling
     play(dt, nowMs) {

@@ -267,6 +267,10 @@ Kept from the first plan's section 6, plus what came after it:
   7. **A streamed track cannot start half way from a server that sends whole files.** The ambient tracks now come in at a place of their own (a hash of the seed, scene, round and file: the same on
      every headset) instead of always at 0:00, which needs `audio.currentTime` to jump inside a file that has not been downloaded. Python's `SimpleHTTPRequestHandler` has no byte ranges, so
      `serve.py` answers `Range: bytes=a-b` (206, 416 outside the file) since this entry; checked in Chromium (both tracks 206, entered at 0:55 and 0:24 of 3:20).
+  8. **The room's dim is the host's to ask, and the server keeps what it was told.** Jenga drives `session.dim` from the referee (focus.js) instead of from a page: it is the one process that sees every phase.
+     Two things follow from the dim being a kept document item. A host that restarts must say something at once (its first ask is the lobby's look, so a dim left by a host that died in a fall is
+     undone), and a host that does not come back must not leave a dark room: the pages let it go after 4 s with no host. A look that follows the tension has to be asked in steps (0.05) and not
+     more than every 0.7 s, or the document gets an event for every wobble. The PC view has no real room: it can only list the look.
   Rehearsed through the real server and Jolt host with two tabs: Start on the board, the die thrown by a pinch and read, a block pulled out and put on top (+1, the next player), a fall with its replay
   (TIMBER, -3, rewind, 0.3x, aftermath, round end), the PC view, and music crossfading in a desktop browser. Not yet on a headset.
 

@@ -9,7 +9,7 @@ import { createScene } from './draw.js';
 const J = window.JENGA;
 const stream = new J.Stream(60);
 const sound = new J.Soundtrack({ base: 'music/' });
-let scene3d = null, common = null, app = null, lastDraw = performance.now();
+let scene3d = null, common = null, app = null, lastDraw = performance.now(), noHostAt = null, lastClear = -1e9;
 const sampleBoard = J.board(J.waiting(), {}), aspect = sampleBoard.h / sampleBoard.w;
 const state = () => (app && app.S.doc.jenga) || J.waiting();
 const hostHere = () => !!app && (app.S.hostHere || app.S.isHost);
@@ -48,6 +48,10 @@ app = await createApp({
     // the soundtrack follows the shared state and the bodies (every headset hears the same scene: it is worked out from the same data)
     if (sound.music.ctx) { const h = a.head(), sp = a.space, c = sp.ok ? sp.toCommon([h[0], h[1]]) : [h[0], h[1]]; sound.update(app.S.doc.jenga || null, snap ? snap.items : null, Math.min(0.1, (now - lastDraw) / 1000), app.S.game('music'), { x: c[0], y: c[1], yaw: sp.ok ? sp.yawToCommon(h[2]) : h[2] }); }
     lastDraw = now;
+    // the room's dim is the host's (focus.js) and the server keeps it: a host that goes away in the middle of a fall must not leave everybody in a dark room, so
+    // any page that has had no host for a few seconds lets it go (every page does: the same ask, the same look)
+    if (hostHere() || !a.S.connected) noHostAt = null; else if (noHostAt === null) noHostAt = now;
+    if (noHostAt !== null && now - noHostAt > 4000 && now - lastClear > 6000) { const lv = a.dimLevel(); if (lv.dark > 0 || lv.mute > 0) { lastClear = now; a.dim({ dark: 0, mute: 0, fade: 1500 }); } }
   },
   status: () => { const s = app && app.S.doc.jenga; return s ? `${s.phase}, round ${s.round}/${s.rounds}, ${s.moves} moves${hostHere() ? '' : '   NO HOST'}` : 'waiting for the host'; },
 });

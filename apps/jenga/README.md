@@ -31,7 +31,7 @@ node --test "apps/jenga/*.test.js"
 
 There is no menu of your own: the board standing on the console is **one thing for everybody** (engine `boards`, `createApp({ menu: false })`; the wrist menu is the
 engine's and is untouched). It faces the player who put the game down; everybody can press it and everybody sees a button go down. Its buttons: Start game / Next round /
-New match, Roll the die again, Block lost? (puts the pulled block back on the plinth), Skip the replay, Size, Move the game here, Music - +, My ghost fingers. The scoreboard
+New match, Roll the die again, Block lost? (puts the pulled block back on the plinth), Skip the replay, Size, Move the game here, Music - +, Room dim - +, My ghost fingers. The scoreboard
 is a scroll next to it: names, the points of each round, the total, whose turn it is.
 
 ## Rule 1
@@ -46,6 +46,28 @@ the room is the sound: each headset plays the music itself, from the same shared
 
 You supply the tracks (ambient). Put them in `music/<scene>/`, run `node apps/jenga/music/build-manifest.js`, and the pages crossfade between them over 30 s, with swells
 at tense moments. What belongs in which scene: [music/README.md](music/README.md).
+
+## The room's focus
+
+The engine can darken and grey the real room for everybody (`engine/client/dim.js`: the passthrough on every headset, the picture on every webcam page, the same look at the same
+moment; the virtual world is drawn over it at full strength). Jenga uses it as a focus: the room recedes for the die, closes in with the tension of a pull, goes out **at the moment
+the tower falls** (the freeze: the room grey and nearly black, the tower in colour) and comes back slowly after. [focus.js](focus.js) has the look of each phase and what tension adds;
+the host asks for it (it sees every phase and block; ten times a second it reads the tension off the tower, the same `Tension` the music uses) and asks only when the look changes by a
+step of 0.05, so the document is not a stream.
+
+| Moment | Dark | Grey | Takes |
+|---|---|---|---|
+| lobby, end of the match | 0 | 0 | 2.5 s / 5 s |
+| die | 0.30 | 0.20 | 2.5 s |
+| pull / put on top | 0.45 to 0.80, more with the tension (a hand holding a half pulled block a little more) | 0.30 to 0.75 | 1.5 s |
+| a block comes out | a quick extra +0.12 for 1.2 s | +0.10 | 0.15 s in, 2.5 s out |
+| the fall | 0.90 | 1 | 0.15 s |
+| the replay | 0.85 | 1 | 0.7 s |
+| after the fall, round end | 0.35, then 0.15 | 0.5, then 0.1 | 3.5 s, 3 s |
+
+The board's **Room dim** (off, gentle = half of everything, full) is a shared setting like the music, since the room is one for everybody. Real hands are dimmed with the room
+(`over: true`; ghost fingers show the hands). It never goes fully black (0.92). A host that goes away must not leave a dark room (the server keeps the dim): any page with no host for
+4 s lets it go. The PC view has no real room, so it only lists the look in its corner.
 
 ## What is where
 
@@ -63,6 +85,7 @@ at tense moments. What belongs in which scene: [music/README.md](music/README.md
 | `textures.js`, `draw.js` | the zen scene: wood grain and its normal map, stains, stamps, sand, felt, washi; the blocks, the die, the furniture, the markers, the replay banner (one module for the page and the PC view) |
 | `app.js`, `index.html` | the page on `createApp` |
 | `view.js`, `view.html` | the PC view (a watcher; keys 1 2 3 4 move the camera, M the music) |
+| `focus.js` | the room's dim: the look of each phase, what tension adds, the Room dim setting; asked by the referee through `session.dim` |
 | `music.js`, `music/` | the soundtrack: the director (scene, tension, moments), the crossfades, the swells, the generated bells, boom, riser and block clacks; the folders for your tracks |
 | `*.test.js` | `rules`, `net` (and replay), `tower`, `referee`, `app` (the whole app with pretend headsets and a pretend host), `music` |
 
@@ -87,4 +110,4 @@ Found with a pretend hand that pulls blocks out of a tower under its own weight 
 Everything here ran on the PC: Node tests (physics with pretend hands, the whole app with pretend headsets) and browser tabs through the real server and host (a full turn:
 Start, the die thrown by a pinch, a block pulled and put on top, scored; the fall with the replay). **Not yet on a headset**: how a real pinch finds a 15 mm block at the normal size
 (huge and giant should be easier), the feel of the lag of a tight block, the board at arm's length, the audio on the Quest browser (it plays after the first tap: the Enter button),
-the soundtrack with real tracks, and a four-player round.
+the soundtrack with real tracks, and a four-player round. And the room's dim on a real passthrough: the numbers in the table above are a first guess (how dark a living room can get before the hands and the way to the wall are lost, how the grey reads against the lantern).
