@@ -44,7 +44,8 @@
 //                                                        and the fingertip's depth are seen on every page like a menu's.
 //     anchorKey, name })                                 (optional) where the anchor is kept; who this page is in the log
 //   app: { THREE, scene, world, camera, S, space, presence, menus, lineup, sys, room, grips, handMask, feet, life, say, head(), xr(), bodies,
-//          ownerText(slot), gestures (this frame: everybody's hands' grab.js states), everyone (this frame: everybody's hand sources) }
+//          ownerText(slot), gestures (this frame: everybody's hands' grab.js states), everyone (this frame: everybody's hand sources),
+//          dim({ dark, mute, over, fade }) (the room darkened and greyed for everybody, headsets and webcams: dim.js), dimLevel() }
 //   (app.room.local(): the room in this page's floor plan, for the app's physics: room.js support / pushOut)
 // The page may have the elements #view (canvas), #enter, #xrNote, #say, #status (the cube's page does: its own look); without #view,
 // createApp makes the standard ones.
@@ -58,6 +59,7 @@ import { makeShoes } from './feet3d.js';
 import { createHandMask } from './handmask.js';
 import { createHandWall, SIZE as WALL_SIZE, wallSpot } from './handwall.js';
 import { createModel3d } from './roommodel3d.js';
+import { createDim3d } from './dim3d.js';
 import { createCameraMarks } from './cammark3d.js';
 
 export { GHOST_COLOURS, PLAYER_COLOURS };
@@ -104,6 +106,7 @@ export async function createApp(o) {
   const FEET = o.feet || 'off', ownShoes = makeShoes(THREE, world);
   const handMask = createHandMask({ THREE, renderer, scene });
   handMask.enabled = o.handMask !== false;
+  const dim = createDim3d({ THREE, scene });                     // the room's dim (dim.js): after the cutouts, before everything else
   const handWall = o.handWall ? createHandWall({ THREE, parent: world }) : null;
   const mouseDot = new THREE.Mesh(new THREE.SphereGeometry(0.012, 12, 8), new THREE.MeshBasicMaterial({ color: 0xf2c14e })); mouseDot.visible = false; world.add(mouseDot);
 
@@ -282,7 +285,8 @@ export async function createApp(o) {
     return [camera.position.x, -camera.position.z, Math.atan2(-v3.z, v3.x), camera.position.y, Math.asin(v3.y)];
   }
   const app = { THREE, scene, world, camera, renderer, S, space, presence, menus, lineup, sys, room, grips, handMask, feet: FEET, life, say, bodies, ownerText,
-    head: () => head, xr: () => xr, gestures: [], everyone: [] };
+    head: () => head, xr: () => xr, gestures: [], everyone: [],
+    dim: (want) => S.dim(want), dimLevel: () => M.dim.level(S.doc.dim, S.serverNow()) };
   // the hands on the hand wall: everybody's, with their gestures (this page's first, then the others by slot)
   const hex = (c) => `#${(c >>> 0).toString(16).padStart(6, '0')}`;
   function wallHands() {
@@ -344,6 +348,7 @@ export async function createApp(o) {
     room3d.set(room.local()); room3d.group.visible = !xr || lineup.active;
     if (handWall) handWall.update(room.local(), wallHands(), now, viewerPreview || viewerSpot());
     if (xr) handMask.update();
+    dim.update(M.dim.level(S.doc.dim, S.serverNow()));
     if (o.draw) o.draw(app, now);
     if (!xr) controls.update();
     renderer.render(scene, camera);
