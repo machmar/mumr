@@ -11,6 +11,7 @@
   //         fetch, storage (a Storage, or null for none), now () -> ms, clock () -> Date (for the time of day) }
   function make(opts = {}) {
     const url = opts.url || '/log', keep = opts.keep || 40;
+    globalThis.MUMR_STARTED = true;                  // (the page has started: all.js stops reporting errors before start)
     const fetchFn = opts.fetch !== undefined ? opts.fetch : globalThis.fetch ? globalThis.fetch.bind(globalThis) : null;
     let store = opts.storage;
     if (store === undefined) { try { store = globalThis.sessionStorage || null; } catch (e) { store = null; } }

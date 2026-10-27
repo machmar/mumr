@@ -325,3 +325,35 @@ test('a pile of 30 dropped cubes settles, sleeps and has no cube inside another'
   for (let i = 0; i < 30; i++) for (let j = i + 1; j < 30; j++) assert.ok(Math.hypot(...bodies[i].p.map((v, k) => v - bodies[j].p[k])) > 0.1, `${i} and ${j} are inside each other`);
   assert.ok(ms < 4, `${ms.toFixed(2)} ms per frame over 10 s`);
 });
+
+// ---- speed (docs/superpowers/plans/2026-10-26-physics-performance.md)
+test('the grid finds the same pairs, in the same order, as a loop over every pair', () => {
+  let seed = 7; const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+  for (const n of [5, 40, 200]) {
+    const W = new P.World();
+    for (let i = 0; i < n; i++) { const b = P.makeBox({ size: [0.02 + rnd() * 0.28, 0.02 + rnd() * 0.28, 0.02 + rnd() * 0.28], p: [rnd() * 2 - 1, rnd() * 2 - 1, rnd() * 1.5] }); b.asleep = rnd() < 0.3; W.add(b); }
+    W._grid();
+    const got = []; W._pairs((a, b) => got.push(a.id + ':' + b.id));
+    const want = [], B = W.bodies, diag = (b) => Math.hypot(...b.size);
+    for (let i = 0; i < n; i++) for (let j = i + 1; j < n; j++) {
+      const a = B[i], b = B[j];
+      if ((a.asleep && b.asleep) || Math.hypot(...a.p.map((v, k) => v - b.p[k])) >= (diag(a) + diag(b)) / 2 + 0.02) continue;
+      want.push(a.id + ':' + b.id);
+    }
+    assert.deepStrictEqual(got, want, `${n} bodies`);
+    assert.ok(n < 40 || want.length > 0, 'the test has pairs to find');
+  }
+});
+
+test('a box set on a sleeping box is carried by it, and the sleeping box is not pushed', () => {
+  // (the top box comes first in the world, so that the sleeping box is the first body of their contact: it used to take impulses while it slept)
+  const top = cube({ p: [1, 0, H] }), a = cube({ p: [0, 0, H] }), W = worldWith([top, a]);
+  run(W, a, 1.5);
+  assert.ok(a.asleep, 'the bottom box sleeps');
+  top.p = [0.01, 0, 3 * H]; W.wake(top);                                       // (set down touching it: no impact to wake it)
+  const at = a.p.slice();
+  for (let i = 0; i < 240 * 2 && !top.asleep; i++) { W.step(1 / 240); assert.ok(a.asleep, 'the box under it stays asleep'); }
+  assert.deepStrictEqual(a.p, at, 'and does not move');
+  near(top.p[2], 3 * H, 0.0005, 'the top box rests on it, not in it');
+  assert.ok(top.asleep, 'and goes to sleep');
+});

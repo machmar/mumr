@@ -1,7 +1,7 @@
 // HAND CUTOUTS (Nudgy's hand masks, 2026-10-11, with its measured offsets): your real hands, seen in passthrough, stay in front of
 // everything the app draws. A hand model is bent to the tracked joints and drawn before anything else, writing depth only: it is
 // invisible itself, and whatever is behind it is then not drawn, which leaves the camera picture there. The model is three.js's generic
-// WebXR hand (XRHandModelFactory, loaded from its CDN when a hand is first tracked). It follows the tracking and ends at the wrist.
+// WebXR hand (XRHandModelFactory; its models are served from /mumr/vendor/generic-hand/, so a headset needs no internet). It follows the tracking and ends at the wrist.
 // An ES module; the page's import map must have three/addons/ (createApp's pages do).
 //
 //   const mask = createHandMask({ THREE, renderer, scene }); mask.update() every frame; mask.enabled = false hides them;
@@ -24,7 +24,7 @@ export function createHandMask({ THREE, renderer, scene, tipReach = TIP_REACH, g
     sh.uniforms.uGrow = growU;
     sh.vertexShader = 'uniform float uGrow;\n' + sh.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>\n  transformed += normalize(normal) * uGrow;');
   };
-  const factory = new XRHandModelFactory();
+  const factory = new XRHandModelFactory().setPath('/mumr/vendor/generic-hand/');
   const hands = [0, 1].map((i) => {
     const space = renderer.xr.getHand(i); scene.add(space);
     const model = factory.createHandModel(space, 'mesh'); space.add(model);

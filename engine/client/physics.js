@@ -50,14 +50,29 @@
   const add = (a, b, k = 1) => [a[0] + b[0] * k, a[1] + b[1] * k, a[2] + b[2] * k];
   const sub = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
   const mulv = (a, k) => [a[0] * k, a[1] * k, a[2] * k];
-  // the world-frame inverse inertia applied to a vector
-  // (b.ax: its three axes in the world, set once per substep by the world: the same turn without two quaternion products per call)
-  const invI = (b, v) => {
-    const a = b.ax;
-    if (!a) { const l = quat.rotate(quat.conj(b.q), v); return quat.rotate(b.q, [l[0] / b.inertia[0], l[1] / b.inertia[1], l[2] / b.inertia[2]]); }
-    const s0 = (a[0][0] * v[0] + a[0][1] * v[1] + a[0][2] * v[2]) / b.inertia[0], s1 = (a[1][0] * v[0] + a[1][1] * v[1] + a[1][2] * v[2]) / b.inertia[1], s2 = (a[2][0] * v[0] + a[2][1] * v[1] + a[2][2] * v[2]) / b.inertia[2];
-    return [a[0][0] * s0 + a[1][0] * s1 + a[2][0] * s2, a[0][1] * s0 + a[1][1] * s1 + a[2][1] * s2, a[0][2] * s0 + a[1][2] * s1 + a[2][2] * s2];
-  };
+  const len = (a) => Math.sqrt(a[0] * a[0] + a[1] * a[1] + a[2] * a[2]);
+  const dist = (a, b) => { const x = a[0] - b[0], y = a[1] - b[1], z = a[2] - b[2]; return Math.sqrt(x * x + y * y + z * z); };
+  // two bodies near enough to touch (b._d: the diagonal, set by World._grid each substep)
+  const reach = (a, b) => dist(a.p, b.p) < (a._d + b._d) / 2 + MARGIN;
+  // A box-box contact with its first body asleep and the other awake is turned round, so that the sleeping one is the other: the solver treats an
+  // other body that sleeps as a fixed surface (a box resting on a sleeping box is carried by it, and the sleeping box is not pushed while it sleeps).
+  function awakeFirst(c) {
+    if (!c.b.asleep || c.o.asleep) return c;
+    const b = c.b; c.b = c.o; c.o = b; c.n = [-c.n[0], -c.n[1], -c.n[2]];
+    return c;
+  }
+  // the solver's flat array (World._sub): a contact is three rows (its normal and two directions along the surface, ROW numbers each, World._row),
+  // then its target speed along the normal and its two frictions
+  const ROW = 18, CS = 3 * ROW + 3;
+  // the speed of a contact's point on body b relative to body o (-1: none) and to the surface's own speed vs -> RV (no array made)
+  const RV = new Float64Array(3);
+  function relVel(V, b, o, rax, ray, raz, rbx, rby, rbz, vs) {
+    const B = b * 6;
+    let x = V[B] + V[B + 4] * raz - V[B + 5] * ray, y = V[B + 1] + V[B + 5] * rax - V[B + 3] * raz, z = V[B + 2] + V[B + 3] * ray - V[B + 4] * rax;
+    if (o >= 0) { const O = o * 6; x -= V[O] + V[O + 4] * rbz - V[O + 5] * rby; y -= V[O + 1] + V[O + 5] * rbx - V[O + 3] * rbz; z -= V[O + 2] + V[O + 3] * rby - V[O + 4] * rbx; }
+    if (vs) { x -= vs[0]; y -= vs[1]; z -= vs[2]; }
+    RV[0] = x; RV[1] = y; RV[2] = z;
+  }
   function pip(pts, x, y) {
     let c = false;
     for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
@@ -82,6 +97,8 @@
       this.substep = opts.substep || 1 / 240;
       this.maxMove = opts.maxMove || MAX_MOVE;     // m, the most a body moves in one substep (5 mm: a throw cannot pass a table top; a heap of boxes can have more)
       this.rounds = opts.rounds || ITER;           // solver rounds per substep for one body on the room (boxes on boxes use more, up to ITER_PAIRS)
+      this.wakeV = opts.wakeV || WAKE_V;           // m/s, rad/s: a sleeping body near an awake one that moves faster than this wakes up (a jenga
+      this.wakeW = opts.wakeW || WAKE_W;           // tower wants it low: a block pulled out slowly must wake the blocks that rest on it)
       this.room = opts.room || null;
       this.floor = opts.floor !== false;           // the floor at z = 0 (always there unless a test turns it off)
       this.planes = opts.planes || [];             // more half-spaces { n, d }: n . x + d >= 0 is free space (for tests of slopes)
@@ -132,7 +149,7 @@
       if (!(dt > 0)) return;
       dt = Math.min(dt, MAX_DT);
       let fast = 0;
-      for (const b of this.bodies) if (!b.asleep) { this._clean(b); fast = Math.max(fast, Math.hypot(...b.v) + Math.hypot(...b.w) * Math.hypot(...b.size) / 2); }
+      for (const b of this.bodies) if (!b.asleep) { this._clean(b); fast = Math.max(fast, len(b.v) + len(b.w) * len(b.size) / 2); }
       const n = Math.min(MAX_SUB, Math.max(1, Math.ceil(dt / this.substep - 1e-9), Math.ceil((dt * fast) / this.maxMove - 1e-9))), h = dt / n;
       const t0 = this.budgetMs ? Date.now() : 0;
       this.lagged = false;
@@ -155,7 +172,18 @@
     // (a table's 4 cm edge can hit a face between the cube's corners).
     contacts(b) {
       const out = [], cs = corners(b), room = this.room;
-      const walls = room && M.room ? M.room.walls(room) : [], blocks = room && M.room ? M.room.blocks(room) : [];
+      // only the walls and blocks near enough for a corner to touch (a corner is at most half the diagonal from the middle, and one counts down
+      // to PEN_LIMIT behind a wall): the rest cannot give a contact, and a scanned room has many
+      const near = b.size[0] * b.size[0] + b.size[1] * b.size[1] + b.size[2] * b.size[2], R0 = Math.sqrt(near) / 2, Rw = R0 + PEN_LIMIT + MARGIN, Rk = R0 + MARGIN, px = b.p[0], py = b.p[1], pz = b.p[2];
+      const walls = [], blocks = [];
+      if (room && M.room) {
+        for (const w of M.room.walls(room)) {
+          if (pz < w.lo - Rk || pz > w.hi + Rk) continue;
+          const dx = w.x1 - w.x0, dy = w.y1 - w.y0, t = Math.max(0, Math.min(1, ((px - w.x0) * dx + (py - w.y0) * dy) / (dx * dx + dy * dy))), ex = px - w.x0 - dx * t, ey = py - w.y0 - dy * t;
+          if (ex * ex + ey * ey <= Rw * Rw) walls.push(w);
+        }
+        for (const k of M.room.blocks(room)) if (!(pz < k.lo - Rk - PEN_LIMIT || pz > k.hi + Rk + PEN_LIMIT || px < k.x0 - Rk || px > k.x1 + Rk || py < k.y0 - Rk || py > k.y1 + Rk)) blocks.push(k);
+      }
       for (const c of cs) {
         if (this.floor && c[2] < MARGIN) out.push({ r: c, n: [0, 0, 1], gap: c[2] });
         for (const pl of this.planes) { const gap = dot(pl.n, c) + pl.d; if (gap < MARGIN) out.push({ r: c, n: pl.n, gap }); }
@@ -285,26 +313,61 @@
       for (const v of poly) { const gap = dot(sub(v, fcR), nR); if (gap < MARGIN) out.push({ b: I, o: R, r: v, n: nR, gap }); }
       return out;
     }
-    // the speed of the point of a contact on its first body, relative to the other body (or to the surface it is on)
-    _rel(c) {
-      const b = c.b, o = c.o;
-      let v = add(b.v, cross(b.w, c.ra));
-      if (o && !o.asleep) v = sub(v, add(o.v, cross(o.w, c.rb)));
-      return c.vs ? sub(v, c.vs) : v;
+    // Which bodies are near which: a grid of cells as wide as the widest reach, so that a body only looks at the 27 cells around its own.
+    // -> this._nb[i]: the indices of the bodies that may be within reach of body i (ascending, without i). Every pair loop goes through it, in the
+    // same order as a loop over every pair would (the solver's result depends on the order).
+    _grid() {
+      const B = this.bodies, N = B.length, nb = this._nb = new Array(N);
+      let cell = 0;
+      for (let i = 0; i < N; i++) { const b = B[i], s = b.size; b._d = Math.sqrt(s[0] * s[0] + s[1] * s[1] + s[2] * s[2]); b._i = i; if (b._d > cell) cell = b._d; }
+      if (N < 12) { for (let i = 0; i < N; i++) { const l = []; for (let j = 0; j < N; j++) if (j !== i) l.push(j); nb[i] = l; } return; }      // (a few bodies: every one)
+      cell += MARGIN;
+      const map = new Map(), cx = new Float64Array(N * 3), seen = new Int32Array(N).fill(-1);
+      const key = (x, y, z) => (x * 4096 + y) * 4096 + z;                   // (two cells with one key only add candidates, which reach() then drops)
+      for (let i = 0; i < N; i++) {
+        const p = B[i].p, x = Math.floor(p[0] / cell), y = Math.floor(p[1] / cell), z = Math.floor(p[2] / cell), k = key(x, y, z);
+        cx[i * 3] = x; cx[i * 3 + 1] = y; cx[i * 3 + 2] = z;
+        const l = map.get(k); if (l) l.push(i); else map.set(k, [i]);
+      }
+      for (let i = 0; i < N; i++) {
+        const l = [], x = cx[i * 3], y = cx[i * 3 + 1], z = cx[i * 3 + 2];
+        for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) for (let dz = -1; dz <= 1; dz++) {
+          const c = map.get(key(x + dx, y + dy, z + dz));
+          if (c) for (const j of c) if (j !== i && seen[j] !== i) { seen[j] = i; l.push(j); }
+        }
+        nb[i] = l.sort((a, b) => a - b);
+      }
     }
-    _applyC(c, J) { this._apply(c.b, c.ra, J); if (c.o && !c.o.asleep) this._apply(c.o, c.rb, mulv(J, -1)); }
-    _eff(c, dir) {                                                    // 1 / (the mass the contact moves when pushed along dir)
-      let k = c.b.inv + dot(cross(invI(c.b, cross(c.ra, dir)), c.ra), dir);
-      if (c.o && !c.o.asleep) k += c.o.inv + dot(cross(invI(c.o, cross(c.rb, dir)), c.rb), dir);
-      return k;
+    // every pair of bodies within reach of each other, i < j, in index order -> fn(a, b)
+    _pairs(fn) {
+      const B = this.bodies, nb = this._nb;
+      for (let i = 0; i < B.length; i++) {
+        const a = B[i];
+        for (const j of nb[i]) {
+          if (j <= i) continue;
+          const b = B[j];
+          if ((a.asleep && b.asleep) || !reach(a, b)) continue;
+          fn(a, b);
+        }
+      }
+    }
+    // the contacts' numbers for this substep, in flat arrays (CS numbers a contact): grown, never shrunk
+    _room(nc, nb) {
+      if (!this._C || this._C.length < nc * CS) this._C = new Float64Array(Math.max(nc, 64) * 2 * CS);
+      if (!this._cb || this._cb.length < nc) { this._cb = new Int32Array(Math.max(nc, 64) * 2); this._co = new Int32Array(Math.max(nc, 64) * 2); }
+      if (!this._V || this._V.length < nb * 6) { this._V = new Float64Array(Math.max(nb, 16) * 2 * 6); this._IM = new Float64Array(Math.max(nb, 16) * 2 * 9); this._inv = new Float64Array(Math.max(nb, 16) * 2); }
     }
     _sub(h) {
       this._h = h;
-      const bodies = this.bodies, reach = (a, b) => Math.hypot(...sub(a.p, b.p)) < (Math.hypot(...a.size) + Math.hypot(...b.size)) / 2 + MARGIN;
+      const bodies = this.bodies, N = bodies.length;
+      this._grid();
       // what a moving body is about to hit wakes up
-      for (const s of bodies) if (s.asleep) for (const b of bodies) if (!b.asleep && (Math.hypot(...b.v) > WAKE_V || Math.hypot(...b.w) > WAKE_W) && reach(s, b)) { this.wake(s); break; }
+      for (let i = 0; i < N; i++) {
+        const s = bodies[i];
+        if (!s.asleep) continue;
+        for (const j of this._nb[i]) { const b = bodies[j]; if (!b.asleep && (len(b.v) > this.wakeV || len(b.w) > this.wakeW) && reach(s, b)) { this.wake(s); break; } }
+      }
       const live = bodies.filter((b) => !b.asleep), all = [];
-      for (const b of live) b.ax = [[1, 0, 0], [0, 1, 0], [0, 0, 1]].map((e) => quat.rotate(b.q, e));
       let pairs = false;                                                // (boxes on boxes need more rounds to share a load than one box on the room)
       for (const b of live) {
         b.v[2] -= this.gravity * h;
@@ -312,80 +375,141 @@
         b._touch = false;
         for (const c of this.contacts(b)) { c.b = b; c.o = null; all.push(c); }
       }
-      for (let i = 0; i < bodies.length; i++) for (let j = i + 1; j < bodies.length; j++) {
-        const a = bodies[i], b = bodies[j];
-        if ((a.asleep && b.asleep) || !reach(a, b)) continue;
-        for (const c of this._boxBox(a, b)) { all.push(c); pairs = true; }
-      }
+      this._pairs((a, b) => { for (const c of this._boxBox(a, b)) { all.push(awakeFirst(c)); pairs = true; } });
       for (const c of all) if (c.gap < 0.005) { c.b._touch = true; if (c.o) c.o._touch = true; }
       for (const b of live) {
         b.w = mulv(b.w, Math.exp(-b.angularDamping * h));              // (angularDamping: 1/s)
         if (b._touch) {                                                // rolling resistance: a steady slowing of the spin while it rests on something
-          const sp = Math.hypot(...b.w), dec = ((b.rollingResistance * this.gravity) / (Math.min(...b.size) / 2)) * h;
+          const sp = len(b.w), dec = ((b.rollingResistance * this.gravity) / (Math.min(...b.size) / 2)) * h;
           if (sp > 0) b.w = mulv(b.w, Math.max(0, sp - dec) / sp);
         }
       }
-      for (const c of all) {
-        const b = c.b;
-        c.ra = sub(c.r, b.p); if (c.o) c.rb = sub(c.r, c.o.p);
-        c.Kn = this._eff(c, c.n);
-        const vn = dot(this._rel(c), c.n);
-        c.target = c.gap > 0 ? -c.gap / h : 0;                                                  // (it may close the gap this step, no more)
-        if (vn < -REST_SPEED && -vn * h >= c.gap) c.target = Math.max(c.target, -(c.e !== undefined ? c.e : b.held ? 0 : b.restitution) * vn);
-        c.J = 0; c.Jt = [0, 0, 0];
+      // Every body's velocity and spin (V: 6 a body), 1/mass and world-frame inverse inertia (IM: 9 a body, symmetric) into flat arrays, and every
+      // contact's three directions (the normal and two along the surface) with what a push along each does to both bodies, worked out once here,
+      // so that a round below is a few products of numbers and makes no arrays. A body asleep is a wall to the bodies on it (o = -1) but, as the
+      // first body of a contact, takes its impulses (as it always has).
+      const NC = all.length;
+      this._room(NC, N);
+      const V = this._V, IM = this._IM, INV = this._inv, C = this._C, CB = this._cb, CO = this._co;
+      for (let i = 0; i < N; i++) {
+        const b = bodies[i], v = b.v, w = b.w, q = b.q, o = i * 6, m = i * 9;
+        V[o] = v[0]; V[o + 1] = v[1]; V[o + 2] = v[2]; V[o + 3] = w[0]; V[o + 4] = w[1]; V[o + 5] = w[2]; INV[i] = b.inv;
+        const x = q[0], y = q[1], z = q[2], ww = q[3];
+        // the body's axes in the world (the columns of its turn) and IM = sum over the axes of a a^T / I
+        const a0 = [1 - 2 * (y * y + z * z), 2 * (x * y + ww * z), 2 * (x * z - ww * y)], a1 = [2 * (x * y - ww * z), 1 - 2 * (x * x + z * z), 2 * (y * z + ww * x)], a2 = [2 * (x * z + ww * y), 2 * (y * z - ww * x), 1 - 2 * (x * x + y * y)];
+        const i0 = 1 / b.inertia[0], i1 = 1 / b.inertia[1], i2 = 1 / b.inertia[2];
+        for (let r = 0; r < 3; r++) for (let c = 0; c < 3; c++) IM[m + r * 3 + c] = a0[r] * a0[c] * i0 + a1[r] * a1[c] * i1 + a2[r] * a2[c] * i2;
+      }
+      for (let k = 0; k < NC; k++) {
+        const c = all[k], b = c.b, bi = b._i, ob = c.o && !c.o.asleep ? c.o : null, o = ob ? ob._i : -1, K = k * CS, n = c.n, r = c.r, vs = c.vs;
+        CB[k] = bi; CO[k] = o;
+        const nx = n[0], ny = n[1], nz = n[2], rax = r[0] - b.p[0], ray = r[1] - b.p[1], raz = r[2] - b.p[2];
+        const rbx = ob ? r[0] - ob.p[0] : 0, rby = ob ? r[1] - ob.p[1] : 0, rbz = ob ? r[2] - ob.p[2] : 0;
+        this._row(K, nx, ny, nz, bi, o, rax, ray, raz, rbx, rby, rbz, vs);
+        relVel(V, bi, o, rax, ray, raz, rbx, rby, rbz, vs);
+        const vn = RV[0] * nx + RV[1] * ny + RV[2] * nz;
+        // along the surface: the first direction the way it slips now (friction then mostly works along one), else any two across n
+        let ux = RV[0] - nx * vn, uy = RV[1] - ny * vn, uz = RV[2] - nz * vn, ul = Math.sqrt(ux * ux + uy * uy + uz * uz);
+        if (ul < 1e-6) { if (Math.abs(nx) > 0.57) { ux = ny; uy = -nx; uz = 0; } else { ux = 0; uy = nz; uz = -ny; } ul = Math.sqrt(ux * ux + uy * uy + uz * uz); }
+        ux /= ul; uy /= ul; uz /= ul;
+        this._row(K + ROW, ux, uy, uz, bi, o, rax, ray, raz, rbx, rby, rbz, vs);
+        this._row(K + 2 * ROW, ny * uz - nz * uy, nz * ux - nx * uz, nx * uy - ny * ux, bi, o, rax, ray, raz, rbx, rby, rbz, vs);
+        let target = c.gap > 0 ? -c.gap / h : 0;                                                     // (it may close the gap this step, no more)
+        if (vn < -REST_SPEED && -vn * h >= c.gap) target = Math.max(target, -(c.e !== undefined ? c.e : b.held ? 0 : b.restitution) * vn);
+        C[K + 3 * ROW] = target; C[K + 3 * ROW + 1] = b.friction.s; C[K + 3 * ROW + 2] = b.friction.k;
       }
       // warm start: a contact that was there a moment ago (the same two bodies, the same place and normal) begins with the force it had, so that the
       // rounds below only have to correct it (a stack of five cubes does not settle in 12 rounds from nothing)
       const prev = this._warm || new Map(), next = new Map();
-      for (const c of all) {
-        const key = c.b.id + ':' + (c.o ? c.o.id : 'e');
-        if (!next.has(key)) next.set(key, []);
-        next.get(key).push(c);
+      for (let k = 0; k < NC; k++) {
+        const c = all[k], key = c.b.id + ':' + (c.o ? c.o.id : 'e');
+        let l = next.get(key); if (!l) next.set(key, l = []);
+        l.push(c);
         const list = prev.get(key);
         if (!list) continue;
         let best = null, bd = WARM_NEAR;
-        for (const q of list) if (!q.used && dot(q.n, c.n) > 0.9) { const d = Math.hypot(...sub(q.r, c.r)); if (d < bd) { bd = d; best = q; } }
+        for (const q of list) if (!q.used && q.n[0] * c.n[0] + q.n[1] * c.n[1] + q.n[2] * c.n[2] > 0.9) { const d = dist(q.r, c.r); if (d < bd) { bd = d; best = q; } }
         if (!best) continue;
-        best.used = true; c.J = best.J * (h / best.h); c.Jt = mulv(best.Jt, h / best.h);
-        this._applyC(c, add(mulv(c.n, c.J), c.Jt));
+        best.used = true;
+        const f = h / best.h, K = k * CS, T1 = K + ROW, T2 = K + 2 * ROW, jt = best.Jt;
+        const J = best.J * f, j1 = (jt[0] * C[T1] + jt[1] * C[T1 + 1] + jt[2] * C[T1 + 2]) * f, j2 = (jt[0] * C[T2] + jt[1] * C[T2 + 1] + jt[2] * C[T2 + 2]) * f;
+        C[K + 16] = J; C[T1 + 16] = j1; C[T2 + 16] = j2;
+        this._rowPush(K, J); this._rowPush(T1, j1); this._rowPush(T2, j2);
       }
-      const rounds = pairs ? Math.max(this.rounds, Math.min(ITER_PAIRS, Math.round(ROUND_BUDGET / all.length))) : this.rounds;          // (a big heap gets fewer rounds each: its cost grows with both)
+      const rounds = pairs ? Math.max(this.rounds, Math.min(ITER_PAIRS, Math.round(ROUND_BUDGET / NC))) : this.rounds;          // (a big heap gets fewer rounds each: its cost grows with both)
       for (let it = 0; it < rounds; it++) {
-        for (let ci = 0; ci < all.length; ci++) {
-          const c = all[it % 2 ? all.length - 1 - ci : ci], b = c.b;
-          let vc = this._rel(c);
-          const lam = (c.target - dot(vc, c.n)) / c.Kn, J = Math.max(0, c.J + lam), d = J - c.J;
-          c.J = J; this._applyC(c, mulv(c.n, d));
-          vc = this._rel(c);
-          const vt = sub(vc, mulv(c.n, dot(vc, c.n))), sp = Math.hypot(...vt);
-          if (sp < 1e-9) continue;
-          const t = mulv(vt, 1 / sp), Kt = this._eff(c, t);
-          const cand = add(c.Jt, t, -sp / Kt), mu = sp < STATIC_SLIP ? b.friction.s : b.friction.k, lim = mu * c.J, len = Math.hypot(...cand);
-          const next = len > lim ? mulv(cand, lim / len) : cand;
-          this._applyC(c, sub(next, c.Jt)); c.Jt = next;
+        for (let ci = 0; ci < NC; ci++) {
+          const k = it % 2 ? NC - 1 - ci : ci, K = k * CS, bi = CB[k], o = CO[k], T1 = K + ROW, T2 = K + 2 * ROW, X = K + 3 * ROW;
+          // the normal: an impulse J >= 0 that brings the speed along n to the target
+          const J0 = C[K + 16], J = Math.max(0, J0 + (C[X] - this._rowVel(K, bi, o)) / C[K + 15]);
+          C[K + 16] = J;
+          if (J !== J0) this._rowPush(K, J - J0);
+          // friction: against the slip, at most mu J (static below STATIC_SLIP, kinetic above)
+          const v1 = this._rowVel(T1, bi, o), v2 = this._rowVel(T2, bi, o), o1 = C[T1 + 16], o2 = C[T2 + 16];
+          let j1 = o1 - v1 / C[T1 + 15], j2 = o2 - v2 / C[T2 + 15];
+          const lim = (v1 * v1 + v2 * v2 < STATIC_SLIP * STATIC_SLIP ? C[X + 1] : C[X + 2]) * J, l = Math.sqrt(j1 * j1 + j2 * j2);
+          if (l > lim) { const f = l > 0 ? lim / l : 0; j1 *= f; j2 *= f; }
+          C[T1 + 16] = j1; C[T2 + 16] = j2;
+          if (j1 !== o1) this._rowPush(T1, j1 - o1);
+          if (j2 !== o2) this._rowPush(T2, j2 - o2);
         }
       }
-      for (const list of next.values()) for (const c of list) c.h = h;
+      for (let k = 0; k < NC; k++) {
+        const c = all[k], K = k * CS, T1 = K + ROW, T2 = K + 2 * ROW, j1 = C[T1 + 16], j2 = C[T2 + 16];
+        c.J = C[K + 16]; c.Jt = [C[T1] * j1 + C[T2] * j2, C[T1 + 1] * j1 + C[T2 + 1] * j2, C[T1 + 2] * j1 + C[T2 + 2] * j2]; c.h = h;
+      }
       this._warm = next;
+      for (let i = 0; i < N; i++) {                                     // (back into the bodies, in place)
+        const b = bodies[i], o = i * 6;
+        if (b.asleep && V[o] === b.v[0] && V[o + 1] === b.v[1] && V[o + 2] === b.v[2] && V[o + 3] === b.w[0] && V[o + 4] === b.w[1] && V[o + 5] === b.w[2]) continue;
+        b.v[0] = V[o]; b.v[1] = V[o + 1]; b.v[2] = V[o + 2]; b.w[0] = V[o + 3]; b.w[1] = V[o + 4]; b.w[2] = V[o + 5];
+      }
       for (const b of live) {
         for (let i = 0; i < 3; i++) b.p[i] += b.v[i] * h;
-        const sp = Math.hypot(...b.w);
+        const sp = len(b.w);
         if (sp > EPS) b.q = quat.normalize(quat.mul(quat.fromAxisAngle(b.w, sp * h), b.q));
       }
       // out of what they are in: along each axis the deepest push, for each body (a pair shares the push)
       const fix = new Map(live.map((b) => [b, [0, 0, 0]])), push = (b, n, d) => { const f = fix.get(b); if (!f) return; for (let i = 0; i < 3; i++) { const v = n[i] * d; if (Math.abs(v) > Math.abs(f[i])) f[i] = v; } };
       if (all.some((c) => c.gap < 0.002)) {
         for (const b of live) for (const c of this.contacts(b)) if (c.gap < -SLOP) push(b, c.n, 0.5 * Math.min(PEN_LIMIT, -c.gap - SLOP));
-        for (let i = 0; i < bodies.length; i++) for (let j = i + 1; j < bodies.length; j++) {
-          const a = bodies[i], b = bodies[j];
-          if ((a.asleep && b.asleep) || !reach(a, b)) continue;
-          for (const c of this._boxBox(a, b)) if (c.gap < -SLOP) { const d = Math.min(PEN_LIMIT, -c.gap - SLOP); push(c.b, c.n, c.o.asleep ? 0.5 * d : 0.25 * d); push(c.o, c.n, -0.25 * d); }
-        }
+        this._grid();
+        this._pairs((a, b) => { for (const c of this._boxBox(a, b).map(awakeFirst)) if (c.gap < -SLOP) { const d = Math.min(PEN_LIMIT, -c.gap - SLOP); push(c.b, c.n, c.o.asleep ? 0.5 * d : 0.25 * d); push(c.o, c.n, -0.25 * d); } });
       }
       for (const b of live) {
-        b.p = add(b.p, fix.get(b));
-        if (!b.held && b._touch && Math.hypot(...b.v) < b.sleep.v && Math.hypot(...b.w) < b.sleep.w) { b.calm += h; if (b.calm >= b.sleep.after) { b.asleep = true; b.v = [0, 0, 0]; b.w = [0, 0, 0]; } } else b.calm = 0;
+        const f = fix.get(b); b.p[0] += f[0]; b.p[1] += f[1]; b.p[2] += f[2];
+        if (!b.held && b._touch && len(b.v) < b.sleep.v && len(b.w) < b.sleep.w) { b.calm += h; if (b.calm >= b.sleep.after) { b.asleep = true; b.v = [0, 0, 0]; b.w = [0, 0, 0]; } } else b.calm = 0;
       }
+    }
+    // One direction u of a contact (ROW numbers from R): u; A = ra x u and IM_b A (what a push along u does to b's spin); B = rb x u and IM_o B
+    // (the same for the other body); K = 1 / (the mass the contact moves along u); the impulse along u so far; the surface's own speed along u.
+    _row(R, ux, uy, uz, b, o, rax, ray, raz, rbx, rby, rbz, vs) {
+      const C = this._C, IM = this._IM;
+      C[R] = ux; C[R + 1] = uy; C[R + 2] = uz;
+      let ax = ray * uz - raz * uy, ay = raz * ux - rax * uz, az = rax * uy - ray * ux, m = b * 9;
+      let ix = IM[m] * ax + IM[m + 1] * ay + IM[m + 2] * az, iy = IM[m + 3] * ax + IM[m + 4] * ay + IM[m + 5] * az, iz = IM[m + 6] * ax + IM[m + 7] * ay + IM[m + 8] * az;
+      C[R + 3] = ax; C[R + 4] = ay; C[R + 5] = az; C[R + 6] = ix; C[R + 7] = iy; C[R + 8] = iz;
+      let k = this._inv[b] + ix * ax + iy * ay + iz * az;
+      if (o >= 0) {
+        ax = rby * uz - rbz * uy; ay = rbz * ux - rbx * uz; az = rbx * uy - rby * ux; m = o * 9;
+        ix = IM[m] * ax + IM[m + 1] * ay + IM[m + 2] * az; iy = IM[m + 3] * ax + IM[m + 4] * ay + IM[m + 5] * az; iz = IM[m + 6] * ax + IM[m + 7] * ay + IM[m + 8] * az;
+        C[R + 9] = ax; C[R + 10] = ay; C[R + 11] = az; C[R + 12] = ix; C[R + 13] = iy; C[R + 14] = iz;
+        k += this._inv[o] + ix * ax + iy * ay + iz * az;
+      }
+      C[R + 15] = k; C[R + 16] = 0; C[R + 17] = vs ? vs[0] * ux + vs[1] * uy + vs[2] * uz : 0;
+    }
+    // the speed of the contact's point on its first body relative to the other (or to the surface), along row R's direction
+    _rowVel(R, b, o) {
+      const C = this._C, V = this._V, B = b * 6;
+      let v = V[B] * C[R] + V[B + 1] * C[R + 1] + V[B + 2] * C[R + 2] + V[B + 3] * C[R + 3] + V[B + 4] * C[R + 4] + V[B + 5] * C[R + 5] - C[R + 17];
+      if (o >= 0) { const O = o * 6; v -= V[O] * C[R] + V[O + 1] * C[R + 1] + V[O + 2] * C[R + 2] + V[O + 3] * C[R + 9] + V[O + 4] * C[R + 10] + V[O + 5] * C[R + 11]; }
+      return v;
+    }
+    // an impulse d along row R: + on the first body, - on the other
+    _rowPush(R, d) {
+      const C = this._C, V = this._V, k = (R / CS) | 0, b = this._cb[k], o = this._co[k], B = b * 6, ib = this._inv[b] * d;
+      V[B] += C[R] * ib; V[B + 1] += C[R + 1] * ib; V[B + 2] += C[R + 2] * ib; V[B + 3] += C[R + 6] * d; V[B + 4] += C[R + 7] * d; V[B + 5] += C[R + 8] * d;
+      if (o >= 0) { const O = o * 6, io = this._inv[o] * d; V[O] -= C[R] * io; V[O + 1] -= C[R + 1] * io; V[O + 2] -= C[R + 2] * io; V[O + 3] -= C[R + 12] * d; V[O + 4] -= C[R + 13] * d; V[O + 5] -= C[R + 14] * d; }
     }
     _motor(b) {
       const H = b.held, e = sub(add(H.p, H.v, H.age), b.p), cap = H.speed + Math.hypot(...H.v);
@@ -394,7 +518,6 @@
       let w = add(H.w, [qe[0], qe[1], qe[2]], 2 * H.spring); const ws = Math.hypot(...w); if (ws > HOLD_W) w = mulv(w, HOLD_W / ws);
       b.v = v; b.w = w; H.age += this._h;                                   // (the target moves on at its own speed while the frame goes on)
     }
-    _apply(b, ra, J) { b.v = add(b.v, J, b.inv); b.w = add(b.w, invI(b, cross(ra, J))); }
   }
 
   // spheres for a hand source of the engine ({ points: [{ x, y, z }], joints: [[x, y, z]] }, floor plan)
