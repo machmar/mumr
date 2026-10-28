@@ -17,6 +17,10 @@ renderer.setPixelRatio(Math.min(2, devicePixelRatio));
 const BG = 0x0f0c0a, scene = new THREE.Scene(); scene.background = new THREE.Color(BG); scene.fog = new THREE.Fog(BG, 3.5, 11);
 const camera = new THREE.PerspectiveCamera(45, 1, 0.02, 80);
 const controls = new OrbitControls(camera, canvas); controls.enableDamping = true; controls.maxPolarAngle = Math.PI * 0.49;
+// left alone for a while, the view drifts slowly round the game (this view's own camera: nothing in the world moves); any key or touch stops it
+let touchedAt = performance.now();
+for (const ev of ['pointerdown', 'wheel', 'keydown']) addEventListener(ev, () => { touchedAt = performance.now(); controls.autoRotate = false; }, { passive: true });
+controls.autoRotateSpeed = 0.35;
 const world = new THREE.Group(); scene.add(world);
 const floor = new THREE.Mesh(new THREE.CircleGeometry(14, 64), new THREE.MeshStandardMaterial({ color: 0x241c17, roughness: 0.85 })); floor.rotation.x = -Math.PI / 2; floor.receiveShadow = true; world.add(floor);
 const room3d = createRoom3d({ THREE, parent: world });
@@ -104,6 +108,7 @@ function frame() {
   for (const [slot, o] of [...drawn]) if (!here.has(slot)) { world.remove(o.head, o.dots); drawn.delete(slot); }
   // the soundtrack follows the same shared state
   if (sound.music.ctx) { const fw = new THREE.Vector3(); camera.getWorldDirection(fw); sound.update(S.doc.jenga || null, snap ? snap.items : null, dt, S.game('music'), { x: camera.position.x, y: -camera.position.z, yaw: Math.atan2(-fw.z, fw.x) }); }
+  if (!controls.autoRotate && now - touchedAt > 30000) controls.autoRotate = true;
   controls.update();
   renderer.render(scene, camera);
   if (now - hudAt < 5) hud.textContent = [state.phase.replace('_', ' '), `round ${state.round} of ${state.rounds}`, S.hostHere ? null : 'NO HOST', `${S.others} ${S.others === 1 ? 'player' : 'players'}`, smp ? null : 'waiting for bodies', sound.music.ctx ? `music: ${sound.scene || ''}` : 'M for the music'].filter(Boolean).join('   ·   ');

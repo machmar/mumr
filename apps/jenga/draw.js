@@ -276,7 +276,7 @@ export function createScene({ THREE, parent, renderer, playerColours = [0xf2c14e
   const fx = createFx({ THREE, overlay, own, mats });
 
   // ---- every frame. t: the server's clock in ms (the same on every page), now: this page's
-  let last = null, prevState = null;
+  let last = null, prevState = null, placeKey = null, arrivedAt = -1e9;
   // heads: where the players are, [{ slot, x, y }] in the common frame (from everybody's presence: whose turn it is is lit at their feet)
   function update({ state, snap, now = performance.now(), t, lay, touches = [], heads = [] }) {
     if (!state) return;
@@ -296,12 +296,19 @@ export function createScene({ THREE, parent, renderer, playerColours = [0xf2c14e
       }
     } else { for (const m of blocks) m.visible = false; if (dieMesh) dieMesh.visible = false; }
     // the light
-    const flick = rig.update(ts, rig.lampAt);
+    // the game put down somewhere new: the lantern swells a little as it arrives (fx.js: rings of light on the floor and the sand)
+    const pk = `${pl.x}|${pl.y}|${pl.yaw}|${state.size}`, arrived = placeKey !== null && pk !== placeKey;
+    if (arrived) arrivedAt = ts;
+    placeKey = pk;
+    const swell = 1 + 0.45 * Math.max(0, 1 - (ts - arrivedAt) / 1.8) * Math.min(1, (ts - arrivedAt) / 0.25);
+    const flick = rig.update(ts, rig.lampAt) * swell;
+    rig.lamp.intensity *= swell;
     if (lanternMat) lanternMat.emissiveIntensity = 0.78 * flick;
     if (lanternGlow) lanternGlow.material.opacity = 0.42 * flick;
     // the board, the moments
     stand.update({ state, lay: lay || S.board(state, {}), touches, t: ts, dt, colours: playerColours, fonts: fontsVer });
     const moments = prevState && prevState.rev !== state.rev && S.momentsBetween ? S.momentsBetween(prevState, state) : [];
+    if (arrived) moments.push('arrived');
     prevState = state;
     fx.update({ state, snap, t: ts, dt, blocks, dieMesh, L, place: pl, moments, fonts: fontsVer, lampAt: rig.lampAt, heads, colours: playerColours });
   }

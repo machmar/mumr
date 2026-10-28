@@ -9,6 +9,7 @@
 //                            as a ribbon of light, and words of light circling above the tower (TIMBER, REWIND, REPLAY), with a ring that
 //                            fills as the replay goes on
 //   whose turn               a ring of light in the player's colour on the floor where that player stands (from everybody's presence)
+//   arriving                 the game put down somewhere new: light spreads from the plinth across the floor and over the sand
 //   the air                  motes of dust drifting in the lantern's light. They live on the WORLD's clock: it stops when the tower falls
 //                            and everything freezes, runs back with the rewind and slowly with the replay, so the dust does what the blocks do
 import { glow, softRing, rand } from './textures.js';
@@ -51,7 +52,7 @@ export function createFx({ THREE, overlay, own }) {
   const trayGlow = add(new THREE.Mesh(own(new THREE.PlaneGeometry(1, 1)), basic({ map: tGlow, color: 0xffb35c, opacity: 0 }))); trayGlow.rotation.x = -Math.PI / 2;
   const rings = [];                                       // { mesh, start, dur, from, to, opacity, clockOf: 'real' | 'world' }
   const ringPool = Array.from({ length: 6 }, () => { const m = add(new THREE.Mesh(own(new THREE.PlaneGeometry(1, 1)), basic({ map: tRing, opacity: 0 }))); m.rotation.x = -Math.PI / 2; m.visible = false; return m; });
-  function ring(o) { const m = ringPool.find((q) => !q.visible) || ringPool[0]; m.visible = true; m.material.color.set(o.colour); m.position.set(...at(o.p[0], o.p[1], o.p[2])); rings.push(Object.assign({ mesh: m }, o)); }
+  function ring(o) { const m = ringPool.find((q) => !rings.some((r) => r.mesh === q)) || ringPool[0]; m.visible = true; m.material.color.set(o.colour); m.position.set(...at(o.p[0], o.p[1], o.p[2])); rings.push(Object.assign({ mesh: m }, o)); }
   // ---- sparks (a good move) and sawdust (the fall)
   const sparkMat = own(new THREE.SpriteMaterial({ map: tGlow, color: 0xffd27a, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true }));
   const sparks = Array.from({ length: 16 }, () => { const s = add(new THREE.Sprite(sparkMat.clone())); own(s.material); s.visible = false; return s; });
@@ -167,6 +168,10 @@ export function createFx({ THREE, overlay, own }) {
         if (good) { sparkAt = t; sparkFrom = topY; sparkSeed = state.rev; }
       }
       if (m === 'start') ring({ p: [0, 0, T + 0.001], colour: 0xffd08a, start: t, dur: 2.6, from: d.L * 0.4, to: L.plinth.half * 2.4, opacity: 0.7 });
+      if (m === 'arrived') {                              // (the game put down somewhere new: light spreads from it across the floor, and over the sand)
+        ring({ p: [0, 0, 0.004], colour: 0xffcf8a, start: t, dur: 2.2, from: L.plinth.half * 0.8, to: L.plinth.half * 3 + 1.4, opacity: 0.55 });
+        ring({ p: [0, 0, T + 0.001], colour: 0xffd08a, start: t + 0.15, dur: 2.0, from: d.L * 0.4, to: L.plinth.half * 2.4, opacity: 0.6 });
+      }
     }
     // the fall: a ripple across the floor and the sawdust, on the world's clock (they stop with it, run back and come again in the replay)
     if (ph === 'fall' && lastFallRev !== state.rev && culprit && T0 !== null && dustAt === null) {
@@ -178,7 +183,7 @@ export function createFx({ THREE, overlay, own }) {
     if (!['fall', 'replay', 'aftermath'].includes(ph)) dustAt = null;
     for (let i = rings.length - 1; i >= 0; i--) {
       const r = rings[i], u = ((r.world ? wc : t) - r.start) / r.dur;
-      if (u > 1 || (!r.world && u < 0) || (r.world && dustAt === null && ph !== 'fall' && ph !== 'replay' && u > 1)) { r.mesh.visible = false; rings.splice(i, 1); continue; }
+      if (u > 1) { r.mesh.visible = false; rings.splice(i, 1); continue; }           // (before its start it waits, unseen: a ring to come, or the world's clock run back)
       const e = 1 - Math.pow(1 - Math.max(0, u), 3);
       r.mesh.visible = u >= 0; r.mesh.scale.setScalar(r.from + (r.to - r.from) * e); r.mesh.material.opacity = r.opacity * Math.pow(1 - Math.max(0, u), 1.6);
     }
