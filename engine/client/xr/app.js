@@ -42,10 +42,17 @@
 //                                                        layout worked out from shared data; press: what a button does on the page whose
 //                                                        player pressed it (it asks the shared world: body.ask, session.emit ...). The press
 //                                                        and the fingertip's depth are seen on every page like a menu's.
+//                                                        panel: false: the engine does not draw it (the app draws the board its own way:
+//                                                        app.boardTouches(id) is this frame's fingertips at its buttons, [{ button, top,
+//                                                        push, held }] as menus.shape gives them); pressing and the touches seen by
+//                                                        everybody are the same. The layout may be any { w, h, title, buttons: [{ id, x, y,
+//                                                        w, h, off }] } (menus.hit): the buttons where the app draws them
 //     anchorKey, name })                                 (optional) where the anchor is kept; who this page is in the log
 //   app: { THREE, scene, world, camera, S, space, presence, menus, lineup, sys, room, grips, handMask, feet, life, say, head(), xr(), bodies,
 //          ownerText(slot), gestures (this frame: everybody's hands' grab.js states), everyone (this frame: everybody's hand sources),
-//          dim({ dark, mute, over, fade }) (the room darkened and greyed for everybody, headsets and webcams: dim.js), dimLevel() }
+//          dim({ dark, mute, over, fade }) (the room darkened and greyed for everybody, headsets and webcams: dim.js), dimLevel(),
+//          boardTouches(id) (a board's fingertips this frame), lights: { hemi, sun } (the scene's two lights: an app with a lighting of its own
+//          hides them: visible = false) }
 //   (app.room.local(): the room in this page's floor plan, for the app's physics: room.js support / pushOut)
 // The page may have the elements #view (canvas), #enter, #xrNote, #say, #status (the cube's page does: its own look); without #view,
 // createApp makes the standard ones.
@@ -94,7 +101,7 @@ export async function createApp(o) {
   camera.position.set(0.2, 1.7, 2.2);
   const controls = new OrbitControls(camera, canvas);
   controls.target.set(0.5, 0.4, 0); controls.mouseButtons = { LEFT: null, MIDDLE: THREE.MOUSE.DOLLY, RIGHT: THREE.MOUSE.ROTATE }; controls.update();
-  scene.add(new THREE.HemisphereLight(0xffffff, 0x445566, 1.6));
+  const hemi = new THREE.HemisphereLight(0xffffff, 0x445566, 1.6); scene.add(hemi);
   const sun = new THREE.DirectionalLight(0xffffff, 1.4); sun.position.set(1, 3, 2); scene.add(sun);
   const world = new THREE.Group(); scene.add(world);
   const grid = new THREE.GridHelper(6, 30, 0x55607a, 0x353b4a); world.add(grid);
@@ -164,7 +171,8 @@ export async function createApp(o) {
   const clicks = new M.clicks.Clicks();
   const pinch = new M.hands.Pinch(), poke = new M.menus.Poke(), follower = new M.follow.Follower(), grips = new M.grab.Grips();
   const HAS_MENU = o.menu !== false;
-  const boards = (o.boards || []).map((d) => ({ d, id: d.id, key: `board:${d.id}`, w: d.w || 0.6, lay: null, layAt: -1e9, pose: null }));
+  const boards = (o.boards || []).map((d) => ({ d, id: d.id, key: `board:${d.id}`, w: d.w || 0.6, lay: null, layAt: -1e9, pose: null, own: d.panel === false }));
+  let boardTouching = new Map();                                                   // (this frame's fingertips at the boards: app.boardTouches)
   const wins = (o.windows || []).map((d, i) => ({ d, id: d.id, w: d.w || 0.5, h: 0.3, f: new M.follow.Follower({ dist: d.dist || 0.8, bearing: d.bearing === undefined ? 0.5 : d.bearing }),
     panel: null, lay: null, layAt: -1e9, redraw: false, pinch: new Map(), drag: null, order: i }));
   const isHost = (slot) => { const p = S.peers.get(slot); return slot === HOST || !!(p && p.host); };
@@ -286,7 +294,8 @@ export async function createApp(o) {
   }
   const app = { THREE, scene, world, camera, renderer, S, space, presence, menus, lineup, sys, room, grips, handMask, feet: FEET, life, say, bodies, ownerText,
     head: () => head, xr: () => xr, gestures: [], everyone: [],
-    dim: (want) => S.dim(want), dimLevel: () => M.dim.level(S.doc.dim, S.serverNow()) };
+    dim: (want) => S.dim(want), dimLevel: () => M.dim.level(S.doc.dim, S.serverNow()),
+    boardTouches: (id) => boardTouching.get(`board:${id}`) || [], lights: { hemi, sun } };
   // the hands on the hand wall: everybody's, with their gestures (this page's first, then the others by slot)
   const hex = (c) => `#${(c >>> 0).toString(16).padStart(6, '0')}`;
   function wallHands() {
@@ -532,7 +541,7 @@ export async function createApp(o) {
       if (!cp) continue;
       if (!b.lay || now - b.layAt > 100) { b.lay = b.d.lay(app, now); b.layAt = now; }
       const lp = space.ok ? space.poseFromCommon({ x: cp.x, y: cp.y, yaw: cp.yaw || 0, h: cp.h }) : { x: cp.x, y: cp.y, yaw: cp.yaw || 0, h: cp.h };
-      list.push({ key: b.key, owner: b.key, id: b.id, pose: { x: lp.x, y: lp.y, h: lp.h + space.floorY, yaw: lp.yaw, pitch: cp.pitch || 0 }, w: b.w, lay: b.lay });
+      list.push({ key: b.key, owner: b.key, id: b.id, pose: { x: lp.x, y: lp.y, h: lp.h + space.floorY, yaw: lp.yaw, pitch: cp.pitch || 0 }, w: b.w, lay: b.lay, own: b.own });
       want.add(b.key);
     }
     for (const q of menus.others(now)) for (const p of q.panels) {
@@ -569,6 +578,7 @@ export async function createApp(o) {
     }
     for (const id of remoteHeld) if (!heldNow.has(id)) { const [, key, b] = id.split('|'); click('release', key, b); }
     remoteHeld = heldNow;
+    boardTouching = touching;
     const cp = Math.cos(hd[4] || 0);
     clicks.listen(camPos, [cp * Math.cos(hd[2]), Math.sin(hd[4] || 0), -cp * Math.sin(hd[2])], [0, 1, 0]);
     // the handle under our menu: a pinch that starts at it carries the menu; where it is let go is where it stays
@@ -595,6 +605,12 @@ export async function createApp(o) {
       let q = panelsAll.get(pn.key);
       if (!q) { q = { panel: new Panel(pn.w, pn.lay, { handle: pn.key === 'own:main' }) }; panelsAll.set(pn.key, q); scene.add(q.panel.mesh); }
       q.panel.setWidth(pn.w);
+      if (pn.own) {                                     // (a board the app draws: the panel is only its plane, for a click on the desktop)
+        q.panel.body.visible = false; Object.assign(q, { owner: pn.owner, id: pn.id, lay: pn.lay, pose: pn.pose });
+        if (q.panel.lay !== pn.lay) q.panel.setLayout(pn.lay);
+        q.panel.pose(pn.pose);
+        continue;
+      }
       if (pn.key === 'own:main') q.panel.handleLook(handle);
       Object.assign(q, { owner: pn.owner, id: pn.id, lay: pn.lay, pose: pn.pose });
       q.panel.pose(pn.pose);
