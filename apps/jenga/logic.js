@@ -18,7 +18,7 @@
     if (id === 'garden') return Object.assign({}, st, { garden: ((st.garden === undefined ? 2 : st.garden) + 2) % 3 });       // (full, sparse, none, full ...)
     return null;
   }
-  // the one event: the whole game state, kept by the server under one key (a newcomer has it at once)
+  // the events, each kept by the server under one key (a newcomer has it at once): the whole game state first
   const KINDS = { jstate: {
     keep: () => ({ key: 'jenga:state' }),
     apply(sess, e) { if (e.s && typeof e.s === 'object' && Array.isArray(e.s.players) && typeof e.s.phase === 'string') { sess.doc.jenga = e.s; sess.notify('jenga', e.s); } },
@@ -32,6 +32,11 @@
   jmark: {
     keep: () => ({ key: 'jenga:mark' }),
     apply(sess, e) { if (e.slot === null || Number.isInteger(e.slot)) { sess.doc.jmark = { slot: e.slot }; sess.notify('jmark', sess.doc.jmark); } },
+  },
+  // the music the host's director chose (music.js Director: { n, scene, track, pos, at, fade }, `at` on the server's clock; every page plays it at the same place)
+  jmusic: {
+    keep: () => ({ key: 'jenga:music' }),
+    apply(sess, e) { const m = e.m; if (m && typeof m === 'object' && typeof m.scene === 'string' && Number.isFinite(m.n) && Number.isFinite(m.at) && Number.isFinite(m.pos)) { sess.doc.jmusic = m; sess.notify('jmusic', m); } },
   } };
 
   const colourLabel = (c) => (c === null || c === undefined ? '?' : S.COLOURS[c].label);

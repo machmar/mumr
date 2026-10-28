@@ -9,7 +9,7 @@ import { markCursor } from './shades.js';
 
 const J = window.JENGA, R = window.MUMR.room;
 const stream = new J.Stream(60);
-const sound = new J.Soundtrack({ base: 'music/' });
+const sound = new J.Soundtrack({ base: 'music/', now: () => (app ? app.S.serverNow() : Date.now()) });
 let scene3d = null, common = null, app = null, lastDraw = performance.now(), noHostAt = null, lastClear = -1e9;
 const state = () => (app && app.S.doc.jenga) || J.waiting();
 const hostHere = () => !!app && (app.S.hostHere || app.S.isHost);
@@ -82,8 +82,8 @@ app = await createApp({
     scene3d.update({ state: state(), snap, now, t: a.S.serverNow(), lay: J.board(state(), info()), touches: a.boardTouches('main'), heads: heads(a, now), deco: a.S.doc.jdeco || null, garden: a.S.game('garden'),
       shades: { lights, cursor: marking(a, now, lights), dark: a.dimLevel().dark } });
     a.relight(scene3d.relights());                       // (the lantern lights the real room: the dim lifts round it, the walls warm)
-    // the soundtrack follows the shared state and the bodies (every headset hears the same scene: it is worked out from the same data)
-    if (sound.music.ctx) { const h = a.head(), sp = a.space, c = sp.ok ? sp.toCommon([h[0], h[1]]) : [h[0], h[1]]; sound.update(app.S.doc.jenga || null, snap ? snap.items : null, Math.min(0.1, (now - lastDraw) / 1000), app.S.game('music'), { x: c[0], y: c[1], yaw: sp.ok ? sp.yawToCommon(h[2]) : h[2] }); }
+    // the soundtrack plays the host's record (every headset the same track at the same place) and follows the shared state and the bodies
+    if (sound.music.ctx) { const h = a.head(), sp = a.space, c = sp.ok ? sp.toCommon([h[0], h[1]]) : [h[0], h[1]]; sound.update(app.S.doc.jenga || null, snap ? snap.items : null, Math.min(0.1, (now - lastDraw) / 1000), app.S.game('music'), { x: c[0], y: c[1], yaw: sp.ok ? sp.yawToCommon(h[2]) : h[2] }, app.S.doc.jmusic || null); }
     lastDraw = now;
     // the room's dim is the host's (focus.js) and the server keeps it: a host that goes away in the middle of a fall must not leave everybody in a dark room, so
     // any page that has had no host for a few seconds lets it go (every page does: the same ask, the same look)

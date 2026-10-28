@@ -1,5 +1,6 @@
 {
   "crossfade": 30,
+  "rise": 9,
   "fades": {
     "finale": 6,
     "win": 12
@@ -33,5 +34,23 @@
       "win/AshTreJinkins - THE DOOR - 01 COLD, LOST PLANET.mp3",
       "win/Waves of Fkkit [Intro] - AshTreJinkins - BandCampDownloader.app.mp3"
     ]
+  },
+  "lengths": {
+    "calm/AshTreJinkins - Null Territory EP - 01 Initializing.mp3": 220.46,
+    "calm/Dreaming Of The Sun [Intermission] - AshTreJinkins - BandCampDownloader.app.mp3": 191.87,
+    "calm/Tom Vernon - Unfolding (Ambient Mix).mp3": 334.05,
+    "calm/２８１４ - 恢复.mp3": 351.17,
+    "build/AshTreJinkins - Brine Pool - 05 Death of a Blue Whale.mp3": 446.67,
+    "build/AshTreJinkins - Null Territory EP - 05 Which Version Survives.mp3": 175.7,
+    "build/Sky H1 - Arctis.mp3": 150.2,
+    "build/Space Afrika - Regards.mp3": 402.76,
+    "tense/04. AshTreJinkins - DAY ONE ARCHIVES.mp3": 172.02,
+    "tense/AshTreJinkins - Null Territory EP - 02 Feel So Much (Feat. -T).mp3": 284.02,
+    "danger/Just The Start - AshTreJinkins - BandCampDownloader.app.mp3": 142.47,
+    "danger/Mr. Oizo - Inside the Kidney Machine.mp3": 288.63,
+    "finale/AshTreJinkins - Null Territory EP - 07 To Be Continued.mp3": 120.96,
+    "finale/Batu - half speed.mp3": 203.81,
+    "win/AshTreJinkins - THE DOOR - 01 COLD, LOST PLANET.mp3": 235.96,
+    "win/Waves of Fkkit [Intro] - AshTreJinkins - BandCampDownloader.app.mp3": 193.91
   }
 }

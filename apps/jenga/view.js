@@ -46,10 +46,9 @@ function playerObj(slot) {
 }
 
 // the soundtrack, if asked for with M
-const sound = new J.Soundtrack({ base: 'music/' });
-// the director's view, with or without sound: which scene the music is in, how tense it is, and the moments it answers (?hud=0 hides it)
-const dir = { tension: new J.Tension(), scene: null, since: 0, t: 0, prev: null, moments: [] };
-const FAST = new URLSearchParams(location.search).get('fast') === '1';               // (?fast=1: the scene the music is heading for, without the dwell: for the scene videos)
+const sound = new J.Soundtrack({ base: 'music/', now: () => { const t = feed.serverNow(); return t === null ? Date.now() : t; } });
+// the director's view, with or without sound: which scene and track the host's director chose, how tense it is here, and the moments it answers (?hud=0 hides it)
+const dir = { tension: new J.Tension(), prev: null, moments: [] };
 const hudBox = document.createElement('div');
 hudBox.className = 'dir'; if (new URLSearchParams(location.search).get('hud') === '0') hudBox.style.display = 'none';
 document.body.appendChild(hudBox);
@@ -90,12 +89,12 @@ function frame() {
   const heads = feed.players().map((p) => { const pr = feed.sample('presence', p.slot, at); return pr ? { slot: p.slot, x: pr.data.head[0], y: pr.data.head[1] } : null; }).filter(Boolean);
   scene3d.update({ state, snap, now, t: sn === null ? undefined : sn, lay, heads, deco: S.doc.jdeco || null, garden: S.game('garden'),
     shades: { lights, cursor, dark: M.dim.level(S.doc.dim, sn).dark } });
-  dir.t += dt; const tn = dir.tension.update(S.doc.jenga || null, snap ? snap.items : null, dt);
-  const sc = J.sceneFor(S.doc.jenga || null, tn, dir.scene, dir.t - dir.since, FAST ? 0 : undefined); if (sc !== dir.scene) { dir.scene = sc; dir.since = dir.t; }
+  const tn = dir.tension.update(S.doc.jenga || null, snap ? snap.items : null, dt), mu = S.doc.jmusic || null;
   for (const w of J.momentsBetween(dir.prev, S.doc.jenga || null)) dir.moments.push({ text: MOMENT[w] || w, t: now });
   const dl = M.dim.level(S.doc.dim, sn);                           // (what the headsets' passthrough is drawn at: this view has no real room to dim)
   dir.prev = S.doc.jenga || null; dir.moments = dir.moments.filter((m) => now - m.t < 4500);
-  hudBox.innerHTML = `<div class="k">music</div><div class="scene">${dir.scene}</div><div class="k">tension ${Math.round(tn * 100)}%</div><div class="bar"><i style="width:${Math.round(tn * 100)}%"></i></div><div class="k">room dim ${Math.round(dl.dark * 100)}% · grey ${Math.round(dl.mute * 100)}%</div>${dir.moments.map((m) => `<div class="m">\u266a ${m.text}</div>`).join('')}`;
+  const track = mu && mu.track ? mu.track.replace(/^.*\//, '').replace(/\.[^.]+$/, '').replace(/&/g, '&amp;').replace(/</g, '&lt;') : 'no tracks';
+  hudBox.innerHTML = `<div class="k">music</div><div class="scene">${mu ? mu.scene : 'none (no host)'}</div>${mu ? `<div class="k">${track}</div>` : ''}<div class="k">tension ${Math.round(tn * 100)}%</div><div class="bar"><i style="width:${Math.round(tn * 100)}%"></i></div><div class="k">room dim ${Math.round(dl.dark * 100)}% · grey ${Math.round(dl.mute * 100)}%</div>${dir.moments.map((m) => `<div class="m">\u266a ${m.text}</div>`).join('')}`;
   // the first time the game's place is known: the camera looks at it
   const key = `${state.size}|${state.place.x}|${state.place.y}|${state.place.yaw}`;
   if (key !== placedKey) { placedKey = key; aim(4); }
@@ -114,8 +113,8 @@ function frame() {
     o.dots.count = n; o.dots.instanceMatrix.needsUpdate = true;
   }
   for (const [slot, o] of [...drawn]) if (!here.has(slot)) { world.remove(o.head, o.dots); drawn.delete(slot); }
-  // the soundtrack follows the same shared state
-  if (sound.music.ctx) { const fw = new THREE.Vector3(); camera.getWorldDirection(fw); sound.update(S.doc.jenga || null, snap ? snap.items : null, dt, S.game('music'), { x: camera.position.x, y: -camera.position.z, yaw: Math.atan2(-fw.z, fw.x) }); }
+  // the soundtrack plays the host's record and follows the same shared state
+  if (sound.music.ctx) { const fw = new THREE.Vector3(); camera.getWorldDirection(fw); sound.update(S.doc.jenga || null, snap ? snap.items : null, dt, S.game('music'), { x: camera.position.x, y: -camera.position.z, yaw: Math.atan2(-fw.z, fw.x) }, S.doc.jmusic || null); }
   if (!controls.autoRotate && now - touchedAt > 30000) controls.autoRotate = true;
   controls.update();
   renderer.render(scene, camera);

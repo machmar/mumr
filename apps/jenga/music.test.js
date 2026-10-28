@@ -1,21 +1,29 @@
-// The soundtrack (music.js) with a pretend Web Audio: the director's scenes and tension, the 30 s equal-power crossfade, a track followed by the
-// next one, the swells and the duck of a fall.
+// The soundtrack (music.js) with a pretend Web Audio: the director on the host (scenes, tension, the record in the document, where each track
+// was left), the page that plays the record (on the server's clock, heard once it plays), the equal-power crossfade, the swells and the duck of
+// a fall, the limiter, and build-manifest's track lengths.
 const { test } = require('node:test');
 const assert = require('node:assert');
 const S = require('./spec.js');
 const Mu = require('./music.js');
+const BM = require('./music/build-manifest.js');
 
 // ---- a pretend AudioContext: every AudioParam records what was scheduled on it
 class Param { constructor(v = 0) { this.value = v; this.ev = []; } setValueAtTime(v, t) { this.ev.push(['set', v, t]); if (t <= this.now()) this.value = v; return this; } linearRampToValueAtTime(v, t) { this.ev.push(['lin', v, t]); return this; } exponentialRampToValueAtTime(v, t) { this.ev.push(['exp', v, t]); return this; } setTargetAtTime(v, t, k) { this.ev.push(['target', v, t, k]); this.value = v; return this; } cancelScheduledValues(t) { this.ev = this.ev.filter((e) => e[2] < t); return this; } now() { return 0; } last() { return this.ev[this.ev.length - 1]; } }
-class Node_ { constructor() { this.out = []; this.gain = new Param(1); this.frequency = new Param(440); this.Q = new Param(1); } connect(n) { this.out.push(n); return n; } disconnect() { this.out = []; } start() {} stop() {} }
+class Node_ { constructor() { this.out = []; this.gain = new Param(1); this.frequency = new Param(440); this.Q = new Param(1); this.threshold = new Param(-24); this.knee = new Param(30); this.ratio = new Param(12); this.attack = new Param(0.003); this.release = new Param(0.25); } connect(n) { this.out.push(n); return n; } disconnect() { this.out = []; } start() {} stop() {} }
 function pretend() {
+  const clock = { ms: 1e6 };
   const ctx = { currentTime: 0, sampleRate: 44100, destination: new Node_(), made: [], resumed: 0, resume() { this.resumed++; },
     createGain() { const n = new Node_(); this.made.push(['gain', n]); return n; }, createBiquadFilter() { return new Node_(); }, createOscillator() { return new Node_(); },
+    createDynamicsCompressor() { const n = new Node_(); this.made.push(['limiter', n]); return n; },
     createBuffer(c, l) { return { getChannelData: () => new Float32Array(l) }; }, createBufferSource() { return new Node_(); },
     createMediaElementSource(el) { const n = new Node_(); n.el = el; this.made.push(['src', n]); return n; } };
   const audios = [];
-  const audio = () => { const el = { src: '', played: 0, paused: 0, currentTime: 0, duration: NaN, on: {}, play() { this.played++; return Promise.resolve(); }, pause() { this.paused++; }, addEventListener(ev, fn) { this.on[ev] = fn; }, loaded(dur) { this.duration = dur; if (this.on.loadedmetadata) this.on.loadedmetadata(); } }; audios.push(el); return el; };
-  return { ctx, audio, audios };
+  const audio = () => {
+    const el = { src: '', played: 0, paused: 0, loads: 0, currentTime: 0, duration: NaN, on: {}, play() { this.played++; return Promise.resolve(); }, pause() { this.paused++; },
+      addEventListener(n, f) { (this.on[n] = this.on[n] || []).push(f); }, fire(n) { for (const f of this.on[n] || []) f(); }, removeAttribute(n) { if (n === 'src') this.src = ''; }, load() { this.loads++; } };
+    audios.push(el); return el;
+  };
+  return { ctx, audio, audios, clock, now: () => clock.ms };
 }
 const STATE = (o = {}) => Object.assign({ phase: 'roll', size: 'normal', seed: 5, round: 1, rounds: 3, moves: 0, players: [{ slot: 0, name: 'A' }], tower: { full: 17, top: 17, topCount: 3 }, place: { x: 0, y: 0, yaw: 0 }, handled: null, ticker: [] }, o);
 const towerItems = (agitate = 0, missing = 0) => {
@@ -43,7 +51,7 @@ test('tension: nothing in the lobby; a quiet whole tower is calm; holes, a leani
   assert.ok(shaky.v < before && shaky.v > 0.2 * before, 'it comes down, but not at once');
 });
 
-test('scenes: by phase, then by how far the game has got and how tense it is, and a scene lasts a while', () => {
+test('scenes: by phase, then by how far the game has got and how tense it is; a scene lasts a while, and is left lower than it is entered', () => {
   assert.strictEqual(Mu.sceneFor(STATE({ phase: 'lobby' }), 0, null, 0), 'calm');
   assert.strictEqual(Mu.sceneFor(STATE({ moves: 1 }), 0.1, null, 0), 'build');
   assert.strictEqual(Mu.sceneFor(STATE({ moves: 7 }), 0.2, null, 0), 'tense');
@@ -51,10 +59,14 @@ test('scenes: by phase, then by how far the game has got and how tense it is, an
   assert.strictEqual(Mu.sceneFor(STATE({ phase: 'fall' }), 0.1, 'danger', 0), 'finale'); assert.strictEqual(Mu.sceneFor(STATE({ phase: 'replay' }), 0, 'tense', 0), 'finale');
   assert.strictEqual(Mu.sceneFor(STATE({ phase: 'aftermath' }), 0, 'finale', 0), 'calm'); assert.strictEqual(Mu.sceneFor(STATE({ phase: 'match_end' }), 0, 'calm', 0), 'win');
   assert.strictEqual(Mu.sceneFor(STATE({ moves: 7 }), 0.1, 'danger', 5), 'danger', 'it does not flap');
-  assert.strictEqual(Mu.sceneFor(STATE({ moves: 7 }), 0.8, 'tense', 3), 'danger', 'a tenser scene is answered at once');
-  assert.strictEqual(Mu.sceneFor(STATE({ moves: 7 }), 0.1, 'danger', 5, 0), 'tense', 'with no dwell (the PC view of the director) it drops at once');
+  assert.strictEqual(Mu.sceneFor(STATE({ moves: 7 }), 0.8, 'tense', 3), 'danger', 'a tenser scene is wanted at once (the director waits a moment)');
+  assert.strictEqual(Mu.sceneFor(STATE({ moves: 7 }), 0.1, 'danger', 5, 0), 'tense', 'with no dwell it drops at once');
   assert.strictEqual(Mu.sceneFor(STATE({ moves: 7 }), 0.1, 'danger', 40), 'tense', 'after a while it may come down');
   assert.strictEqual(Mu.sceneFor(STATE({ phase: 'fall' }), 0, 'danger', 1), 'finale', 'a fall changes it at once');
+  assert.strictEqual(Mu.sceneFor(STATE({ moves: 2 }), 0.5, 'danger', 40), 'danger', 'danger is entered above 0.62 and left below 0.45');
+  assert.strictEqual(Mu.sceneFor(STATE({ moves: 2 }), 0.5, 'tense', 40), 'tense', 'but 0.5 is not enough to enter it');
+  assert.strictEqual(Mu.sceneFor(STATE({ moves: 2 }), 0.25, 'tense', 40), 'tense', 'tense is entered above 0.32 and left below 0.22');
+  assert.strictEqual(Mu.sceneFor(STATE({ moves: 2 }), 0.25, 'build', 40), 'build');
 });
 
 test('the moments between two states', () => {
@@ -71,105 +83,180 @@ test('the moments between two states', () => {
   assert.deepStrictEqual(Mu.momentsBetween(null, STATE()), [], 'a page that comes in late hears nothing of the past');
 });
 
-test('the same scene picks the same track on every headset, and a pool is used evenly', () => {
+test('the same scene picks the same track, and a pool is used evenly; a scene with no tracks takes the nearest one\'s', () => {
   const pool = ['a.mp3', 'b.mp3', 'c.mp3'];
   assert.strictEqual(Mu.pickTrack(pool, 5, 'tense', 1), Mu.pickTrack(pool, 5, 'tense', 1));
   const seen = new Set(); for (let r = 0; r < 40; r++) seen.add(Mu.pickTrack(pool, r, 'build', r)); assert.strictEqual(seen.size, 3);
   assert.strictEqual(Mu.pickTrack([], 1, 'x', 1), null);
+  assert.deepStrictEqual(Mu.poolFor({ scenes: { build: ['b.mp3'], tense: [] } }, 'danger'), ['b.mp3'], 'danger has none: tense has none either, build has');
+  assert.strictEqual(Mu.poolFor({ scenes: {} }, 'calm'), null);
 });
 
-test('a scene change crossfades over 30 s, equal power: the new track in as the square root, the old one out as the square root of what is left', () => {
-  const p = pretend(), m = new Mu.Music({ ctx: p.ctx, audio: p.audio });
-  m.load({ crossfade: 30, scenes: { build: ['a.mp3'], tense: ['b.mp3'] } });
-  m.start(); assert.ok(p.ctx.resumed >= 1);
-  m.setScene('build', 5, 1);
-  assert.strictEqual(p.audios.length, 1); assert.strictEqual(p.audios[0].src, 'music/a.mp3'); assert.strictEqual(p.audios[0].played, 1);
-  const first = m.decks[0].gain.gain, end = first.ev[first.ev.length - 1];
-  assert.ok(end[1] === 1 && end[2] <= 6.01, 'the first track comes in over 6 s at most');
-  p.ctx.currentTime = 100; m.decks[0].gain.gain.value = 1;                  // (a real AudioParam has reached 1 by now; the pretend one does not run its automation)
-  m.setScene('tense', 5, 1);
-  assert.strictEqual(m.decks.length, 2); assert.strictEqual(p.audios[1].src, 'music/b.mp3');
-  const inn = m.decks[1].gain.gain.ev, out = m.decks[0].gain.gain.ev;
-  assert.strictEqual(inn[inn.length - 1][2], 130, 'in over 30 s'); assert.strictEqual(out[out.length - 1][2], 130, 'out over 30 s');
-  assert.strictEqual(inn[inn.length - 1][1], 1); assert.strictEqual(out[out.length - 1][1], 0);
-  const half = (ev) => ev.find((e) => e[0] === 'lin' && Math.abs(e[2] - 115) < 0.7);
-  assert.ok(Math.abs(half(inn)[1] ** 2 + half(out)[1] ** 2 - 1) < 0.08, 'at the middle the powers add up to 1');
-  assert.strictEqual(m.setScene('tense', 5, 1), false, 'the same scene again does nothing'); assert.strictEqual(m.decks.length, 2);
-  p.ctx.currentTime = 131; m.tick(); assert.strictEqual(m.decks.length, 1, 'the faded-out track is stopped'); assert.strictEqual(p.audios[0].paused, 1);
+// ---- the director: on the host, one record in the document
+const MAN = { crossfade: 30, rise: 9, fades: { finale: 6, win: 12 }, scenes: { calm: ['c.mp3'], build: ['b1.mp3', 'b2.mp3'], tense: ['t.mp3'], danger: ['d.mp3'], finale: ['f.mp3'], win: ['w.mp3'] },
+  lengths: { 'c.mp3': 300, 'b1.mp3': 200, 'b2.mp3': 240, 't.mp3': 400, 'd.mp3': 300, 'f.mp3': 120, 'w.mp3': 200 } };
+function director(man = MAN) {
+  const clock = { ms: 5e6 }, d = new Mu.Director({ now: () => clock.ms, manifest: man }), recs = [];
+  // secs of host steps of 0.1 s at tension k: the records it made
+  const run = (state, secs, k) => { const out = []; for (let s = 0; s < secs - 1e-9; s += 0.1) { clock.ms += 100; const r = d.step(state, null, 0.1, k); if (r) { out.push(r); recs.push(r); } } return out; };
+  return { d, clock, run, recs };
+}
+
+test('the host decides the music: one record in the document (the scene, the track, where in it, on the server\'s clock), only when it changes', () => {
+  const { d, clock, run } = director();
+  const [r] = run(STATE({ phase: 'lobby' }), 0.1, 0), half = Math.round(Mu.startFraction(5, 'calm', 1, 'c.mp3') * (300 - 61) * 100) / 100;
+  assert.deepStrictEqual({ scene: r.scene, track: r.track, pos: r.pos, at: r.at, fade: r.fade }, { scene: 'calm', track: 'c.mp3', pos: half, at: clock.ms, fade: 30 });
+  assert.ok(Number.isFinite(r.n));
+  assert.strictEqual(run(STATE({ phase: 'lobby' }), 5, 0).length, 0, 'nothing new: nothing sent');
+  const [b] = run(STATE({ moves: 1 }), 0.1, 0.1);
+  assert.strictEqual(b.scene, 'build'); assert.notStrictEqual(b.n, r.n); assert.strictEqual(d.scene, 'build');
 });
 
-test('the short scenes fade in faster than the long ones (the fall is over in 12 s)', () => {
-  const p = pretend(), m = new Mu.Music({ ctx: p.ctx, audio: p.audio }); m.load({ crossfade: 30, scenes: { build: ['a.mp3'], finale: ['f.mp3'] } }); m.start();
-  m.setScene('build', 1, 1); p.ctx.currentTime = 100; m.decks[0].gain.gain.value = 1; m.setScene('finale', 1, 1);
-  assert.strictEqual(m.decks[1].gain.gain.ev.at(-1)[2], 106, 'in over 6 s'); assert.strictEqual(m.fadeFor('calm'), 30);
+test('a tenser scene comes once the tension has lasted 1.5 s, and in 9 s; a calmer one after 22 s, in 30 s; a knock is not enough', () => {
+  const { run } = director();
+  run(STATE({ phase: 'lobby' }), 1, 0);
+  const [b] = run(STATE({ moves: 1 }), 0.1, 0.1); assert.strictEqual(b.fade, 9, 'the game starts: up, quickly');
+  run(STATE({ moves: 1 }), 30, 0.1);
+  assert.strictEqual(run(STATE({ moves: 1 }), 1, 0.8).length, 0, 'a knock of a second changes nothing');
+  run(STATE({ moves: 1 }), 2, 0.1);
+  const up = run(STATE({ moves: 1 }), 2, 0.8); assert.strictEqual(up.length, 1); assert.strictEqual(up[0].scene, 'danger'); assert.strictEqual(up[0].fade, 9);
+  assert.strictEqual(run(STATE({ moves: 1 }), 60, 0.5).length, 0, 'danger holds at 0.5 (it is left below 0.45)');
+  const down = run(STATE({ moves: 1 }), 1, 0.1); assert.strictEqual(down.length, 1); assert.strictEqual(down[0].scene, 'build'); assert.strictEqual(down[0].fade, 30, 'down, slowly');
+  const fall = run(STATE({ phase: 'fall' }), 0.1, 0.1); assert.strictEqual(fall[0].scene, 'finale'); assert.strictEqual(fall[0].fade, 6, 'the fall: at once, in 6 s');
 });
 
-test('a track that is nearly over is followed by the next one of its scene, over 30 s; a scene with no tracks keeps the music of the nearest', () => {
-  const p = pretend(), m = new Mu.Music({ ctx: p.ctx, audio: p.audio });
-  m.load({ crossfade: 30, scenes: { build: ['a.mp3', 'b.mp3'] } });
-  m.start(); m.setScene('build', 1, 1); const first = m.track;
-  p.audios[0].duration = 300; p.audios[0].currentTime = 100; p.ctx.currentTime = 50; m.tick(); assert.strictEqual(m.decks.length, 1, 'plenty left');
-  p.audios[0].currentTime = 275; p.ctx.currentTime = 60; m.tick();
-  assert.strictEqual(m.decks.length, 2); assert.notStrictEqual(m.track, first, 'the next track of the scene');
-  assert.strictEqual(m.decks[1].gain.gain.ev.at(-1)[2], 90);
-  m.tick(); assert.strictEqual(m.decks.length, 2, 'followed only once');
-  m.setScene('danger', 1, 1);
-  assert.ok(m.track === 'a.mp3' || m.track === 'b.mp3', 'danger has none: it keeps the nearest (tense, then build)');
-  const q = pretend(), n = new Mu.Music({ ctx: q.ctx, audio: q.audio }); n.start(); n.setScene('calm', 1, 1);
-  assert.strictEqual(q.audios.length, 0, 'no tracks at all: the generated pad only'); assert.strictEqual(n.padGain.gain.last()[1], 0.07);
+test('a scene the music comes back to carries on where it was left; the fall and the win start from the top', () => {
+  const { d, run } = director();
+  d.heads['b1.mp3'] = d.heads['b2.mp3'] = 10;                                   // (both build tracks were left at 10 s before)
+  const [b] = run(STATE({ moves: 1 }), 0.1, 0.1); assert.strictEqual(b.pos, 10, 'it comes in where it was left');
+  run(STATE({ moves: 1 }), 50, 0.1);
+  const [up] = run(STATE({ moves: 1 }), 2, 0.8); assert.strictEqual(up.scene, 'danger');
+  const left = d.heads[b.track]; assert.ok(Math.abs(left - (10 + 50 + 1.5 + 9)) < 0.3, `left at ${left} s (with the 9 s it fades out over)`);
+  run(STATE({ moves: 1 }), 25, 0.8);
+  const [back] = run(STATE({ moves: 1 }), 0.2, 0.1); assert.strictEqual(back.track, b.track); assert.ok(Math.abs(back.pos - left) < 0.01, `back at ${back.pos}`);
+  run(STATE({ phase: 'fall' }), 30, 0); run(STATE({ phase: 'aftermath' }), 10, 0);
+  assert.ok(d.heads['f.mp3'] > 20, 'the finale was left part of the way through');
+  const [f] = run(STATE({ phase: 'fall' }), 0.1, 0); assert.strictEqual(f.pos, 0, 'but it starts from the top every time');
+  const near = director(); near.d.heads['c.mp3'] = 280; const [c] = near.run(STATE({ phase: 'lobby' }), 0.1, 0); assert.strictEqual(c.pos, 0, 'a track left near its end starts again from the top');
 });
 
-test('a track comes in half way: the same place on every headset for a scene, once its length is known, and never so late that it has no time to be heard', () => {
-  const go = (seed, round, scene = 'calm', manifest = {}) => {
-    const p = pretend(), m = new Mu.Music({ ctx: p.ctx, audio: p.audio }); m.load(Object.assign({ crossfade: 30, scenes: { calm: ['c.mp3'], tense: ['t.mp3'], finale: ['f.mp3'] } }, manifest)); m.start();
-    m.setScene(scene, seed, round); return { p, m, el: p.audios[0] };
-  };
-  const a = go(5, 1); assert.strictEqual(a.el.currentTime, 0, 'its length is not known yet: it plays from the start');
-  a.el.loaded(300); const at = a.el.currentTime;
-  assert.ok(at > 0 && at <= 300 - 61, `somewhere in the first 239 s (${at})`);
-  a.el.currentTime = 77; a.m.tick(); assert.strictEqual(a.el.currentTime, 77, 'the jump is made once');
-  const b = go(5, 1); b.el.loaded(300); assert.strictEqual(b.el.currentTime, at, 'the same state, the same place, on any headset');
-  const places = new Set(); for (let r = 1; r <= 8; r++) { const x = go(5, r); x.el.loaded(300); places.add(x.el.currentTime); }
+test('a track near its end is followed by the next of its scene (or itself again, somewhere else), over 30 s; one whose length is not known loops', () => {
+  const { run } = director();
+  const [c] = run(STATE({ phase: 'lobby' }), 0.1, 0), due = 300 - 31 - c.pos;
+  assert.strictEqual(run(STATE({ phase: 'lobby' }), due - 1, 0).length, 0);
+  const [again] = run(STATE({ phase: 'lobby' }), 2, 0); assert.strictEqual(again.track, 'c.mp3'); assert.strictEqual(again.fade, 30);
+  assert.ok(Math.abs((again.at - c.at) / 1000 - due) < 0.15, `at ${(again.at - c.at) / 1000} s: 30 s before its end`);
+  assert.strictEqual(again.pos, Math.round(Mu.startFraction(5, 'calm', 1, 'c.mp3', 1) * 239 * 100) / 100, 'itself again: in at another place'); assert.notStrictEqual(again.pos, c.pos);
+  const two = director(); const [b] = two.run(STATE({ moves: 1 }), 0.1, 0.1);
+  const [next] = two.run(STATE({ moves: 1 }), 260, 0.1); assert.ok(next && next.track !== b.track, 'the other track of the scene');
+  const blind = director(Object.assign({}, MAN, { lengths: {} })); blind.run(STATE({ phase: 'lobby' }), 0.1, 0);
+  assert.strictEqual(blind.run(STATE({ phase: 'lobby' }), 400, 0).length, 0, 'no length: the pages loop it');
+  const none = director({ scenes: {} }); const [r] = none.run(STATE({ phase: 'lobby' }), 0.1, 0); assert.strictEqual(r.track, null, 'no tracks at all: the record says so (the pages play the pad)');
+});
+
+test('a host that starts again carries on the music that is in the document', () => {
+  const one = director(); const [r] = one.run(STATE({ phase: 'lobby' }), 0.1, 0);
+  const two = director(); two.clock.ms = one.clock.ms + 10000; two.d.adopt(r);
+  assert.strictEqual(two.run(STATE({ phase: 'lobby' }), 1, 0).length, 0, 'the same scene: nothing new');
+  const [b] = two.run(STATE({ moves: 1 }), 0.1, 0.1); assert.notStrictEqual(b.n, r.n); assert.ok(Math.abs(two.d.heads['c.mp3'] - (r.pos + 11.1 + 9)) < 0.3, 'it knows where the old track was');
+});
+
+test('a track heard for the first time comes in half way: another place each round, never so late that it has no time to be heard; the finale from the top', () => {
+  const first = (state, man = MAN) => director(man).run(state, 0.1, 0)[0];
+  const room = 300 - 61, a = first(STATE({ phase: 'lobby' }));
+  assert.ok(a.pos > 0 && a.pos <= room, `somewhere in the first ${room} s (${a.pos})`);
+  assert.strictEqual(first(STATE({ phase: 'lobby' })).pos, a.pos, 'the same state, the same place');
+  const places = new Set(); for (let r = 1; r <= 8; r++) places.add(first(STATE({ phase: 'lobby', round: r })).pos);
   assert.ok(places.size >= 6, `another round, another place (${places.size} of 8)`);
-  const c = go(5, 1); c.el.duration = 300; c.m.tick(); assert.strictEqual(c.el.currentTime, at, 'a tick finds the length too, when no event came');
-  const d = go(5, 1); d.el.loaded(90); assert.ok(d.el.currentTime <= 29, `a short track keeps two crossfades to play (${d.el.currentTime})`);
-  const e = go(5, 1); e.el.loaded(60); assert.strictEqual(e.el.currentTime, 0, 'one too short for that: from the start');
-  const f = go(5, 1, 'finale'); f.el.loaded(300); assert.strictEqual(f.el.currentTime, 0, 'the finale is shaped from its first second');
-  const g = go(5, 1, 'calm', { anywhere: [] }); g.el.loaded(300); assert.strictEqual(g.el.currentTime, 0, 'tracks.json can ask for the beginning everywhere');
-  const h = go(5, 1, 'finale', { anywhere: ['finale'] }); h.el.loaded(300); assert.ok(h.el.currentTime > 0, 'or for another scene to start anywhere');
-  assert.strictEqual(Mu.startFraction(5, 'calm', 1, 'c.mp3'), at / (300 - 61), 'it is a fraction of the room the track has');
+  const len = (l) => Object.assign({}, MAN, { lengths: { 'c.mp3': l } });
+  assert.ok(first(STATE({ phase: 'lobby' }), len(90)).pos <= 29, 'a short track keeps two crossfades to play');
+  assert.strictEqual(first(STATE({ phase: 'lobby' }), len(60)).pos, 0, 'one too short for that: from the start');
+  assert.strictEqual(first(STATE({ phase: 'lobby' }), Object.assign({}, MAN, { lengths: {} })).pos, 0, 'one whose length is not known: from the start');
+  assert.strictEqual(first(STATE({ phase: 'fall' })).pos, 0, 'the finale is shaped from its first second');
+  assert.strictEqual(first(STATE({ phase: 'lobby' }), Object.assign({}, MAN, { anywhere: [] })).pos, 0, 'tracks.json can ask for the beginning everywhere');
+  assert.ok(first(STATE({ phase: 'fall' }), Object.assign({}, MAN, { anywhere: ['finale'] })).pos > 0, 'or for another scene to start anywhere');
 });
 
-test('a track that follows another comes in somewhere else, also when it is the same track again', () => {
-  const p = pretend(), m = new Mu.Music({ ctx: p.ctx, audio: p.audio }); m.load({ crossfade: 30, scenes: { calm: ['c.mp3'] } }); m.start(); m.setScene('calm', 5, 1);
-  p.audios[0].loaded(300); const first = p.audios[0].currentTime;
-  p.audios[0].currentTime = 275; p.ctx.currentTime = 60; m.tick();
-  assert.strictEqual(p.audios.length, 2, 'it follows itself'); p.audios[1].loaded(300);
-  assert.notStrictEqual(p.audios[1].currentTime, first, 'from another place than the first time');
-  assert.strictEqual(p.audios[1].currentTime, Mu.startFraction(5, 'calm', 1, 'c.mp3', 1) * (300 - 61));
+// ---- the page: it plays the record
+function page() { const p = pretend(), m = new Mu.Music({ ctx: p.ctx, audio: p.audio, now: p.now }); m.load(MAN); m.start(); return { p, m }; }
+const REC = (o) => Object.assign({ n: 1, scene: 'build', track: 'b1.mp3', pos: 0, fade: 9 }, o);
+
+test('a page plays the record: the track at the record\'s place on the server\'s clock, heard once it actually plays', () => {
+  const { p, m } = page();
+  m.follow(REC({ pos: 12, at: p.clock.ms - 3000 }));
+  assert.strictEqual(p.audios.length, 1); assert.strictEqual(p.audios[0].src, 'music/b1.mp3#t=15.00', 'asked for from 15 s'); assert.strictEqual(p.audios[0].loop, true);
+  const g = m.decks[0].gain.gain; assert.ok(!g.ev.some((e) => e[1] === 1), 'nothing yet: it is still loading');
+  p.clock.ms += 2000; p.audios[0].duration = 200; p.audios[0].fire('loadedmetadata'); assert.ok(Math.abs(p.audios[0].currentTime - 17) < 0.01, 'loaded 2 s later: put at 17 s');
+  p.ctx.currentTime = 2; p.audios[0].fire('playing');
+  assert.deepStrictEqual(g.last().slice(1), [1, 8], 'heard from when it plays: the first track of a visit in 6 s at most');
+  assert.strictEqual(m.follow(REC({ pos: 12, at: p.clock.ms - 3000 })), false, 'the same record again does nothing');
+  const odd = page(); odd.m.follow(REC({ track: 'calm/A # B [x].mp3' })); assert.strictEqual(odd.p.audios[0].src, 'music/calm/A%20%23%20B%20%5Bx%5D.mp3#t=0.00', 'a file name is escaped');
 });
 
-test('tension opens the filter and lifts the music; a block pulled swells it for a few seconds; a fall ducks it to a whisper and the replay brings it back louder', () => {
-  const p = pretend(), m = new Mu.Music({ ctx: p.ctx, audio: p.audio }); m.load({ scenes: {} }); m.start();
+test('a new track crossfades in, equal power, once it plays; the old one plays on until then, and is let go of after', () => {
+  const { p, m } = page();
+  m.follow(REC({ at: p.clock.ms })); p.audios[0].duration = 200; p.audios[0].fire('playing');
+  p.ctx.currentTime = 100; p.clock.ms += 100e3; m.decks[0].gain.gain.value = 1;
+  m.follow(REC({ n: 2, scene: 'tense', track: 't.mp3', pos: 40, at: p.clock.ms, fade: 30 }));
+  assert.strictEqual(m.decks.length, 2); assert.strictEqual(m.decks[0].dying, false, 'the old one plays on while the new one loads');
+  p.ctx.currentTime = 101; p.audios[1].fire('playing');
+  const inn = m.decks[1].gain.gain.ev, out = m.decks[0].gain.gain.ev;
+  assert.strictEqual(inn.at(-1)[2], 131, 'in over 30 s'); assert.strictEqual(out.at(-1)[2], 131, 'out over 30 s'); assert.strictEqual(inn.at(-1)[1], 1); assert.strictEqual(out.at(-1)[1], 0);
+  const half = (ev) => ev.find((e) => e[0] === 'lin' && Math.abs(e[2] - 116) < 0.7);
+  assert.ok(Math.abs(half(inn)[1] ** 2 + half(out)[1] ** 2 - 1) < 0.08, 'at the middle the powers add up to 1');
+  p.ctx.currentTime = 132; m.tick();
+  assert.strictEqual(m.decks.length, 1, 'the faded-out track is stopped'); assert.strictEqual(p.audios[0].paused, 1);
+  assert.strictEqual(p.audios[0].src, ''); assert.strictEqual(p.audios[0].loads, 1, 'and its stream let go of');
+});
+
+test('the same track carrying on through a scene change is not started again; a page that has drifted is put back; a track that never plays is given up', () => {
+  const { p, m } = page();
+  m.follow(REC({ at: p.clock.ms })); const el = p.audios[0]; el.duration = 200; el.fire('playing');
+  p.clock.ms += 20e3; el.currentTime = 20;
+  m.follow(REC({ n: 2, scene: 'tense', pos: 20, at: p.clock.ms, fade: 9 })); assert.strictEqual(p.audios.length, 1, 'the same track, where it is: it plays on');
+  p.clock.ms += 10e3; el.currentTime = 26; p.ctx.currentTime = 30; m.tick(); assert.ok(Math.abs(el.currentTime - 30) < 0.01, 'stalled 4 s behind: put back');
+  p.clock.ms += 1e3; el.currentTime = 31.5; p.ctx.currentTime = 31; m.tick(); assert.strictEqual(el.currentTime, 31.5, 'a little off is left alone');
+  p.clock.ms += 200e3; p.ctx.currentTime = 50; el.currentTime = 25; m.tick(); assert.ok(Math.abs(el.currentTime - 31) < 0.01, 'on a looping track, the place wraps round');
+  m.follow(REC({ n: 3, track: 'b2.mp3', at: p.clock.ms }));
+  p.ctx.currentTime = 70; m.tick();
+  assert.strictEqual(m.decks.length, 1, 'it did not play in 15 s: given up'); assert.strictEqual(m.decks[0].el, el); assert.strictEqual(m.decks[0].dying, false, 'the old one plays on');
+});
+
+test('a record with no track, or a page with no tracks: the generated pad follows the scene', () => {
+  const p = pretend(), m = new Mu.Music({ ctx: p.ctx, audio: p.audio, now: p.now }); m.start();
+  m.follow({ n: 1, scene: 'calm', track: null, pos: 0, at: p.clock.ms, fade: 30 });
+  assert.strictEqual(p.audios.length, 0); assert.strictEqual(m.padGain.gain.last()[1], 0.07); assert.strictEqual(m.scene, 'calm');
+});
+
+test('tension and the moments shape the music through stages of their own: a fall\'s duck holds while the tension goes on, and a limiter guards the end', () => {
+  const p = pretend(), m = new Mu.Music({ ctx: p.ctx, audio: p.audio, now: p.now }); m.load({ scenes: {} }); m.start();
   for (let k = 0; k < 90; k++) m.update(0, 1 / 30);
-  const dull = m.filter.frequency.last()[1], flat = m.swellGain.gain.last()[1];
+  const dull = m.tenseFilter.frequency.last()[1], flat = m.tenseGain.gain.last()[1];
   for (let k = 0; k < 90; k++) m.update(1, 1 / 30);
-  assert.ok(m.filter.frequency.last()[1] > dull * 2.5, 'brighter'); assert.ok(m.swellGain.gain.last()[1] > flat + 0.2, 'louder');
+  assert.ok(m.tenseFilter.frequency.last()[1] > dull * 2.5, 'brighter'); assert.ok(m.tenseGain.gain.last()[1] > flat + 0.2, 'louder');
   assert.ok(m.droneGain.gain.last()[1] > 0.03, 'the drone is in');
-  m.moment('pulled'); const g = m.swellGain.gain.ev; assert.ok(g.some((e) => e[0] === 'lin' && e[1] >= 1.2), 'a swell');
+  assert.strictEqual(m.momentGain.gain.ev.length + m.momentFilter.frequency.ev.length, 0, 'the tension never touches the moments\' stage');
+  m.moment('pulled'); assert.ok(m.momentGain.gain.ev.some((e) => e[0] === 'lin' && e[1] >= 1.15), 'a swell');
   p.ctx.currentTime = 10; m.moment('fall');
-  const ev = m.swellGain.gain.ev; assert.ok(ev.some((e) => e[0] === 'lin' && e[1] === 0.12 && e[2] <= 10.3), 'ducked within a quarter of a second');
-  assert.ok(m.filter.frequency.last()[1] < 500, 'dull');
-  p.ctx.currentTime = 13; m.moment('replay'); const up = m.swellGain.gain.ev; assert.ok(up.some((e) => e[0] === 'lin' && e[1] > 1.4), 'back, louder than before');
+  for (let k = 0; k < 60; k++) { p.ctx.currentTime += 1 / 30; m.update(0.9, 1 / 30); }
+  assert.deepStrictEqual(m.momentGain.gain.last().slice(0, 2), ['lin', 0.12], 'ducked, and still ducked 2 s on'); assert.ok(m.momentGain.gain.last()[2] <= 10.3, 'within a quarter of a second');
+  assert.ok(m.momentFilter.frequency.last()[1] < 500, 'and dull');
+  p.ctx.currentTime = 13; m.moment('replay'); const up = m.momentGain.gain.ev;
+  assert.ok(up.some((e) => e[0] === 'lin' && e[1] > 1.3), 'back, louder than before'); assert.strictEqual(up.at(-1)[1], 1); assert.ok(m.momentFilter.frequency.last()[1] > 15000);
+  p.ctx.currentTime = 30; m.moment('fall'); p.ctx.currentTime = 32; m.moment('aftermath'); assert.strictEqual(m.momentGain.gain.last()[1], 1, 'a skipped replay: the aftermath brings it back');
+  const lim = p.ctx.made.find((x) => x[0] === 'limiter')[1];
+  assert.ok(m.sfx.out.includes(lim) && m.momentFilter.out.includes(lim) && lim.out.includes(p.ctx.destination), 'the music and the sounds both go through the limiter');
   m.setVolume(0); assert.strictEqual(m.master.gain.last()[1], 0, 'volume off'); m.setVolume(4); assert.strictEqual(m.master.gain.last()[1], 1);
 });
 
-test('the soundtrack object: fed the shared state it picks the scenes, plays the moments and follows the volume', () => {
-  const p = pretend(), st = new Mu.Soundtrack({ ctx: p.ctx, audio: p.audio }); st.music.load({ scenes: { calm: ['c.mp3'], build: ['b.mp3'], finale: ['f.mp3'] } }); st.music.start();
-  st.update(STATE({ phase: 'lobby', round: 0 }), [], 0.03, 3); assert.strictEqual(st.scene, 'calm'); assert.strictEqual(st.music.track, 'c.mp3'); assert.strictEqual(st.music.vol, 3);
-  p.ctx.currentTime = 40; st.update(STATE({ phase: 'roll' }), towerItems(), 0.03, 3); assert.strictEqual(st.scene, 'build');
-  p.ctx.currentTime = 80; st.update(STATE({ phase: 'fall' }), towerItems(), 0.03, 3); assert.strictEqual(st.scene, 'finale'); assert.strictEqual(st.music.track, 'f.mp3');
-  assert.ok(st.music.swellGain.gain.ev.some((e) => e[1] === 0.12), 'the fall ducked the music');
+test('the soundtrack object: fed the shared state and the record, it plays the record, the moments and follows the volume', () => {
+  const p = pretend(), st = new Mu.Soundtrack({ ctx: p.ctx, audio: p.audio, now: p.now }); st.music.load(MAN); st.music.start();
+  st.update(STATE({ phase: 'lobby', round: 0 }), [], 0.03, 3, null, REC({ scene: 'calm', track: 'c.mp3', at: p.clock.ms }));
+  assert.strictEqual(st.scene, 'calm'); assert.strictEqual(st.music.track, 'c.mp3'); assert.strictEqual(st.music.vol, 3);
+  st.update(STATE({ phase: 'roll' }), towerItems(), 0.03, 3, null, REC({ scene: 'calm', track: 'c.mp3', at: p.clock.ms }));
+  st.update(STATE({ phase: 'fall' }), towerItems(), 0.03, 3, null, REC({ n: 2, scene: 'finale', track: 'f.mp3', at: p.clock.ms, fade: 6 }));
+  assert.strictEqual(st.scene, 'finale'); assert.strictEqual(st.music.track, 'f.mp3');
+  assert.ok(st.music.momentGain.gain.ev.some((e) => e[1] === 0.12), 'the fall ducked the music');
 });
 
 test('impacts: a block that falls and stops clacks once, in proportion; one that is carried, or slides smoothly, does not', () => {
@@ -189,4 +276,12 @@ test('a clack is panned to where it is, quieter far away, and the soundtrack pla
   const mk = (z) => Array.from({ length: 54 }, (_, i) => ({ i, p: [i * 0.01, 0, z], flags: 0 }));
   for (const z of [1, 0.9, 0.7, 0.4, 0.4, 0.4]) st.update(STATE(), mk(z), 1 / 60, 2, { x: 0, y: 1, yaw: 0 });
   assert.ok(clacks > 0 && clacks <= 5, `${clacks} clacks, at most 5 a frame`);
+});
+
+test('build-manifest: an mp3\'s length from its frames (after an ID3 tag), for the host to know when a track ends', () => {
+  const id3 = Buffer.from([0x49, 0x44, 0x33, 3, 0, 0, 0, 0, 0, 20]), tag = Buffer.alloc(20);
+  const frame = Buffer.alloc(417); frame.set([0xff, 0xfb, 0x90, 0x00]);           // MPEG-1 layer III, 128 kb/s, 44.1 kHz, no padding: 417 bytes, 1152 samples
+  const buf = Buffer.concat([id3, tag, ...Array.from({ length: 100 }, () => frame)]);
+  assert.ok(Math.abs(BM.mp3Length(buf) - 100 * 1152 / 44100) < 1e-6);
+  assert.strictEqual(BM.mp3Length(Buffer.from('not an mp3 at all')), null);
 });
