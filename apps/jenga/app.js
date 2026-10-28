@@ -27,9 +27,10 @@ function press(id) {
   if (['start', 'round', 'lobby', 'size', 'reroll', 'skip', 'back'].includes(id)) { hostBody().ask(id, {}); return; }
   if (id === 'place') {
     // the tower goes in front of this player (the console is at its side, facing this player), turned the way the player looks
+    // (the host arranges the furniture for the real room round where this player stands: arrange.js; it may move the tower to where it fits)
     const s = state(), half = J.layout(s.size).plinth.half, h = app.head(), sp = app.space, dist = half + 0.8;
     const c = sp.ok ? sp.toCommon([h[0], h[1]]) : [h[0], h[1]], yaw = sp.ok ? sp.yawToCommon(h[2]) : h[2];
-    hostBody().ask('place', { x: c[0] + Math.cos(yaw) * dist, y: c[1] + Math.sin(yaw) * dist, yaw });
+    hostBody().ask('place', { x: c[0] + Math.cos(yaw) * dist, y: c[1] + Math.sin(yaw) * dist, yaw, hx: c[0], hy: c[1] });
     return;
   }
   app.S.press(null, id);

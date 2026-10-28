@@ -61,7 +61,7 @@ const spots = {
 };
 let placedKey = null;
 function aim(k) {
-  const s = feed.session.doc.jenga || J.waiting(), L = J.layout(s.size), [p, t] = spots[k](s, L);
+  const s = feed.session.doc.jenga || J.waiting(), L = J.layout(s.size, s.place), [p, t] = spots[k](s, L);
   camera.position.copy(toV(...p)); controls.target.copy(toV(...t)); controls.update();
 }
 addEventListener('keydown', (e) => { if (['1', '2', '3', '4'].includes(e.key)) aim(+e.key); });

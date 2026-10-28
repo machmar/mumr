@@ -103,6 +103,7 @@ export function createScene({ THREE, parent, renderer, playerColours = [0xf2c14e
 
   // ---- the furniture (game frame), rebuilt when the size changes
   const shadowTex = { round: own(blobShadow(THREE, 128, false)), square: own(blobShadow(THREE, 128, true)) };
+  const furnSig = (sz, place) => `${sz}|${place && place.arr ? JSON.stringify(place.arr) : ''}`;
   let furnKey = null, scroll = null, lanternGlow = null, lanternMat = null, catcher = null;
   function disposeGroup(g) { for (let i = g.children.length - 1; i >= 0; i--) { const c = g.children[i]; if (c.userData.own) { g.remove(c); c.traverse((o) => { if (o.geometry) o.geometry.dispose(); }); } } }
   // a box with the wood's grain at one scale on each face (the texture repeats every TILE metres)
@@ -124,8 +125,8 @@ export function createScene({ THREE, parent, renderer, playerColours = [0xf2c14e
   const box = (w, h, dp, mat, x, y, z, parentG, r = 0) => add(boxGeo(w, h, dp, r, mat !== mats.yaki), mat, x, y, z, parentG);
   const at = (gx, gy, gz) => [gx, gz, -gy];                     // game frame floor plan -> THREE inside the furniture group
   // a soft shadow on the floor under something (round or square, w x d metres)
-  const floorShadow = (gx, gy, w, dp, square, opacity = 0.55, yaw = 0) => {
-    const m = add(new THREE.PlaneGeometry(w, dp), own(new THREE.MeshBasicMaterial({ map: square ? shadowTex.square : shadowTex.round, transparent: true, opacity, depthWrite: false, color: 0x000000 })), ...at(gx, gy, 0.0015), furniture, false);
+  const floorShadow = (gx, gy, w, dp, square, opacity = 0.55, yaw = 0, parentG = furniture) => {
+    const m = add(new THREE.PlaneGeometry(w, dp), own(new THREE.MeshBasicMaterial({ map: square ? shadowTex.square : shadowTex.round, transparent: true, opacity, depthWrite: false, color: 0x000000 })), ...at(gx, gy, 0.0015), parentG, false);
     m.rotation.set(-Math.PI / 2, 0, yaw); m.receiveShadow = false; m.renderOrder = 1; return m;
   };
   // a beam whose ends curve up (the kasagi of a gate), along x
@@ -136,9 +137,9 @@ export function createScene({ THREE, parent, renderer, playerColours = [0xf2c14e
     g.computeVertexNormals(); return g;
   };
   const sandCache = new Map();
-  function buildFurniture(sz) {
+  function buildFurniture(sz, place) {
     disposeGroup(furniture);
-    const L = S.layout(sz), d = L.d, h = L.plinth.half, top = L.plinth.top, k = d.k;
+    const L = S.layout(sz, place), d = L.d, h = L.plinth.half, top = L.plinth.top, k = d.k;
     rig.fit(L);
     // -- the plinth: a black foot set back, the charred cedar body, a rim of hinoki, sand, the slate stone
     shadows = true;
@@ -157,26 +158,28 @@ export function createScene({ THREE, parent, renderer, playerColours = [0xf2c14e
     const r = Math.max(0.42, h * 1.5 + d.height * 0.9);
     catcher = add(new THREE.PlaneGeometry(2 * r, 2 * r), own(new THREE.ShadowMaterial({ color: 0x140a04, opacity: 0.42, depthWrite: false })), 0, 0.002, 0, furniture, false);
     catcher.rotation.x = -Math.PI / 2; catcher.renderOrder = 1; catcher.receiveShadow = true;
-    // -- the console: a walnut top, tapered legs, an apron; black lacquer feet
-    const c = L.console, cx = c.c[0], cy = c.c[1], tt = 0.034, hx = c.half[0], hy = c.half[1];
-    box(2 * hx, tt, 2 * hy, mats.walnut, ...at(cx, cy, c.top - tt / 2), furniture, 0.006);
+    // -- the console: a walnut top, tapered legs, an apron; black lacquer feet. It is built in its own frame (x along it, y across it towards
+    //    its back) and stood where the arrangement puts it (spec.js layout: u, v; a mirrored arrangement has its back on the other hand)
+    const c = L.console, tt = 0.034, hx = c.half[0], hy = c.half[1], vs = Math.sign(c.u[0] * c.v[1] - c.u[1] * c.v[0]) || 1;
+    const cg = new THREE.Group(); cg.position.set(...at(c.c[0], c.c[1], 0)); cg.rotation.y = c.yaw; cg.userData.own = true; furniture.add(cg);
+    box(2 * hx, tt, 2 * hy, mats.walnut, ...at(0, 0, c.top - tt / 2), cg, 0.006);
     const legIn = 0.06, legH = c.top - tt;
     for (const sx of [-1, 1]) for (const sy of [-1, 1]) {
-      add(postGeo(0.026, 0.017, legH), mats.walnut, ...at(cx + sx * (hx - legIn), cy + sy * (hy - legIn), legH / 2));
-      add(new THREE.CylinderGeometry(0.02, 0.021, 0.012, 4, 1).rotateY(Math.PI / 4), mats.lacquer, ...at(cx + sx * (hx - legIn), cy + sy * (hy - legIn), 0.006));
-      floorShadow(cx + sx * (hx - legIn), cy + sy * (hy - legIn), 0.16, 0.16, false, 0.5);
+      add(postGeo(0.026, 0.017, legH), mats.walnut, ...at(sx * (hx - legIn), sy * (hy - legIn), legH / 2), cg);
+      add(new THREE.CylinderGeometry(0.02, 0.021, 0.012, 4, 1).rotateY(Math.PI / 4), mats.lacquer, ...at(sx * (hx - legIn), sy * (hy - legIn), 0.006), cg);
+      floorShadow(sx * (hx - legIn), sy * (hy - legIn), 0.16, 0.16, false, 0.5, 0, cg);
     }
-    for (const sy of [-1, 1]) box(2 * (hx - legIn), 0.055, 0.018, mats.walnut, ...at(cx, cy + sy * (hy - legIn), c.top - tt - 0.0275));
-    for (const sx of [-1, 1]) box(0.018, 0.055, 2 * (hy - legIn), mats.walnut, ...at(cx + sx * (hx - legIn), cy, c.top - tt - 0.0275));
-    floorShadow(cx, cy, 2 * hx + 0.25, 2 * hy + 0.25, true, 0.32);
-    // -- the die's tray: black lacquer walls lined with vermilion, a vermilion lip, indigo felt
-    const Tr = L.tray, tw = Tr.wall, th = Tr.rim, tz = c.top;
-    const felt3 = add(new THREE.PlaneGeometry(2 * Tr.half, 2 * Tr.half), mats.felt, ...at(Tr.c[0], Tr.c[1], tz + 0.0008), furniture, false); felt3.rotation.x = -Math.PI / 2;
-    for (const [x, y, w, dp, ix, iy] of [[Tr.c[0] - Tr.half, Tr.c[1], tw, 2 * Tr.half + tw, 1, 0], [Tr.c[0] + Tr.half, Tr.c[1], tw, 2 * Tr.half + tw, -1, 0], [Tr.c[0], Tr.c[1] - Tr.half, 2 * Tr.half + tw, tw, 0, 1], [Tr.c[0], Tr.c[1] + Tr.half, 2 * Tr.half + tw, tw, 0, -1]]) {
-      // (w is along the floor plan's x, dp along its y: in THREE, x and z)
-      box(w, th, dp, mats.lacquer, ...at(x, y, tz + th / 2), furniture, 0.004);
+    for (const sy of [-1, 1]) box(2 * (hx - legIn), 0.055, 0.018, mats.walnut, ...at(0, sy * (hy - legIn), c.top - tt - 0.0275), cg);
+    for (const sx of [-1, 1]) box(0.018, 0.055, 2 * (hy - legIn), mats.walnut, ...at(sx * (hx - legIn), 0, c.top - tt - 0.0275), cg);
+    floorShadow(0, 0, 2 * hx + 0.25, 2 * hy + 0.25, true, 0.32, 0, cg);
+    // -- the die's tray: black lacquer walls lined with vermilion, a vermilion lip, indigo felt (square to the table)
+    const Tr = L.tray, tw = Tr.wall, th = Tr.rim, tz = c.top, tc = [-0.3, vs * -0.06];
+    const felt3 = add(new THREE.PlaneGeometry(2 * Tr.half, 2 * Tr.half), mats.felt, ...at(tc[0], tc[1], tz + 0.0008), cg, false); felt3.rotation.x = -Math.PI / 2;
+    for (const [x, y, w, dp, ix, iy] of [[tc[0] - Tr.half, tc[1], tw, 2 * Tr.half + tw, 1, 0], [tc[0] + Tr.half, tc[1], tw, 2 * Tr.half + tw, -1, 0], [tc[0], tc[1] - Tr.half, 2 * Tr.half + tw, tw, 0, 1], [tc[0], tc[1] + Tr.half, 2 * Tr.half + tw, tw, 0, -1]]) {
+      // (w is along the table, dp across it: in THREE, x and z)
+      box(w, th, dp, mats.lacquer, ...at(x, y, tz + th / 2), cg, 0.004);
       const lw = ix ? 0.002 : w - 2 * tw, ld = iy ? 0.002 : dp - 2 * tw;
-      box(lw, th - 0.006, ld, mats.shu, ...at(x + ix * (tw / 2 + 0.001), y + iy * (tw / 2 + 0.001), tz + (th - 0.006) / 2 + 0.001));
+      box(lw, th - 0.006, ld, mats.shu, ...at(x + ix * (tw / 2 + 0.001), y + iy * (tw / 2 + 0.001), tz + (th - 0.006) / 2 + 0.001), cg);
     }
     // -- the lantern: a paper andon on the floor; walnut posts, a black cap, washi with a lattice, lit from inside
     const lx = L.lantern[0], ly = L.lantern[1], LH = 0.74, pw = 0.2, p0 = 0.17, p1 = 0.64;
@@ -211,7 +214,7 @@ export function createScene({ THREE, parent, renderer, playerColours = [0xf2c14e
     box(2 * postX, 0.02, 0.026, mats.walnut, 0, postH - 0.12, 0, sg);
     floorShadow(SC.c[0], SC.c[1], 2 * postX + 0.3, 0.5, true, 0.4, SC.yaw + Math.PI / 2);
     buildScroll(sg, SC, postH);
-    furnKey = sz;
+    furnKey = furnSig(sz, place);
   }
 
   // ---- the scroll (kakejiku): brocade of waves round a washi heart; a thin rod at the top, a roller with black ends at the bottom; ink and a red seal
@@ -279,9 +282,9 @@ export function createScene({ THREE, parent, renderer, playerColours = [0xf2c14e
     if (!state) return;
     const ts = (t === undefined || t === null ? now : t) / 1000, dt = last === null ? 1 / 60 : Math.min(0.1, Math.max(0, (now - last) / 1000)); last = now;
     if (size !== state.size || !blocks.length) { buildBodies(state.size); seedUsed = null; }      // (new meshes: painted again)
-    if (furnKey !== state.size) buildFurniture(state.size);
+    if (furnKey !== furnSig(state.size, state.place)) buildFurniture(state.size, state.place);
     if (seedUsed !== state.seed) paintBlocks(state.seed);
-    const pl = state.place || { x: 0, y: 0, yaw: 0 }, L = S.layout(state.size);
+    const pl = state.place || { x: 0, y: 0, yaw: 0 }, L = S.layout(state.size, pl);
     furniture.position.set(pl.x, 0, -pl.y); furniture.rotation.set(0, pl.yaw, 0);
     const key = `${state.rev}|${fontsVer}`; if (key !== scroll.key) { scroll.key = key; drawScore(state, playerColours); }
     // blocks and die from the host's bodies

@@ -39,6 +39,23 @@ everybody sees it swing. A plaque that cannot be pressed now **hangs turned roun
 cord and comes back with the new words. The score is a **hanging scroll** (kakejiku) on a stand like the board's: names, the points of each round, the total, an ensō round whose
 turn it is, the referee's last words.
 
+## Where it stands in your room
+
+The furniture is arranged for the real room (`arrange.js`). When the game is put down (**Move here**: the host gets where the player stands and the way
+they look), when the size changes, and when the server's room changes between rounds, the host works out where everything goes from the server's room
+(the scan a headset uploaded, in the common frame) and keeps it in the shared place (`place.arr`), so every headset, the PC view and the host's physics
+have the same arrangement:
+
+- nothing stands in a wall, on a sofa, a bed or a table, or off the room's floor; nothing stands on anything else of the game's or where the player stands;
+  there is room in front of the board to press it, and room to walk round the plinth if it can be had;
+- with room to spare it is the usual arrangement (the console on the player's left, the scroll at its far end, the lantern at its near end);
+- in a narrow room the console goes to the other side, closer to the plinth, further along, turned across the player's way, or behind the tower; the scroll
+  and the lantern go wherever is left; the tower itself may come nearer, go further, step aside or turn a little about the player, the least that fits;
+- when nothing fits (a room of 2 x 2 m) the arrangement that collides least is kept, and the host's log says so (`NOTHING FITS`).
+
+With no room scan everything stands as usual. `node --test apps/jenga/arrange.test.js` tries corridors, short rooms, a sofa and a table in the way and the
+giant tower; the desktop rehearsal `/?name=A&frame=0,0,0&room=demo` uploads a pretend room with a table and a bed.
+
 ## The look
 
 A quiet room with one warm light (`look.js`, `draw.js`, `fx.js`): the tower of pine blocks stained in the six colours, each colour's sign burnt into both ends; a plinth of charred
@@ -103,6 +120,7 @@ The board's **Room dim** (off, gentle = half of everything, full) is a shared se
 | `textures.js` | the textures, made at start: stained pine with burnt brands, yakisugi, walnut, hinoki, sand raked in rings, felt, washi, seigaiha, the ensō, glows |
 | `look.js` | the fonts (`fonts/`), the reflections (a small warm room as an environment map), the lights: key light with the tower's shadows, sky light, the lantern |
 | `draw.js` | the scene (one module for the page and the PC view): the blocks, the die, the plinth, the console and tray, the lantern, the scroll and its stand |
+| `arrange.js` | where the furniture stands in the real room: the host's search (the console's side, distance, turn; the scroll; the lantern; the tower's place) |
 | `stand.js` | the board: the stand, the lit paper panel, the hanging plaques (swing, turn round) |
 | `fx.js` | the moments: edge glows, the limit band, rings, sparks, sawdust, the words of the fall, the trail, the turn's ring, the motes on the world's clock |
 | `app.js`, `index.html` | the page on `createApp` |

@@ -292,3 +292,13 @@ Kept from the first plan's section 6, plus what came after it:
      shots. The PC view can be given a pretend state and packet instead (only in the test's browser: `feed.sample` and `session.doc` wrapped), which shows every phase still.
   Rehearsed through the real server and Jolt host: every phase on the PC view and the desktop page (a staged game, a nudged tower falling, the replay), a mouse click on the Start
   plaque pressing it, the three sizes; 57 Jenga tests. Not yet on a headset.
+- **2026-10-28 (night): Jenga arranges itself in the room** (Marek: "make sure that the room layout accommodates different room sizes and furniture placement -
+  if a space is narrow, the tables rearrange to still have optimal layout that makes sense and doesn't overlap with real-world objects"). `apps/jenga/arrange.js`:
+  a search on the host, from the server's room in the common frame (rule 1: worked out once, from shared data, and kept in the shared place as `place.arr`;
+  never from a page's own scan). Candidates in order of how far they are from the usual arrangement (the tower nearer, further, aside or turned about the
+  player; the console on either side, along or across, behind the tower; the scroll and the lantern in a few places each), outlines checked against the
+  walls (segments), the things on the floor (outlines with a height) and the floor's outline; the cheapest with no collision wins, or the one that collides
+  least. Learnt: a flat check is wrong for a stand whose beam passes over a table: between the game's own things only the feet count, against a wall the
+  whole width. 100 to 400 ms on the host, once per Move here. The layout (`spec.js`) takes the place: the console has two axes (along it, towards its back),
+  so a mirrored arrangement is the same code; an arrangement made for another size is not used. Rehearsed with `?room=demo` (the tower steps off the pretend
+  table) and in `arrange.test.js` (corridors, a short room, a sofa and a table, the giant tower in 4 x 3 m). Not yet in a real room.

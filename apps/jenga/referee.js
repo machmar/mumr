@@ -5,7 +5,7 @@
 // hands and a pretend clock.
 (function (J) {
   const need = (n) => (typeof module !== 'undefined' ? require(`./${n}.js`) : J);
-  const S = need('spec'), { Tower } = need('tower'), { Rules } = need('rules'), N = need('net'), R = need('replay'), Mu = need('music'), F = need('focus');
+  const S = need('spec'), { arrange } = need('arrange'), { Tower } = need('tower'), { Rules } = need('rules'), N = need('net'), R = need('replay'), Mu = need('music'), F = need('focus');
   const T = { dieStill: 0.7, cocked: 12, aftermath: 4500, backAfter: 3, putBack: 1.2, restWait: 0.3 };      // seconds, degrees, ms
   const DEFAULT_PLACE = { x: 1.6, y: 0.6, yaw: 0 };
   const DEBUG = () => typeof process !== 'undefined' && !!process.env && !!process.env.JENGA_DEBUG;
@@ -16,8 +16,8 @@
       this.Engine = opts.Engine || null; this.session = opts.session; this.room = opts.room || null; this.life = opts.life || (() => {});
       this.nowMs = 0; this.now = opts.now || (() => this.nowMs);
       this.rules = new Rules({ now: () => this.now(), present: (slot) => this.here().includes(slot) });
-      this.rules.s.place = Object.assign({}, DEFAULT_PLACE);
       if (opts.size) this.rules.s.size = opts.size;
+      this.rules.s.place = this.arranged(this.headOf(DEFAULT_PLACE), DEFAULT_PLACE.yaw);
       this.seed = opts.seed === undefined ? 1 : opts.seed;
       this.rec = new R.Recorder(); this.replay = null; this.frozen = null; this.timer = null; this.mode = N.MODE.live; this.progress = 0; this.culprit = null;
       this.lastRev = -1; this.t = 0; this.stats = { steps: 0, ms: 0, worst: 0 };
@@ -38,6 +38,17 @@
     }
     towerInfo() { const l = this.tower.levels(); return { full: l.full, top: l.top, topCount: l.topCount }; }
     realRoom() { return this.room && this.room.local ? this.room.local() : null; }
+    // ---- where the furniture stands (arrange.js): worked out from the real room for the player who put the game down, kept in the place
+    // where the player stood for a place that does not say (the tower is in front of them, the usual distance away)
+    headOf(pl) { const base = S.layout(this.rules.s.size).P[0]; return Number.isFinite(pl.hx) && Number.isFinite(pl.hy) ? [pl.hx, pl.hy] : [pl.x + Math.cos(pl.yaw) * base, pl.y + Math.sin(pl.yaw) * base]; }
+    arranged(head, yaw) {
+      const room = this.realRoom(), r = arrange({ size: this.rules.s.size, head, yaw, room });
+      this.arrangedFor = room;
+      this.life(`jenga: arranged for ${room ? `the room (${room.planes.length} planes)` : 'no room'}: tower ${r.place.x}, ${r.place.y}, console ${r.place.arr.c}${r.hard > 0 ? `, NOTHING FITS (collides ${r.hard.toFixed(1)})` : ''}`);
+      return Object.assign(r.place, { hyaw: +yaw.toFixed(4) });
+    }
+    // the same player, another size or another room
+    rearrange() { const pl = this.rules.s.place; this.rules.setPlace(this.arranged(this.headOf(pl), Number.isFinite(pl.hyaw) ? pl.hyaw : pl.yaw)); }
     // the state goes into the document when it has changed (every page and PC view reads it from there)
     publish() {
       const s = this.rules.s;
@@ -70,11 +81,13 @@
         lobby: () => { if (ph !== 'match_end') return false; r.toLobby(); this.makeTower(); return true; },
         size: () => {
           if (ph !== 'lobby') return false;
-          const i = S.SIZE_KEYS.indexOf(s.size); r.setSize(a.size && S.SIZES[a.size] ? a.size : S.SIZE_KEYS[(i + 1) % S.SIZE_KEYS.length]); this.makeTower(); return true;
+          const i = S.SIZE_KEYS.indexOf(s.size); r.setSize(a.size && S.SIZES[a.size] ? a.size : S.SIZE_KEYS[(i + 1) % S.SIZE_KEYS.length]); this.rearrange(); this.makeTower(); return true;
         },
         place: () => {
           if (!['lobby', 'round_end', 'match_end'].includes(ph) || ![a.x, a.y, a.yaw].every(Number.isFinite)) return false;
-          r.setPlace({ x: +a.x.toFixed(3), y: +a.y.toFixed(3), yaw: +a.yaw.toFixed(4) }); this.makeTower(); return true;
+          // (a page sends where its player stands, hx, hy, and the tower's place in front of them; the arrangement may move the tower to where it fits)
+          const head = Number.isFinite(a.hx) && Number.isFinite(a.hy) ? [a.hx, a.hy] : this.headOf(a);
+          r.setPlace(this.arranged(head, a.yaw)); this.makeTower(); return true;
         },
         reroll: () => { if (!['roll', 'pull'].includes(ph) || s.handled) return false; r.reroll('The die is rolled again'); this.tower.resetDie(); return true; },
         skip: () => { if (!this.replay) return false; this.replay.skip(); return true; },
@@ -110,9 +123,12 @@
 
     // ---- one host tick: dt seconds, nowMs, everybody's hands (common frame)
     step(dt, nowMs, hands) {
-      const t0 = typeof performance !== 'undefined' ? performance.now() : 0, tw = this.tower, r = this.rules, ph = r.phase;
+      const t0 = typeof performance !== 'undefined' ? performance.now() : 0, r = this.rules, ph = r.phase;
       this.t += dt; this.nowMs = nowMs;
       const room = this.realRoom();
+      // a new room (uploaded by a headset): the furniture is arranged for it again, between rounds (never under a game in play)
+      if (room !== this.arrangedFor && ['lobby', 'round_end', 'match_end'].includes(ph)) { this.rearrange(); this.makeTower(); }
+      const tw = this.tower;
       if (room !== tw.realRoom) tw.setRoom(room);
       tw.frozen = !!this.frozen;
       tw.step(dt, this.t, hands || []);

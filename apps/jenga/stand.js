@@ -259,7 +259,7 @@ export function createStand({ THREE, parent, mats }) {
   // where the board is (common frame): createApp's boards and the PC view
   function pose(state) {
     if (!state || !state.place) return null;
-    const Ly = J().layout(state.size), Bd = Ly.board, c = J().toCommon(state.place, Bd.c);
+    const Ly = J().layout(state.size, state.place), Bd = Ly.board, c = J().toCommon(state.place, Bd.c);
     return { x: c[0], y: c[1], h: Bd.bottom + h / 2, yaw: state.place.yaw + Bd.yaw, pitch: Bd.pitch };
   }
   function dispose() { for (const p of plaques.values()) disposePlaque(p); for (const g of own) g.dispose(); front.t.dispose(); back.t.dispose(); paperMat.dispose(); backMat.dispose(); parent.remove(root); }

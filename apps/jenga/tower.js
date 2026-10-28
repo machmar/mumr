@@ -23,7 +23,7 @@
     constructor(opts = {}) {
       this.size = S.SIZES[opts.size] ? opts.size : 'normal'; this.seed = (opts.seed === undefined ? 1 : opts.seed) >>> 0;
       this.place = Object.assign({ x: 0, y: 0, yaw: 0 }, opts.place || {});
-      this.d = S.dims(this.size); this.tun = S.tuning(this.size); this.lay = S.layout(this.size);
+      this.d = S.dims(this.size); this.tun = S.tuning(this.size); this.lay = S.layout(this.size, this.place);
       this.realRoom = opts.room || null;
       this.world = opts.Engine ? new opts.Engine(this.tun.world) : new M.physics.World({ substep: this.tun.world.substep, maxMove: this.tun.world.maxMove, rounds: 24 });
       this.world.setRoom(S.withFurniture(this.realRoom, this.size, this.place));
