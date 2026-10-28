@@ -161,7 +161,7 @@
     // ---- the log: every change of phase and everything the referee says (the turn, the roll, the score, why a round ended)
     logRules() {
       const s = this.rules.s, lg = this.lg || (this.lg = { phase: null, handled: null });
-      if (s.phase !== lg.phase) { this.life(`jenga: phase ${lg.phase} -> ${s.phase} (round ${s.round}, turn ${this.rules.name((s.players[s.turn] || {}).slot)}, roll ${s.roll === null ? '-' : S.COLOURS[s.roll].label}, handled ${s.handled === null || s.handled === undefined ? '-' : s.handled})`); lg.phase = s.phase; }
+      if (s.phase !== lg.phase) { this.life(`jenga: phase ${lg.phase} -> ${s.phase} (round ${s.round}, turn ${s.players[s.turn] ? this.rules.name(s.players[s.turn].slot) : '-'}, roll ${s.roll === null ? '-' : S.COLOURS[s.roll].label}, handled ${s.handled === null || s.handled === undefined ? '-' : s.handled})`); lg.phase = s.phase; }
       const tw = this.tower;
       if (tw && tw.handled !== lg.handled) { this.life(`jenga: the pulled block is ${tw.handled === null ? 'none' : `${tw.name(tw.handled)}`}`); lg.handled = tw.handled; }
     }

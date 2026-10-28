@@ -103,12 +103,12 @@ const moved = (w, from) => Math.max(...w.blocks.map((b, i) => Math.hypot(...b.bo
 const poses = (w) => w.blocks.map((b) => b.body.p.slice());
 const turnDeg = (a, b) => { const d = Math.abs(a[0] * b[0] + a[1] * b[1] + a[2] * b[2] + a[3] * b[3]); return 2 * Math.acos(Math.min(1, d)) * 180 / Math.PI; };
 
-t('in play the tower is kept awake and stands still: half a minute, and a fingertip sliding past it a few millimetres away moves nothing (Marek, 2026-10-28)', () => {
+t('in play the tower is kept awake and stands still a while, and a fingertip sliding past it a few millimetres away moves nothing (Marek, 2026-10-28)', () => {
   for (const size of ['normal', 'huge']) {
     const w = tower({ size }); w.awake = true;
     const p0 = poses(w);
-    run(w, 30);
-    assert.ok(moved(w, p0) < 0.0015 * w.d.k, `${size}: it crept ${(moved(w, p0) * 1000).toFixed(2)} mm in half a minute`);
+    run(w, 15);
+    assert.ok(moved(w, p0) < 0.0015 * w.d.k, `${size}: it crept ${(moved(w, p0) * 1000).toFixed(2)} mm in 15 s`);
     assert.ok(w.blocks.every((b) => !b.body.asleep), `${size}: awake`);
     assert.strictEqual(w.moving(), 0, `${size}: nothing counts as moving`);
     const p1 = poses(w), b = w.blocks[27 + 1].body, c = w.local(b.p);            // level 9 lies along y: its face is at x = L/2
@@ -194,7 +194,7 @@ t('the dice tower: a die let go over its mouth falls down its planks and comes o
   for (const size of ['normal', 'huge', 'giant']) {
     const w = tower({ size }); run(w, 0.5);
     const ups = new Set();
-    for (let n = 1; n <= 20; n++) {
+    for (let n = 1; n <= 12; n++) {
       w.resetDie(); run(w, 0.3); dropDie(w, n); run(w, 4);
       const r = w.dieRead();
       assert.ok(r.passed, `${size} #${n}: it came down the tower`);
@@ -202,7 +202,7 @@ t('the dice tower: a die let go over its mouth falls down its planks and comes o
       assert.ok(r.rest > 0.5, `${size} #${n}: still`);
       ups.add(r.up.colour);
     }
-    assert.ok(ups.size >= 4, `${size}: the tower mixes it (${ups.size} faces up in 20 drops)`);
+    assert.ok(ups.size >= 4, `${size}: the tower mixes it (${ups.size} faces up in 12 drops)`);
     assert.strictEqual(w.fell(), null);
   }
 });

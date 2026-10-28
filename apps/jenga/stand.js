@@ -167,12 +167,18 @@ export function createStand({ THREE, parent, mats }) {
     g.restore();
   }
   // the paper panel
+  // (the paper is painted once and copied: painting it pixel by pixel at every change of the state stopped a headset for a moment)
+  let paperC = null;
   function paintStatus(g, st, colours) {
     const { x, y, w: sw, h: sh } = B.status;
+    if (!paperC) {
+      paperC = document.createElement('canvas'); paperC.width = sw; paperC.height = sh; const pg = paperC.getContext('2d');
+      washi(pg, sw, sh, 11, [250, 240, 220], 0, 0);
+      const vg = pg.createRadialGradient(sw / 2, sh * 0.55, sh * 0.2, sw / 2, sh / 2, sw * 0.62);
+      vg.addColorStop(0, 'rgba(255,240,205,0)'); vg.addColorStop(1, 'rgba(120,80,40,0.28)'); pg.fillStyle = vg; pg.fillRect(0, 0, sw, sh);
+    }
     g.save(); g.beginPath(); g.rect(x, y, sw, sh); g.clip();
-    washi(g, sw, sh, 11, [250, 240, 220], x, y);
-    const vg = g.createRadialGradient(x + sw / 2, y + sh * 0.55, sh * 0.2, x + sw / 2, y + sh / 2, sw * 0.62);
-    vg.addColorStop(0, 'rgba(255,240,205,0)'); vg.addColorStop(1, 'rgba(120,80,40,0.28)'); g.fillStyle = vg; g.fillRect(x, y, sw, sh);
+    g.drawImage(paperC, x, y);
     // the left: an ensō, and in it the colour the die gave (its sign), or the player's colour
     const ex = x + 150, ey = y + sh / 2, er = 92;
     enso(g, ex, ey, er, { seed: 5 + (st.round || 0), width: 20 });

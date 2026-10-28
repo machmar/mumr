@@ -257,11 +257,18 @@ export function createScene({ THREE, parent, renderer, playerColours = [0xf2c14e
     for (const sx of [-1, 1]) { const len = Math.hypot(W * 0.3, hookY - rodY), cg = new THREE.CylinderGeometry(0.0013, 0.0013, len, 5); const cm = add(cg, mats.cord, sx * W * 0.15, (hookY + rodY) / 2, 0.004, grp, false); cm.rotation.z = -sx * Math.atan2(W * 0.3, hookY - rodY); }
     scroll.grp = grp; scroll.key = null;
   }
+  // (the brocade and the paper are painted once and copied: painting them pixel by pixel at every change of the state took a third of a second, and a
+  //  headset stopped for most of a second at every move: Marek's run, 2026-10-28)
+  let scrollBg = null;
   function drawScore(state, colours) {
     const g = scroll.g, W = SCW, H = scroll.H, B = 70;                   // (B: the brocade's width)
-    seigaiha(g, 0, 0, W, H, { r: 26 });
-    g.fillStyle = 'rgba(201,162,90,0.85)'; g.fillRect(B - 6, B - 6, W - 2 * B + 12, H - 2 * B + 12);                  // (a thin gold rule round the paper)
-    washi(g, W - 2 * B, H - 2 * B, 3, [246, 238, 222], B, B);
+    if (!scrollBg || scrollBg.height !== H) {
+      scrollBg = document.createElement('canvas'); scrollBg.width = W; scrollBg.height = H; const bg = scrollBg.getContext('2d');
+      seigaiha(bg, 0, 0, W, H, { r: 26 });
+      bg.fillStyle = 'rgba(201,162,90,0.85)'; bg.fillRect(B - 6, B - 6, W - 2 * B + 12, H - 2 * B + 12);                  // (a thin gold rule round the paper)
+      washi(bg, W - 2 * B, H - 2 * B, 3, [246, 238, 222], B, B);
+    }
+    g.clearRect(0, 0, W, H); g.drawImage(scrollBg, 0, 0);
     const x0 = B + 60, x1 = W - B - 60;
     g.textBaseline = 'alphabetic'; g.fillStyle = '#221a14'; g.textAlign = 'left';
     g.font = `800 108px ${FONT.head}`; g.fillText('Score', x0, B + 150);
@@ -304,13 +311,15 @@ export function createScene({ THREE, parent, renderer, playerColours = [0xf2c14e
   // hands: everybody's hands for the pinch's aim (fx.js), [{ at, gap, pinch }] in the common frame
   function update({ state, snap, now = performance.now(), t, lay, touches = [], heads = [], hands = [], deco = null, garden = 2, shades: sh = null }) {
     if (!state) return;
+    warmRestore();
     const ts = (t === undefined || t === null ? now : t) / 1000, dt = last === null ? 1 / 60 : Math.min(0.1, Math.max(0, (now - last) / 1000)); last = now;
     if (size !== state.size || !blocks.length) { buildBodies(state.size); seedUsed = null; }      // (new meshes: painted again)
     if (furnKey !== furnSig(state.size, state.place)) buildFurniture(state.size, state.place);
     if (seedUsed !== state.seed) paintBlocks(state.seed);
     const pl = state.place || { x: 0, y: 0, yaw: 0 }, L = S.layout(state.size, pl);
     furniture.position.set(pl.x, 0, -pl.y); furniture.rotation.set(0, pl.yaw, 0);
-    const key = `${state.rev}|${fontsVer}`; if (key !== scroll.key) { scroll.key = key; drawScore(state, playerColours); }
+    const T0 = performance.now(); timing.score = 0; timing.stand = 0; timing.fx = 0;
+    const key = `${fontsVer}|${state.round}|${state.rounds}|${state.phase === 'match_end'}|${JSON.stringify(S.scoreboard(state))}|${(state.ticker || []).slice(-3).join('|')}`; if (key !== scroll.key) { scroll.key = key; drawScore(state, playerColours); timing.score = performance.now() - T0; }
     // blocks and die from the host's bodies
     if (snap) {
       for (const it of snap.items) {
@@ -340,12 +349,17 @@ export function createScene({ THREE, parent, renderer, playerColours = [0xf2c14e
     if (lanternMat) lanternMat.emissiveIntensity = 0.78 * flick;
     if (lanternGlow) lanternGlow.material.opacity = 0.42 * flick;
     // the board, the moments
+    const T1 = performance.now();
     stand.update({ state, lay: lay || S.board(state, {}), touches, t: ts, dt, colours: playerColours, fonts: fontsVer });
+    timing.stand = performance.now() - T1;
     const moments = prevState && prevState.rev !== state.rev && S.momentsBetween ? S.momentsBetween(prevState, state) : [];
     if (arrived) moments.push('arrived');
     prevState = state;
+    const T2 = performance.now();
     fx.update({ state, snap, t: ts, dt, blocks, dieMesh, L, place: pl, moments, fonts: fontsVer, lampAt: rig.lampAt, heads, colours: playerColours, hands });
+    timing.fx = performance.now() - T2;
     decor.update({ plan: deco, level: garden, t: ts, wc: fx.clock(), lightK });
+    warmStep();
     shades.update({ lights: sh ? sh.lights : [], cursor: sh ? sh.cursor : null, dark: sh ? sh.dark : 0, t: ts, lightK });
   }
   function dispose() { stand.dispose(); fx.dispose(); decor.dispose(); shades.dispose(); for (const o of disposables) if (o && o.dispose) o.dispose(); parent.remove(root); }
@@ -361,6 +375,19 @@ export function createScene({ THREE, parent, renderer, playerColours = [0xf2c14e
   }
   // how dear this page's drawing is (its player's Quality: 2 high, 1 medium, 0 low): shadows, the motes, the garden's smoke and petals
   let qual = 2;
+  const timing = { score: 0, stand: 0, fx: 0 };
+  // Warming up: a headset makes a shader the first time a thing is drawn, and that stops it for a good part of a second; the moments (the glows, the
+  // rings, the words of the fall, the aim, YOUR TURN) appear one by one in a game, so each stopped the game once. For a few frames everything of the
+  // game that is hidden is drawn (the effects are at no strength then: nothing is seen), and so are `extra` things of the engine's (the room's dim).
+  let warm = 0, warmExtra = [], warmed = [];
+  function warmUp(extra = [], frames = 3) { warm = frames; warmExtra = extra; }
+  function warmRestore() { for (const o of warmed) o.visible = false; warmed = []; }          // (first thing in a frame: the frame then sets what it shows)
+  function warmStep() {
+    if (warm <= 0) return;
+    warm--;
+    const show = (o) => { if (!o.visible && (o.isMesh || o.isPoints || o.isSprite || o.isLine || o.isGroup || o.isObject3D)) { o.visible = true; warmed.push(o); } };
+    root.traverse(show); for (const o of warmExtra) show(o);
+  }          // (ms this frame: the scroll redrawn, the board, the moments; app.js logs a slow frame with them)
   function quality(q) { if (q === qual) return; qual = q; rig.quality(q); fx.quality(q); decor.quality && decor.quality(q); }
-  return { root, update, relights, quality, boardPose: stand.pose, boardAspect: stand.aspect, boardWidth: stand.width, dispose, group: { furniture, bodies, overlay } };
+  return { root, update, relights, quality, timing, warmUp, boardPose: stand.pose, boardAspect: stand.aspect, boardWidth: stand.width, dispose, group: { furniture, bodies, overlay } };
 }

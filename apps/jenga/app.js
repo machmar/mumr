@@ -99,7 +99,8 @@ function press(id) {
   app.S.press(null, id);
 }
 
-const perf = { at: 0, frames: 0, worst: 0, ms: 0, t0: 0 };          // (the frame rate, into the server log every 5 s)
+const perf = { at: 0, frames: 0, worst: 0, ms: 0, t0: 0, progs: 0, tex: 0 };
+let wasXR = false, warmedOnce = false;          // (the frame rate, into the server log every 5 s)
 app = await createApp({
   THREE, OrbitControls, anchorKey: 'mumr.jenga.anchor',
   session: { game: J.GAME, player: J.PLAYER, actions: J.ACTIONS, press: J.press, kinds: J.KINDS },
@@ -115,6 +116,9 @@ app = await createApp({
   draw: (a, now) => {
     perf.t0 = performance.now();
     applyQuality(a);
+    // (on entering the headset, and once at the start: every shader of the game is made at once, not in the middle of a move)
+    const inXR = !!(a.xr && a.xr());
+    if (inXR !== wasXR || !warmedOnce) { wasXR = inXR; warmedOnce = true; scene3d.warmUp(['dim', 'relight'].map((n) => a.scene.getObjectByName(n)).filter(Boolean)); }
     const sp = a.space;
     if (sp.ok) { common.position.set(sp.frame.x, sp.fz, -sp.frame.y); common.rotation.set(0, sp.frame.yaw, 0); } else { common.position.set(0, 0, 0); common.rotation.set(0, 0, 0); }
     const snap = stream.at(now);
@@ -124,7 +128,11 @@ app = await createApp({
       shades: { lights, cursor: marking(a, now, lights), dark: a.dimLevel().dark } });
     a.relight(scene3d.relights());                       // (the lantern lights the real room: the dim lifts round it, the walls warm)
     perf.frames++; perf.worst = Math.max(perf.worst, now - lastDraw); perf.ms += performance.now() - perf.t0;
-    if (now - perf.at >= 5000) { app.life(`jenga perf: ${(perf.frames * 1000 / (now - perf.at)).toFixed(0)} fps, worst frame ${perf.worst.toFixed(0)} ms, scene ${(perf.ms / Math.max(1, perf.frames)).toFixed(1)} ms, ${a.renderer ? a.renderer.info.render.calls : '?'} draw calls`); perf.at = now; perf.frames = 0; perf.worst = 0; perf.ms = 0; }
+    const info3 = a.renderer.info, progs = info3.programs ? info3.programs.length : 0;
+    // (a frame of more than 150 ms is said at once, with what was new: a shader made for the first time stalls a headset for most of a second)
+    if (now - lastDraw > 150 && perf.frames > 1) app.life(`jenga perf: a frame of ${(now - lastDraw).toFixed(0)} ms (${state().phase}; programs ${perf.progs} -> ${progs}, textures ${perf.tex} -> ${info3.memory.textures}, geometries ${info3.memory.geometries}; scroll ${scene3d.timing.score.toFixed(0)} ms, board ${scene3d.timing.stand.toFixed(0)} ms, moments ${scene3d.timing.fx.toFixed(0)} ms)`);
+    perf.progs = progs; perf.tex = info3.memory.textures;
+    if (now - perf.at >= 5000) { app.life(`jenga perf: ${(perf.frames * 1000 / (now - perf.at)).toFixed(0)} fps, worst frame ${perf.worst.toFixed(0)} ms, scene ${(perf.ms / Math.max(1, perf.frames)).toFixed(1)} ms, ${info3.render.calls} draw calls, ${progs} programs, ${info3.memory.textures} textures`); perf.at = now; perf.frames = 0; perf.worst = 0; perf.ms = 0; }
     // the soundtrack plays the host's record (every headset the same track at the same place) and follows the shared state and the bodies
     if (sound.music.ctx) { const h = a.head(), sp = a.space, c = sp.ok ? sp.toCommon([h[0], h[1]]) : [h[0], h[1]]; sound.update(app.S.doc.jenga || null, snap ? snap.items : null, Math.min(0.1, (now - lastDraw) / 1000), app.S.game('music'), { x: c[0], y: c[1], yaw: sp.ok ? sp.yawToCommon(h[2]) : h[2] }, app.S.doc.jmusic || null); }
     lastDraw = now;
