@@ -69,10 +69,19 @@ function pinchHands(a) {
 }
 // where everybody stands, in the common frame (this player's head and the others' from presence): the scene lights the feet of whoever is on turn
 function heads(a, now) {
-  const sp = a.space, c = (x, y) => (sp.ok ? sp.toCommon([x, y]) : [x, y]), h = a.head(), out = [];
-  if (a.S.me !== null && a.S.me !== undefined) { const p = c(h[0], h[1]); out.push({ slot: a.S.me, x: p[0], y: p[1] }); }
-  for (const o of a.presence.others(now)) { const p = c(o.head[0], o.head[1]); out.push({ slot: o.slot, x: p[0], y: p[1] }); }
+  const sp = a.space, c = (x, y) => (sp.ok ? sp.toCommon([x, y]) : [x, y]), yw = (y) => (sp.ok ? sp.yawToCommon(y) : y), h = a.head(), out = [];
+  const z = (v) => (Number.isFinite(v) ? v : 1.6);
+  if (a.S.me !== null && a.S.me !== undefined) { const p = c(h[0], h[1]); out.push({ slot: a.S.me, x: p[0], y: p[1], z: z(h[3]), yaw: yw(h[2]), me: true }); }
+  for (const o of a.presence.others(now)) { const p = c(o.head[0], o.head[1]); out.push({ slot: o.slot, x: p[0], y: p[1], z: z(o.head[3]), yaw: yw(o.head[2]) }); }
   return out;
+}
+// a bell on this headset when its player's turn comes (the halo and the words of light over them are everybody's: fx.js)
+let turnKey = null;
+function turnBell(s) {
+  const p = s.players && s.players[s.turn], key = ['roll', 'pull', 'place'].includes(s.phase) && p ? `${s.round}|${s.moves}|${p.slot}` : null;
+  if (key === turnKey) return;
+  turnKey = key;
+  if (key && p.slot === app.S.me && sound.music.ctx) { sound.music.bell(659.25, 0.22); sound.music.bell(880, 0.16, 0.18); }
 }
 
 // the buttons of the board: the host's commands (the game is the host's), and the settings (acting on the shared settings, or on this player's own)
@@ -109,6 +118,7 @@ app = await createApp({
     const sp = a.space;
     if (sp.ok) { common.position.set(sp.frame.x, sp.fz, -sp.frame.y); common.rotation.set(0, sp.frame.yaw, 0); } else { common.position.set(0, 0, 0); common.rotation.set(0, 0, 0); }
     const snap = stream.at(now);
+    turnBell(state());
     const lights = roomLights();
     scene3d.update({ state: state(), snap, now, t: a.S.serverNow(), lay: J.board(state(), info()), touches: a.boardTouches('main'), heads: heads(a, now), hands: pinchHands(a), deco: a.S.doc.jdeco || null, garden: a.S.game('garden'),
       shades: { lights, cursor: marking(a, now, lights), dark: a.dimLevel().dark } });
