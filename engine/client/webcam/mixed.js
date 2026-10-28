@@ -176,6 +176,8 @@ export async function startMixedView(V) {
     // the room's dim on the picture, at the moment the picture shows (DELAY ms ago); none on the PC view, which has no real room
     const sn = feed.serverNow();
     dim.linear = !!(lensPass.plan.distort && tex);                   // (the lens pass draws the world into a linear target, over the picture)
+    // (the app's lights on the real room, as the headsets draw them: the view hands them over as V.relights(), in this page's world; the room is the server's)
+    if (typeof V.relights === 'function') { dim.surfaces(feed.doc.room ? feed.doc.room.data : null, V.world || null); dim.lights(WCV.running ? V.relights() : []); }
     dim.update(WCV.running ? M.dim.level(feed.doc.dim, sn === null ? null : sn - DELAY.ms) : M.dim.level(null));
     if (camMarks) { if (P) camMarks.exclude.add(myCam.id); else camMarks.exclude.delete(myCam.id); }              // (the camera this page looks through is not drawn in it)
     publishCamera(performance.now(), P);

@@ -119,6 +119,11 @@ piece, for an app that needs something else:
   `app.boardTouches(id)` gives this frame's fingertips at its buttons (`{ button, top, push, held }`) for the app's own drawing of the press.
 - **An app with its own light**: `app.lights` is the engine's two lights (`{ hemi, sun }`); an app that lights its scene itself hides them (`visible = false`:
   a light at intensity 0 still costs every pixel).
+- **Lights that light the real room** (`app.relight`; apps/jenga's lantern): give the engine this frame's lights of your world, `app.relight([{ at:
+  THREE.Vector3 (world), colour, range (m), power (0..1) }])` (at most 8, the strongest), every frame or when they change. Round each one the room's
+  dim lifts off the real walls, floor and table tops of the room scan and they take a little of its colour, so a lantern by a wall seems to throw its
+  light on the real wall, the same on every headset (the room is the server's, the lights come from your shared state) and on a webcam page whose
+  view hands them over as `window.view.relights()`. With no scan only a floor round the player is lit; with no dim only the warm colour is laid on.
 - The engine's menu is on the wrist: `new MUMR.sysmenu.SysMenu(session, lineup, { exit, roomSetup, roomUsed })`; add `SysMenu.ACTIONS`
   to the session's `actions` and call `sys.press(id)` first from the `action` listener; draw it at `sys.place(head, leftHandJoints,
   floorY)` with `SysMenu.layout(sys.info())`, and send it as panel `wrist` with `{ sys: sys.info() }` in the menus' info. The app's own
