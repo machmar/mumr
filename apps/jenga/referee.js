@@ -16,6 +16,7 @@
       this.Engine = opts.Engine || null; this.session = opts.session; this.room = opts.room || null; this.life = opts.life || (() => {});
       this.nowMs = 0; this.now = opts.now || (() => this.nowMs);
       this.rules = new Rules({ now: () => this.now(), present: (slot) => this.here().includes(slot) });
+      { const r = this.rules, say = r.say.bind(r); r.say = (x) => { this.life(`jenga: says "${x}"`); return say(x); }; }   // (into the log too)
       if (opts.size) this.rules.s.size = opts.size;
       this.rules.s.place = this.arranged(this.headOf(DEFAULT_PLACE), DEFAULT_PLACE.yaw);
       this.seed = opts.seed === undefined ? 1 : opts.seed;
@@ -152,8 +153,16 @@
         if (['roll', 'pull', 'place'].includes(ph)) this.play(dt, nowMs);
       }
       this.publish();
+      this.logRules();
       this.focusStep(dt, nowMs);
       if (t0) { const ms = performance.now() - t0; this.stats.steps++; this.stats.ms += ms; this.stats.worst = Math.max(this.stats.worst, ms); }
+    }
+    // ---- the log: every change of phase and everything the referee says (the turn, the roll, the score, why a round ended)
+    logRules() {
+      const s = this.rules.s, lg = this.lg || (this.lg = { phase: null, handled: null });
+      if (s.phase !== lg.phase) { this.life(`jenga: phase ${lg.phase} -> ${s.phase} (round ${s.round}, turn ${this.rules.name((s.players[s.turn] || {}).slot)}, roll ${s.roll === null ? '-' : S.COLOURS[s.roll].label}, handled ${s.handled === null || s.handled === undefined ? '-' : s.handled})`); lg.phase = s.phase; }
+      const tw = this.tower;
+      if (tw && tw.handled !== lg.handled) { this.life(`jenga: the pulled block is ${tw.handled === null ? 'none' : `${tw.name(tw.handled)}`}`); lg.handled = tw.handled; }
     }
     // ---- the focus: ten times a second the tension is read off the tower, and the room's dim (engine dim.js) is asked for when the look has to change
     dimLevel() { const g = this.session && this.session.game ? this.session.game('dim') : undefined; return g === undefined ? 2 : g; }

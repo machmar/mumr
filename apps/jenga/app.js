@@ -62,6 +62,7 @@ function press(id) {
   app.S.press(null, id);
 }
 
+const perf = { at: 0, frames: 0, worst: 0, ms: 0, t0: 0 };          // (the frame rate, into the server log every 5 s)
 app = await createApp({
   THREE, OrbitControls, anchorKey: 'mumr.jenga.anchor',
   session: { game: J.GAME, player: J.PLAYER, actions: J.ACTIONS, press: J.press, kinds: J.KINDS },
@@ -75,6 +76,7 @@ app = await createApp({
     lights.hemi.visible = false; lights.sun.visible = false;              // (the scene has its own light: look.js)
   },
   draw: (a, now) => {
+    perf.t0 = performance.now();
     const sp = a.space;
     if (sp.ok) { common.position.set(sp.frame.x, sp.fz, -sp.frame.y); common.rotation.set(0, sp.frame.yaw, 0); } else { common.position.set(0, 0, 0); common.rotation.set(0, 0, 0); }
     const snap = stream.at(now);
@@ -82,6 +84,8 @@ app = await createApp({
     scene3d.update({ state: state(), snap, now, t: a.S.serverNow(), lay: J.board(state(), info()), touches: a.boardTouches('main'), heads: heads(a, now), deco: a.S.doc.jdeco || null, garden: a.S.game('garden'),
       shades: { lights, cursor: marking(a, now, lights), dark: a.dimLevel().dark } });
     a.relight(scene3d.relights());                       // (the lantern lights the real room: the dim lifts round it, the walls warm)
+    perf.frames++; perf.worst = Math.max(perf.worst, now - lastDraw); perf.ms += performance.now() - perf.t0;
+    if (now - perf.at >= 5000) { app.life(`jenga perf: ${(perf.frames * 1000 / (now - perf.at)).toFixed(0)} fps, worst frame ${perf.worst.toFixed(0)} ms, scene ${(perf.ms / Math.max(1, perf.frames)).toFixed(1)} ms, ${a.renderer ? a.renderer.info.render.calls : '?'} draw calls`); perf.at = now; perf.frames = 0; perf.worst = 0; perf.ms = 0; }
     // the soundtrack plays the host's record (every headset the same track at the same place) and follows the shared state and the bodies
     if (sound.music.ctx) { const h = a.head(), sp = a.space, c = sp.ok ? sp.toCommon([h[0], h[1]]) : [h[0], h[1]]; sound.update(app.S.doc.jenga || null, snap ? snap.items : null, Math.min(0.1, (now - lastDraw) / 1000), app.S.game('music'), { x: c[0], y: c[1], yaw: sp.ok ? sp.yawToCommon(h[2]) : h[2] }, app.S.doc.jmusic || null); }
     lastDraw = now;
