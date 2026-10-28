@@ -276,7 +276,8 @@ Kept from the first plan's section 6, plus what came after it:
 - **2026-10-28: Jenga's look** (Marek: "make it feel good, very pretty, very polished ... zen-like ... re-imagine the menu, it does not have to match the wrist menu"). The scene was
   redrawn (`look.js`, `textures.js`, `draw.js`, `stand.js`, `fx.js`, apps/jenga/README.md "The look"), the board became a stand with hanging plaques, and the engine got two small
   generic things: **`boards: [{ panel: false }]`** with `app.boardTouches(id)` (the engine presses a board the app draws) and **`app.lights`**. What was learnt:
-  1. **A sprite faces each viewer: it breaks rule 1.** The old TIMBER banner was a sprite, so every headset saw it turned its own way. Words for everybody are now a band round the tower
+  1. **A sprite faces each viewer: words on one break rule 1** (a round glow, a mote of dust or a spark looks the same from everywhere, so those may be
+     sprites; anything with a front may not). The old TIMBER banner was a sprite, so every headset saw it turned its own way. Words for everybody are now a band round the tower
      (a cylinder whose far half is not drawn, so it never reads backwards), turning on the server's clock: the same place and the same turn for everybody, readable from all sides.
   2. **Every motion on the server's clock.** The pulses of the old markers ran on each page's `performance.now()`: the same glow at different moments on two headsets. The lantern's
      flicker, the sway of the plaques, the turn of the words and the breathing of the glows now follow `session.serverNow()` (`feed.serverNow()` on the PC view). A swing after a press
