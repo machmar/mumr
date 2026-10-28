@@ -12,7 +12,8 @@
 //   st.update({ state, lay, touches, t (s, server), dt, colours })   every frame
 //   st.pose(state) -> { x, y, h, yaw, pitch }   where the board is (common frame), for createApp's boards
 import { washi, enso, drawShape, hash } from './textures.js';
-import { FONT } from './look.js';
+import { FONT, mergeStatic } from './look.js';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 
 const J = () => window.JENGA;
 const hex = (c) => `#${(c >>> 0).toString(16).padStart(6, '0')}`;
@@ -83,6 +84,8 @@ export function createStand({ THREE, parent, mats }) {
   const fw = 0.014;
   for (const [x, y, ww, hh] of [[pcx, sy0 + fw / 2, pw + 2 * fw, fw], [pcx, sy1 - fw / 2, pw + 2 * fw, fw], [sx0 - fw / 2, pcy, fw, ph], [sx1 + fw / 2, pcy, fw, ph]]) mesh(uvScale(new THREE.BoxGeometry(ww, hh, 0.034), [Math.max(ww, hh) / 0.3, 0.1]), mats.walnut, x, y, -0.012);
 
+  mergeStatic(THREE, mergeGeometries, stand);
+
   // ---- the plaques
   const cordMat = mats.cord, backMat = new THREE.MeshStandardMaterial({ map: back.t, roughness: 0.7, envMap: mats.env, envMapIntensity: 0.4 });
   const plaques = new Map();            // id (or label for a tag) -> { node, pivot, spinG, rect, kind, front, back, mat, swing, swingV, spin, spinV, target, shown, want }
@@ -115,18 +118,19 @@ export function createStand({ THREE, parent, mats }) {
     const mat = new THREE.MeshStandardMaterial({ map: front.t, roughness: 0.62, envMap: mats.env, envMapIntensity: 0.5, emissive: 0xffb060, emissiveIntensity: 0 });
     const fM = new THREE.Mesh(face(shape, b, false), mat); fM.position.z = thick / 2 + 0.0019; spinG.add(fM);
     const bM = new THREE.Mesh(face(shape, b, true), backMat); bM.position.z = -thick / 2 - 0.0019; spinG.add(bM);
-    // the cord: two strands from the rail to a ring at the plaque's top
-    const top = cy - ry + bh / 2 - (b.kind === 'token' ? 0 : 0.004), len = Math.max(0.004, -top), strands = [];
+    // the cord: two strands from the rail to a knot at the plaque's top (one mesh)
+    const top = cy - ry + bh / 2 - (b.kind === 'token' ? 0 : 0.004), len = Math.max(0.004, -top), parts = [];
     for (const sx of [-1, 1]) {
-      const cg = new THREE.CylinderGeometry(0.0011, 0.0011, Math.hypot(len, 0.007), 5); const c = new THREE.Mesh(cg, cordMat);
-      c.position.set(sx * 0.0035, top / 2, 0.001); c.rotation.z = sx * Math.atan2(0.007, len); pivot.add(c); strands.push(c);
+      const g = new THREE.CylinderGeometry(0.0011, 0.0011, Math.hypot(len, 0.007), 5); g.rotateZ(sx * Math.atan2(0.007, len)); g.translate(sx * 0.0035, top / 2, 0.001); parts.push(g);
     }
-    const knot = new THREE.Mesh(new THREE.SphereGeometry(0.0028, 8, 6), cordMat); knot.position.set(0, top, 0.002); pivot.add(knot);
-    const p = { key, node, pivot, spinG, body, fM, bM, mat, strands, knot, rect: b, kind: b.kind, i, swing: 0, swingV: 0, spin: 0, spinV: 0, target: 0, shown: null, sig: null, glow: 0 };
+    parts.push(new THREE.SphereGeometry(0.0028, 8, 6).translate(0, top, 0.002));
+    const cordGeo = mergeGeometries(parts.map((g) => g.toNonIndexed()), false); for (const g of parts) g.dispose();
+    const cord = new THREE.Mesh(cordGeo, cordMat); pivot.add(cord);
+    const p = { key, node, pivot, spinG, body, fM, bM, mat, cord, rect: b, kind: b.kind, i, swing: 0, swingV: 0, spin: 0, spinV: 0, target: 0, shown: null, sig: null, glow: 0 };
     plaques.set(key, p);
     return p;
   }
-  function disposePlaque(p) { root.remove(p.node); p.body.dispose(); p.fM.geometry.dispose(); p.bM.geometry.dispose(); p.mat.dispose(); for (const s of p.strands) s.geometry.dispose(); p.knot.geometry.dispose(); }
+  function disposePlaque(p) { root.remove(p.node); p.body.dispose(); p.fM.geometry.dispose(); p.bM.geometry.dispose(); p.mat.dispose(); p.cord.geometry.dispose(); }
 
   // ---- drawing the faces
   const content = (b) => `${b.kind}|${b.label}|${b.value}|${b.active ? 1 : 0}|${b.level === undefined ? '' : b.level}`;
@@ -262,6 +266,6 @@ export function createStand({ THREE, parent, mats }) {
     const Ly = J().layout(state.size, state.place), Bd = Ly.board, c = J().toCommon(state.place, Bd.c);
     return { x: c[0], y: c[1], h: Bd.bottom + h / 2, yaw: state.place.yaw + Bd.yaw, pitch: Bd.pitch };
   }
-  function dispose() { for (const p of plaques.values()) disposePlaque(p); for (const g of own) g.dispose(); front.t.dispose(); back.t.dispose(); paperMat.dispose(); backMat.dispose(); parent.remove(root); }
+  function dispose() { for (const p of plaques.values()) disposePlaque(p); for (const g of own) g.dispose(); stand.traverse((o) => { if (o.geometry) o.geometry.dispose(); }); front.t.dispose(); back.t.dispose(); paperMat.dispose(); backMat.dispose(); parent.remove(root); }
   return { root, update, pose, dispose, aspect: H / W, width: w };
 }

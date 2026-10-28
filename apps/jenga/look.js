@@ -66,3 +66,32 @@ export function createRig({ THREE, renderer, parent }) {
   }
   return { group, hemi, key, lamp, fit, update, lampAt: null };
 }
+
+// ---- fewer draw calls: the meshes under `root` that never move on their own are merged, one mesh for each material (and shadow setting). A mesh
+// with several materials, a transparent one, or one marked userData.keep stays as it is. Every merged mesh goes straight under `root` (its
+// transform taken into the geometry), marked userData.own. merge: BufferGeometryUtils.mergeGeometries.
+export function mergeStatic(THREE, merge, root) {
+  const groups = new Map(), drop = [];
+  root.updateMatrixWorld(true);
+  const inv = new THREE.Matrix4().copy(root.matrixWorld).invert(), m = new THREE.Matrix4();
+  root.traverse((o) => {
+    if (!o.isMesh || o === root || Array.isArray(o.material) || o.material.transparent || o.userData.keep || o.isInstancedMesh) return;
+    const key = `${o.material.uuid}|${o.castShadow}|${o.receiveShadow}|${o.renderOrder}`;
+    let g = o.geometry.index ? o.geometry.toNonIndexed() : o.geometry.clone();
+    for (const name of Object.keys(g.attributes)) if (!['position', 'normal', 'uv'].includes(name)) g.deleteAttribute(name);
+    if (!g.attributes.uv) return;
+    g.applyMatrix4(m.multiplyMatrices(inv, o.matrixWorld));
+    if (!groups.has(key)) groups.set(key, { mat: o.material, cast: o.castShadow, receive: o.receiveShadow, order: o.renderOrder, geos: [] });
+    groups.get(key).geos.push(g); drop.push(o);
+  });
+  for (const o of drop) { o.parent.remove(o); o.geometry.dispose(); }
+  const out = [];
+  for (const g of groups.values()) {
+    const geo = g.geos.length === 1 ? g.geos[0] : merge(g.geos, false);
+    if (g.geos.length > 1) for (const x of g.geos) x.dispose();
+    if (!geo) continue;
+    const mesh = new THREE.Mesh(geo, g.mat); mesh.castShadow = g.cast; mesh.receiveShadow = g.receive; mesh.renderOrder = g.order; mesh.userData.own = true;
+    root.add(mesh); out.push(mesh);
+  }
+  return out;
+}

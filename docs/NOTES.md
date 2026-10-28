@@ -286,8 +286,10 @@ Kept from the first plan's section 6, plus what came after it:
      caught up over a few seconds. The puff of sawdust of the first block on the ground is on the same clock, so the replay shows it again in slow motion.
   4. **The blocks were never painted again after a size change** (new meshes, the same seed: all of them the first colour). The meshes are painted whenever they are made since.
   5. **Lights cost every pixel even at intensity 0**: the engine's lights are hidden, not turned down. In a software renderer the scene costs about twice the old one (shadows,
-     reflections, the lantern as a point light); 230 draw calls and one 1024 shadow map, with only the tower, the die and the plinth casting and only the sand and the floor round the
-     tower receiving. Not yet measured on a Quest.
+     reflections, the lantern as a point light); one 1024 shadow map, with only the tower and the plinth casting and only the sand and the floor round the tower
+     receiving. The draw calls came down from about 300 to 111 (shadow pass included) with the same picture: the blocks are instanced (one InstancedMesh for
+     each of the 12 stains), the furniture and the board's stand are merged per material once built (`look.js mergeStatic`), a plaque's cord is one mesh.
+     Not yet measured on a Quest.
   6. Fonts for canvas text must be in the repo (`fonts/`, SIL OFL, loaded with `FontFace` from the app's own server): a headset on the LAN may have no internet.
   7. Rehearsing the moments in a headless browser: a screenshot waits for a frame, and with three pages on a software renderer a frame takes a second, so a whole replay goes by between two
      shots. The PC view can be given a pretend state and packet instead (only in the test's browser: `feed.sample` and `session.doc` wrapped), which shows every phase still.

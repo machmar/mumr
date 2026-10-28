@@ -151,5 +151,5 @@ Everything here ran on the PC: Node tests (physics with pretend hands, the whole
 Start, the die thrown by a pinch, a block pulled and put on top, scored; the fall with the replay). **Not yet on a headset**: how a real pinch finds a 15 mm block at the normal size
 (huge and giant should be easier), the feel of the lag of a tight block, the board at arm's length, the audio on the Quest browser (it plays after the first tap: the Enter button),
 the soundtrack with real tracks, and a four-player round. The look (2026-10-28) was checked in a desktop browser only: whether the Quest keeps its frame rate with the
-shadows and the reflections (about 230 draw calls and one 1024 shadow map), how the shadows on the real floor, the lantern's light and the letters of light read over passthrough,
+shadows and the reflections (111 draw calls with the shadow pass, the blocks instanced and the furniture merged; one 1024 shadow map), how the shadows on the real floor, the lantern's light and the letters of light read over passthrough,
 and the plaques at arm's length. And the room's dim on a real passthrough: the numbers in the table above are a first guess (how dark a living room can get before the hands and the way to the wall are lost, how the grey reads against the lantern).

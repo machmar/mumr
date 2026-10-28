@@ -12,8 +12,9 @@
 //   the lantern  a paper andon on the floor at the end of the table: the scene's warm light (look.js), its flicker the same everywhere
 //   the moments  in fx.js
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { ATLAS, blockAtlas, dieFace, yakisugi, walnut, hinoki, sand, felt, washi, seigaiha, enso, glow, blobShadow } from './textures.js';
-import { FONT, loadFonts, environment, createRig } from './look.js';
+import { FONT, loadFonts, environment, createRig, mergeStatic } from './look.js';
 import { createStand } from './stand.js';
 import { createFx } from './fx.js';
 
@@ -80,24 +81,30 @@ export function createScene({ THREE, parent, renderer, playerColours = [0xf2c14e
     return [D[0], D[1], D[4], D[5], D[3], D[2]].map((ci, k) => { const c = S.COLOURS[ci], t = dieFace(THREE, c.hex, c.shape, 70 + k); own(t.map); own(t.normal); return std({ map: t.map, normalMap: t.normal, normalScale: new THREE.Vector2(0.6, 0.6), roughness: 0.45, envMapIntensity: 0.65 }); });
   }
 
-  // ---- the blocks and the die
-  let size = null, geo = null, dieMesh = null;
+  // ---- the blocks and the die. A block is an Object3D that holds where it is (fx.js reads it) and is drawn as one instance of the InstancedMesh of
+  // its stain: 12 draw calls for 54 blocks, in the picture and in the shadow
+  let size = null, geo = null, dieMesh = null, inst = [];
   const blocks = [];
   function buildBodies(sz) {
-    for (const m of blocks) bodies.remove(m);
     blocks.length = 0;
     if (dieMesh) bodies.remove(dieMesh);
     const d = S.dims(sz), L = S.layout(sz);
     geo = blockGeometry(d);
-    for (let i = 0; i < S.BLOCKS; i++) { const m = new THREE.Mesh(geo, blockMat(0, 0)); m.visible = false; m.castShadow = true; m.receiveShadow = true; m.userData.i = i; bodies.add(m); blocks.push(m); }
+    for (let i = 0; i < S.BLOCKS; i++) { const o = new THREE.Object3D(); o.geometry = geo; o.visible = false; o.userData.i = i; blocks.push(o); }
     dieMesh = new THREE.Mesh(own(new RoundedBoxGeometry(L.die.size, L.die.size, L.die.size, 3, L.die.size * 0.13)), dieMaterials());
     dieMesh.visible = false; bodies.add(dieMesh);
     size = sz;
   }
   let seedUsed = null;
   function paintBlocks(seed) {
-    const col = S.colourOrder(seed);
-    blocks.forEach((m, i) => { m.material = blockMat(col[i], i % 2); });
+    const col = S.colourOrder(seed), byMat = new Map();
+    for (const im of inst) { bodies.remove(im); im.dispose(); }
+    blocks.forEach((o, i) => { const m = blockMat(col[i], i % 2); if (!byMat.has(m)) byMat.set(m, []); byMat.get(m).push(i); });
+    inst = [...byMat].map(([m, list]) => {
+      const im = new THREE.InstancedMesh(geo, m, list.length); im.castShadow = true; im.receiveShadow = true; im.frustumCulled = false;
+      list.forEach((i, k) => { blocks[i].userData.inst = im; blocks[i].userData.k = k; });
+      bodies.add(im); return im;
+    });
     seedUsed = seed;
   }
 
@@ -214,6 +221,7 @@ export function createScene({ THREE, parent, renderer, playerColours = [0xf2c14e
     box(2 * postX, 0.02, 0.026, mats.walnut, 0, postH - 0.12, 0, sg);
     floorShadow(SC.c[0], SC.c[1], 2 * postX + 0.3, 0.5, true, 0.4, SC.yaw + Math.PI / 2);
     buildScroll(sg, SC, postH);
+    mergeStatic(THREE, mergeGeometries, furniture);
     furnKey = furnSig(sz, place);
   }
 
@@ -295,8 +303,10 @@ export function createScene({ THREE, parent, renderer, playerColours = [0xf2c14e
         const m = it.i === S.DIE ? dieMesh : blocks[it.i];
         if (!m) continue;
         const p = toV(it.p); m.position.set(p[0], p[1], p[2]); m.quaternion.set(it.q[0], it.q[2], -it.q[1], it.q[3]); m.visible = true;
+        if (m.userData.inst) { m.updateMatrix(); m.userData.inst.setMatrixAt(m.userData.k, m.matrix); }
       }
-    } else { for (const m of blocks) m.visible = false; if (dieMesh) dieMesh.visible = false; }
+      for (const im of inst) { im.instanceMatrix.needsUpdate = true; im.visible = true; }
+    } else { for (const m of blocks) m.visible = false; for (const im of inst) im.visible = false; if (dieMesh) dieMesh.visible = false; }
     // the light
     // the game put down somewhere new: the lantern swells a little as it arrives (fx.js: rings of light on the floor and the sand)
     const pk = `${pl.x}|${pl.y}|${pl.yaw}|${state.size}`, arrived = placeKey !== null && pk !== placeKey;
