@@ -71,7 +71,8 @@ t('the host\'s physics stands the console and the tray where the arrangement say
   const planes = S.furniture('normal', r.place), table = planes.find((p) => p.l === 'table'), f = footprints('normal', r.place).console;
   for (const q of table.p) assert.ok(f.some((c) => Math.hypot(c[0] - q[0], c[1] - q[1]) < 1e-6), 'the table plane is the console');
   const L = S.layout('normal', r.place), tray = S.toCommon(r.place, [L.tray.c[0], L.tray.c[1], 0]), die = S.toCommon(r.place, L.die.at);
-  assert.ok(Math.hypot(tray[0] - die[0], tray[1] - die[1]) < 1e-9, 'the die starts on the tray');
+  assert.ok(Math.abs(S.fromCommon(r.place, die)[0] - L.tray.c[0]) < L.tray.half && Math.abs(S.fromCommon(r.place, die)[1] - L.tray.c[1]) < L.tray.half, 'the die starts on the tray');
+  assert.ok(!S.inDtower(L, L.die.at), 'beside the dice tower, not in it');
 });
 
 t('an arrangement made for another size is not used', () => {

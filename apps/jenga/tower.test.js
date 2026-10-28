@@ -183,3 +183,26 @@ t('a held block keeps its turn while it comes out of the tower and turns with th
   assert.strictEqual(w.heldBy(S.DIE), 'l');
   assert.ok(turnDeg(d.q, dq) > 40, `the die turned (${turnDeg(d.q, dq).toFixed(1)} degrees)`);
 });
+
+// the die let go over the dice tower's mouth, turned and spun a little (seed n)
+const dropDie = (w, n = 1) => {
+  const T = w.lay.dtower, d = w.die.body, r = S.rng(n * 7919 + 13), j = () => (r() - 0.5);
+  d.p = S.toCommon(w.place, [T.c[0] + j() * T.A * 0.6, T.c[1] + j() * T.A * 0.6, T.base + T.H + T.D]); d.q = M.physics.quat.normalize([j(), j(), j(), 1]); d.v = [j() * 0.2, j() * 0.2, -0.3]; d.w = [j() * 8, j() * 8, j() * 8];
+  w.world.wake(d); w.die.moved = true;
+};
+t('the dice tower: a die let go over its mouth falls down its planks and comes out onto the tray, every time (Marek, 2026-10-28)', () => {
+  for (const size of ['normal', 'huge', 'giant']) {
+    const w = tower({ size }); run(w, 0.5);
+    const ups = new Set();
+    for (let n = 1; n <= 20; n++) {
+      w.resetDie(); run(w, 0.3); dropDie(w, n); run(w, 4);
+      const r = w.dieRead();
+      assert.ok(r.passed, `${size} #${n}: it came down the tower`);
+      assert.ok(!r.inTower && r.onTray, `${size} #${n}: it is out, on the tray (${w.local(w.die.body.p).map((v) => v.toFixed(3))})`);
+      assert.ok(r.rest > 0.5, `${size} #${n}: still`);
+      ups.add(r.up.colour);
+    }
+    assert.ok(ups.size >= 4, `${size}: the tower mixes it (${ups.size} faces up in 20 drops)`);
+    assert.strictEqual(w.fell(), null);
+  }
+});

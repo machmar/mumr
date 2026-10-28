@@ -42,6 +42,7 @@
       this.realRoom = opts.room || null;
       this.world = opts.Engine ? new opts.Engine(Object.assign({ softHands: this.tun.hand }, this.tun.world)) : new M.physics.World({ substep: this.tun.world.substep, maxMove: this.tun.world.maxMove, rounds: 24 });
       this.world.setRoom(S.withFurniture(this.realRoom, this.size, this.place));
+      if (this.world.setFixtures) this.world.setFixtures(S.fixtures(this.size, this.place));          // (the dice tower: turned boxes)
       this.grips = new M.grab.Grips({ fist: true });
       this.holds = new Map();               // grip id -> { i, off, q, kind, f (filtered point), last }
       this.quiet = new Map();               // hand id -> time (s) until which its fingers push nothing
@@ -68,7 +69,7 @@
       const ds = this.lay.die.size;
       const body = M.physics.makeBox({ size: [ds, ds, ds], density: 700, restitution: 0.3, friction: { s: 0.45, k: 0.45 }, angularDamping: 0.08, p: S.toCommon(this.place, this.lay.die.at), sleep: { v: 0.03, w: 0.3, after: 0.4 } });
       this.world.add(body);
-      this.die = { i: S.DIE, body, size: ds, moved: false, still: 0, home: null };
+      this.die = { i: S.DIE, body, size: ds, moved: false, still: 0, home: null, passed: false };
       this.holds.clear(); this.handled = null; this.fellFirst = null; this.out.clear();
     }
     body(i) { return i === S.DIE ? this.die.body : this.blocks[i].body; }
@@ -183,10 +184,8 @@
     }
     // the block a pinch here takes: the nearest within reach (or the die, nearer still), -1 for none; free(i) false for one another hand holds
     aim(at, free = () => true) {
-      let best = -1, bd = Infinity;
-      for (let i = 0; i < S.BLOCKS; i++) { const d = this.dist(this.blocks[i].body, at); if (d <= this.tun.grab && d < bd && free(i)) { best = i; bd = d; } }
-      const dd = this.dist(this.die.body, at); if (dd <= 0.03 && dd < bd && free(S.DIE)) best = S.DIE;
-      return best;
+      const a = S.aim(at, this.all().map((b, i) => ({ i, p: b.p, q: b.q })), this.size, free);          // (spec.js: the pages draw the same aim)
+      return a ? a.i : -1;
     }
     // is body i clear of the tower (out of its column by more than its own length, or lifted above its top)? The die always is.
     clear(i) {
@@ -242,6 +241,10 @@
       const d = this.die, db = d.body, moving = len(db.v) > 0.05 || len(db.w) > 0.5 || !db.asleep;
       d.still = moving && !(len(db.v) < 0.03 && len(db.w) < 0.3) ? 0 : d.still + dt;       // (seconds)
       if (!d.home && d.still > 0.3) d.home = { p: db.p.slice(), q: db.q.slice() };
+      // it has come down the dice tower once it has been inside it, not held, below the mouth
+      const dl = this.local(db.p);
+      d.inTower = S.inDtower(this.lay, dl);
+      if (d.inTower && this.heldBy(S.DIE) === null && dl[2] < this.lay.dtower.base + this.lay.dtower.H * 0.8) d.passed = true;
       if (d.home && !d.moved) {
         let dq = Q.mul(db.q, Q.conj(d.home.q)); if (dq[3] < 0) dq = dq.map((c) => -c);
         if (this.heldBy(S.DIE) !== null || Math.hypot(db.p[0] - d.home.p[0], db.p[1] - d.home.p[1]) > 0.03 || 2 * Math.acos(Math.min(1, dq[3])) > 0.52) d.moved = true;
@@ -267,14 +270,14 @@
     // the die as the rules read it: { moved (it has been thrown), rest (seconds it has been still), up: { colour, tilt }, onTray, held }
     dieRead() {
       const d = this.die, b = d.body, l = this.local(b.p), t = this.lay.tray;
-      return { moved: d.moved, rest: d.still, up: S.dieUp(b.q), onTray: Math.abs(l[0] - t.c[0]) < t.half && Math.abs(l[1] - t.c[1]) < t.half && l[2] > this.lay.console.top - 0.01, held: this.heldBy(S.DIE) !== null };
+      return { moved: d.moved, rest: d.still, up: S.dieUp(b.q), passed: !!d.passed, inTower: !!d.inTower, onTray: Math.abs(l[0] - t.c[0]) < t.half && Math.abs(l[1] - t.c[1]) < t.half && l[2] > this.lay.console.top - 0.01, held: this.heldBy(S.DIE) !== null };
     }
     // the die back on its tray, from a little above, flat, with no speed
     resetDie() {
       const d = this.die, b = d.body, a = this.lay.die.at;
       this.holds.forEach((h, id) => { if (h.i === S.DIE) { this.world.release(b); this.holds.delete(id); } });
       b.p = S.toCommon(this.place, [a[0], a[1], a[2] + 0.02]); b.q = S.qCommon(this.place, [0, 0, 0, 1]); b.v = [0, 0, 0]; b.w = [0, 0, 0];
-      this.world.wake(b); d.moved = false; d.still = 0; d.home = null;
+      this.world.wake(b); d.moved = false; d.still = 0; d.home = null; d.passed = false;
     }
     // the pulled block back on the plinth beside the tower (it fell off, or was left on the floor)
     bringBack() {

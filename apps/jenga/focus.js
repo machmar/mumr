@@ -10,13 +10,13 @@
   // by phase: how dark (0 the room as it is .. 1 black) and how grey (0 its own colours .. 1 grey), and how long (ms) the room takes to get there
   const LOOK = {
     lobby: { dark: 0, mute: 0, fade: 2500 },                    // the room as it is: set up, walk about, press Start
-    roll: { dark: 0.3, mute: 0.2, fade: 2500 },                 // it recedes for the die
-    pull: { dark: 0.45, mute: 0.3, fade: 1500 },                // and closes in on the tower, more with the tension (below)
-    place: { dark: 0.45, mute: 0.3, fade: 1500 },
+    roll: { dark: 0.4, mute: 0.25, fade: 2500 },                // it recedes for the die (a little more than first guessed: Marek, 2026-10-28)
+    pull: { dark: 0.55, mute: 0.35, fade: 1500 },               // and closes in on the tower, more with the tension (below)
+    place: { dark: 0.55, mute: 0.35, fade: 1500 },
     fall: { dark: 0.9, mute: 1, fade: 150 },                   // the freeze: the room goes at once, the tower stays in colour
     replay: { dark: 0.85, mute: 1, fade: 700 },                 // the room stays out for the rewind and the slow motion
-    aftermath: { dark: 0.35, mute: 0.5, fade: 3500 },           // and comes back slowly
-    round_end: { dark: 0.15, mute: 0.1, fade: 3000 },
+    aftermath: { dark: 0.45, mute: 0.5, fade: 3500 },          // and comes back slowly
+    round_end: { dark: 0.25, mute: 0.15, fade: 3000 },
     match_end: { dark: 0, mute: 0, fade: 5000 },
   };
   const CFG = {

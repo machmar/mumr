@@ -87,19 +87,53 @@
     const A = place && place.arr && place.arr.size === d.size ? place.arr : defaultArr(size);
     const P = [-A.p, A.q || 0], C = A.c, U = A.u, V = A.v, face = (p) => Math.atan2(P[1] - p[1], P[0] - p[0]);
     const at = (du, dv) => [C[0] + U[0] * du + V[0] * dv, C[1] + U[1] * du + V[1] * dv];          // (a point on the console: along it, across it)
-    const bc = at(0.1, 0.14), sc = A.s, tray = at(-0.3, -0.06);
+    const bc = at(0.1, 0.14), sc = A.s, tray = at(-0.3, -0.06), D = Math.max(0.04, Math.min(0.06, 0.04 * Math.sqrt(d.k)));
+    // the dice tower stands in the tray at its end away from the table's middle, its mouth up and its way out along the table, into the tray
+    // (Marek, 2026-10-28: "a dice tower to guarantee a couple of rolls"); the die lies in the tray's free part
+    const TH = Math.max(0.17, 0.08 + 2.5 * D), dA = 1.9 * D, dT = 0.012, dtc = [tray[0] - U[0] * (TH - dA - dT), tray[1] - U[1] * (TH - dA - dT)], dieAt = [tray[0] + U[0] * (dA + dT), tray[1] + U[1] * (dA + dT)];
     // the board faces the front of the table, turned towards P by about half the way (at most a third of a right angle either way)
     const front = Math.atan2(-V[1], -V[0]), boardYaw = front + Math.max(-0.6, Math.min(0.6, 0.45 * wrap(face(bc) - front)));
     return {
       d, P, plinth: { half, top },
       console: { c: C, u: U, v: V, at, yaw: Math.atan2(U[1], U[0]), half: TABLE.half, top: tableH },  // a table: 1.1 m along u, 0.6 m across
-      tray: { c: tray, half: 0.17, rim: 0.045, wall: 0.02 },                                        // the die rolls here (square to the table)
+      tray: { c: tray, half: TH, rim: 0.045, wall: 0.02 },                                        // the die rolls here (square to the table)
       board: { c: bc, w: 0.72, bottom: tableH + 0.05, pitch: 0, yaw: boardYaw },                     // the shared menu: a stand along the back of the table
       score: { c: sc, w: 0.62, h: 0.86, bottom: tableH + 0.02, yaw: face(sc) },                     // the scroll hangs on its own stand, facing P
       lantern: A.l,                                                                                  // a paper lantern standing on the floor
-      die: { size: Math.max(0.04, Math.min(0.06, 0.04 * Math.sqrt(d.k))), at: [tray[0], tray[1], tableH + 0.025] },
+      die: { size: D, at: [dieAt[0], dieAt[1], tableH + D / 2 + 0.003] },
+      dtower: { c: dtc, yaw: Math.atan2(U[1], U[0]), A: dA, t: dT, H: 9.8 * D, door: 2.4 * D, D, base: tableH },
     };
   }
+  // The dice tower as boxes (game frame): four walls (the front one stops short of the table: the way out), and three planks inside that the die
+  // falls down, from one to the next, and a ramp that brings it out into the tray. [{ size, p, q, part: 'wall' | 'plank' }]
+  function dtowerParts(L) {
+    const T = L.dtower, D = T.D, A = T.A, t = T.t, H = T.H, z0 = T.base, cy = Math.cos(T.yaw), sy = Math.sin(T.yaw), qy = qYaw(T.yaw);
+    const P = (u, v, z) => [T.c[0] + u * cy - v * sy, T.c[1] + u * sy + v * cy, z0 + z];
+    const out = [];
+    const wall = (u, v, z, su, sv, sz) => out.push({ size: [su, sv, sz], p: P(u, v, z), q: qy, part: 'wall' });
+    wall(-A - t / 2, 0, H / 2, t, 2 * A + 2 * t, H);
+    wall(0, -A - t / 2, H / 2, 2 * A + 2 * t, t, H);
+    wall(0, A + t / 2, H / 2, 2 * A + 2 * t, t, H);
+    wall(A + t / 2, 0, (T.door + H) / 2, t, 2 * A + 2 * t, H - T.door);
+    // a plank from (u0, z0) to (u1, z1) across the whole inside (it is turned about the tower's v)
+    const plank = (u0, za, u1, zb) => {
+      const du = u1 - u0, dz = zb - za, len = Math.hypot(du, dz), th = Math.atan2(-dz, du), qv = [0, Math.sin(th / 2), 0, Math.cos(th / 2)];
+      out.push({ size: [len, 2 * A, 0.008], p: P((u0 + u1) / 2, 0, (za + zb) / 2), q: qMul(qy, qv), part: 'plank' });
+    };
+    // (each plank reaches half way across at 40 degrees, leaving 1.9 dice to the wall; under the end of each the next is more than 2.1 dice away, square to it (2.9 and 2.6 dice lower): a die that turns as it falls never wedges; the ramp at the foot is steeper than the die's friction, so the die never stops on it)
+    plank(-A - t / 2, 8.215 * D, 0, 6.625 * D);
+    plank(A + t / 2, 5.315 * D, 0, 3.725 * D);
+    plank(-A - t / 2, 2.2 * D, A + t, 0.05 * D);
+    return out;
+  }
+  // is a point (game frame) inside the dice tower (its inside, mouth to table)?
+  function inDtower(L, g) {
+    const T = L.dtower, dx = g[0] - T.c[0], dy = g[1] - T.c[1], u = dx * Math.cos(T.yaw) + dy * Math.sin(T.yaw), v = -dx * Math.sin(T.yaw) + dy * Math.cos(T.yaw), z = g[2] - T.base;
+    return Math.abs(u) < T.A && Math.abs(v) < T.A && z > 0 && z < T.H;
+  }
+  // the dice tower's boxes in the common frame, for the physics (static: physics-jolt.js setFixtures)
+  const fixtures = (size, place) => dtowerParts(layout(size, place)).map((b) => ({ size: b.size, p: toCommon(place, b.p), q: qCommon(place, b.q) }));
+
   // game frame <-> common frame
   const rot = (yaw, x, y) => [x * Math.cos(yaw) - y * Math.sin(yaw), x * Math.sin(yaw) + y * Math.cos(yaw)];
   const toCommon = (place, p) => { const r = rot(place.yaw, p[0], p[1]); return [place.x + r[0], place.y + r[1], p[2]]; };
@@ -145,5 +179,26 @@
     return { face: best, colour: DIE_COLOURS[best], tilt: Math.acos(Math.max(-1, Math.min(1, bz))) * 180 / Math.PI };
   }
 
-  Object.assign(J, { LEVELS, PER, BLOCKS, DIE, BASE, SIZES, SIZE_KEYS, COLOURS, WOOD, dims, tuning, rng, colourOrder, blockSpec, blockHome, slotHome, layout, defaultArr, TABLE, toCommon, fromCommon, qYaw, qMul, qCommon, qRot, furniture, withFurniture, DIE_FACES, DIE_COLOURS, dieUp });
+  // ---- the pinch's aim (the host takes with it, every page draws it: the same answer everywhere)
+  // a point's distance from a box (centre p, turn q, size), and the nearest point on it
+  function boxGap(p, q, size, at) {
+    const iq = [-q[0], -q[1], -q[2], q[3]], l = qRot(iq, [at[0] - p[0], at[1] - p[1], at[2] - p[2]]), c = l.map((v, k) => Math.max(-size[k] / 2, Math.min(size[k] / 2, v)));
+    const n = qRot(q, c);
+    return { d: Math.hypot(l[0] - c[0], l[1] - c[1], l[2] - c[2]), near: [p[0] + n[0], p[1] + n[1], p[2] + n[2]] };
+  }
+  const DIE_REACH = 0.03;
+  // the body a pinch at `at` (common frame) takes: the nearest block within reach, or the die if it is nearer still and within its own reach.
+  // bodies: [{ i, p, q }] (a snapshot's items, or the host's bodies); free(i) false for one somebody holds -> { i, d, near } or null
+  function aim(at, bodies, size, free = () => true) {
+    const d = dims(size), reach = tuning(size).grab, blockSize = [d.L, d.W, d.H], die = layout(size).die.size;
+    let best = null;
+    for (const b of bodies) {
+      if (!free(b.i)) continue;
+      const isDie = b.i === DIE, g = boxGap(b.p, b.q, isDie ? [die, die, die] : blockSize, at);
+      if (g.d <= (isDie ? DIE_REACH : reach) && (!best || g.d < best.d)) best = { i: b.i, d: g.d, near: g.near };
+    }
+    return best;
+  }
+
+  Object.assign(J, { dtowerParts, inDtower, fixtures, boxGap, aim, DIE_REACH, LEVELS, PER, BLOCKS, DIE, BASE, SIZES, SIZE_KEYS, COLOURS, WOOD, dims, tuning, rng, colourOrder, blockSpec, blockHome, slotHome, layout, defaultArr, TABLE, toCommon, fromCommon, qYaw, qMul, qCommon, qRot, furniture, withFurniture, DIE_FACES, DIE_COLOURS, dieUp });
 })(typeof module !== 'undefined' ? module.exports : (globalThis.JENGA = globalThis.JENGA || {}));

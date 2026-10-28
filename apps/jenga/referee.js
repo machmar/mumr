@@ -103,6 +103,7 @@
           r.setPlace(this.arranged(head, a.yaw)); this.planDeco(); this.makeTower(); return true;
         },
         reroll: () => { if (!['roll', 'pull'].includes(ph) || s.handled) return false; r.reroll('The die is rolled again'); this.tower.resetDie(); return true; },
+        dieback: () => { if (ph !== 'roll') return false; this.tower.resetDie(); r.say('The die is back on the tray'); r._touch(); return true; },
         skip: () => { if (!this.replay) return false; this.replay.skip(); return true; },
         back: () => { if (ph !== 'place') return false; this.tower.bringBack(); return true; },
         // (rehearsals and the scene videos only: JENGA_DEBUG=1 lets a script nudge the tower, as a hand that is hard to aim in a headless browser would)
@@ -184,7 +185,9 @@
       if (ph === 'roll') {
         const d = tw.dieRead();
         if (d.moved && !d.held && d.rest >= T.dieStill) {
-          if (d.up.tilt > T.cocked) { r.reroll('The die landed cocked: rolled again'); tw.resetDie(); }
+          if (d.inTower) { r.reroll('The die stuck in the tower: it is back on the tray'); tw.resetDie(); }
+          else if (!d.passed) { r.reroll('Drop the die into the tower'); tw.resetDie(); }
+          else if (d.up.tilt > T.cocked) { r.reroll('The die landed cocked: rolled again'); tw.resetDie(); }
           else if (!this.playable(d.up.colour)) { r.reroll(`No ${S.COLOURS[d.up.colour].label} block can be taken: roll again`); tw.resetDie(); }
           else r.rolled(d.up.colour);
         }

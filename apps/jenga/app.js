@@ -13,7 +13,23 @@ const sound = new J.Soundtrack({ base: 'music/', now: () => (app ? app.S.serverN
 let scene3d = null, common = null, app = null, lastDraw = performance.now(), noHostAt = null, lastClear = -1e9;
 const state = () => (app && app.S.doc.jenga) || J.waiting();
 const hostHere = () => !!app && (app.S.hostHere || app.S.isHost);
-const info = () => ({ here: app.S.connected ? app.S.others + 1 : 1, game: app.S.stateOf(null), mine: app.S.stateOf(null), host: hostHere() && !!app.S.doc.jenga, mark: markInfo() });
+const info = () => ({ here: app.S.connected ? app.S.others + 1 : 1, game: app.S.stateOf(null), mine: app.S.stateOf(null), host: hostHere() && !!app.S.doc.jenga, mark: markInfo(), autoQuality: AUTO_Q });
+// ---- how much this headset draws (its player's Quality, logic.js: Marek's Quest Pro could not keep up, 2026-10-28). It is this page's only: the world is the
+// same for everybody, only how finely it is drawn here. High: everything; medium: smaller shadows, the room's relight without the furniture's shadows,
+// no motes, a smaller picture; low: no shadows, two relit lights, no smoke or petals, a smaller picture still. The picture's size takes effect the next
+// time the headset enters (WebXR fixes it when the session starts).
+const AUTO_Q = /Quest Pro|Quest 2/.test(navigator.userAgent) ? 1 : 2;
+let qualityNow = null, fbSet = null;
+function applyQuality(a) {
+  const want = a.S.stateOf(null).quality, q = want === null || want === undefined ? AUTO_Q : want, xr = a.renderer.xr, fb = q >= 2 ? 1 : q === 1 ? 0.85 : 0.72;
+  if (xr && !xr.isPresenting && xr.setFramebufferScaleFactor && fb !== fbSet) { xr.setFramebufferScaleFactor(fb); fbSet = fb; }
+  if (q === qualityNow) return;
+  qualityNow = q;
+  scene3d.quality(q);                                  // (shadows, motes, smoke and petals: draw.js)
+  if (a.relightQuality) a.relightQuality(q >= 2 ? { lights: 8, shadows: true } : q === 1 ? { lights: 4, shadows: false } : { lights: 2, shadows: false });
+  if (xr && xr.setFoveation) xr.setFoveation(q >= 2 ? 0.5 : 1);
+  a.life(`jenga: quality ${['low', 'medium', 'high'][q]}${want === null || want === undefined ? ' (auto)' : ''}, picture ${fb}`);
+}
 // ---- the room's ceiling lights (engine room.js lights: the scan's lamps and the ones marked; shades.js hangs a paper shade under each), and who marks them
 const serverRoom = () => (app.S.doc.room ? app.S.doc.room.data : null);
 const roomLights = () => R.lights(serverRoom(), app.S.doc.rlights || {});
@@ -39,6 +55,18 @@ function marking(a, now, lights) {
   return r.cursor;
 }
 const hostBody = () => app.bodies[0];
+// everybody's hands for the pinch's aim (fx.js): the point between the thumb and the index, how far apart they are, the pinch, in the common frame
+function pinchHands(a) {
+  const sp = a.space, out = [];
+  for (const s of a.everyone || []) {
+    if (s.foot) continue;
+    const th = (s.points || []).find((q) => q.name === 'thumb'), ix = (s.points || []).find((q) => q.name === 'index');
+    if (!th || !ix) continue;
+    const m = [(th.x + ix.x) / 2, (th.y + ix.y) / 2, (th.z + ix.z) / 2];
+    out.push({ at: sp.ok ? sp.toCommon(m) : m, gap: Math.hypot(th.x - ix.x, th.y - ix.y, th.z - ix.z), pinch: !!s.pinch });
+  }
+  return out;
+}
 // where everybody stands, in the common frame (this player's head and the others' from presence): the scene lights the feet of whoever is on turn
 function heads(a, now) {
   const sp = a.space, c = (x, y) => (sp.ok ? sp.toCommon([x, y]) : [x, y]), h = a.head(), out = [];
@@ -49,7 +77,7 @@ function heads(a, now) {
 
 // the buttons of the board: the host's commands (the game is the host's), and the settings (acting on the shared settings, or on this player's own)
 function press(id) {
-  if (['start', 'round', 'lobby', 'size', 'reroll', 'skip', 'back'].includes(id)) { hostBody().ask(id, {}); return; }
+  if (['start', 'round', 'lobby', 'size', 'reroll', 'dieback', 'skip', 'back'].includes(id)) { hostBody().ask(id, {}); return; }
   if (id === 'lights') { const m = app.S.doc.jmark; app.S.emit({ k: 'jmark', slot: m && m.slot === app.S.me ? null : app.S.me }); return; }
   if (id === 'place') {
     // the tower goes in front of this player (the console is at its side, facing this player), turned the way the player looks
@@ -77,11 +105,12 @@ app = await createApp({
   },
   draw: (a, now) => {
     perf.t0 = performance.now();
+    applyQuality(a);
     const sp = a.space;
     if (sp.ok) { common.position.set(sp.frame.x, sp.fz, -sp.frame.y); common.rotation.set(0, sp.frame.yaw, 0); } else { common.position.set(0, 0, 0); common.rotation.set(0, 0, 0); }
     const snap = stream.at(now);
     const lights = roomLights();
-    scene3d.update({ state: state(), snap, now, t: a.S.serverNow(), lay: J.board(state(), info()), touches: a.boardTouches('main'), heads: heads(a, now), deco: a.S.doc.jdeco || null, garden: a.S.game('garden'),
+    scene3d.update({ state: state(), snap, now, t: a.S.serverNow(), lay: J.board(state(), info()), touches: a.boardTouches('main'), heads: heads(a, now), hands: pinchHands(a), deco: a.S.doc.jdeco || null, garden: a.S.game('garden'),
       shades: { lights, cursor: marking(a, now, lights), dark: a.dimLevel().dark } });
     a.relight(scene3d.relights());                       // (the lantern lights the real room: the dim lifts round it, the walls warm)
     perf.frames++; perf.worst = Math.max(perf.worst, now - lastDraw); perf.ms += performance.now() - perf.t0;

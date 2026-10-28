@@ -192,6 +192,12 @@ export function createScene({ THREE, parent, renderer, playerColours = [0xf2c14e
       const lw = ix ? 0.002 : w - 2 * tw, ld = iy ? 0.002 : dp - 2 * tw;
       box(lw, th - 0.006, ld, mats.shu, ...at(x + ix * (tw / 2 + 0.001), y + iy * (tw / 2 + 0.001), tz + (th - 0.006) / 2 + 0.001), cg);
     }
+    // -- the dice tower (spec.js dtowerParts: the host's physics has the same boxes): walnut walls with a vermilion lip round the mouth, black lacquer planks
+    for (const b of S.dtowerParts(L)) {
+      const m = box(b.size[0], b.size[2], b.size[1], b.part === 'wall' ? mats.walnut : mats.lacquer, ...at(b.p[0], b.p[1], b.p[2]), furniture, b.part === 'wall' ? 0.002 : 0);
+      m.quaternion.set(b.q[0], b.q[2], -b.q[1], b.q[3]);
+      if (b.part === 'wall') { const lip = box(b.size[0] + 0.004, 0.008, b.size[1] + 0.004, mats.shu, ...at(b.p[0], b.p[1], b.p[2] + b.size[2] / 2 + 0.004), furniture, 0.002); lip.quaternion.copy(m.quaternion); }
+    }
     // -- the lantern: a paper andon on the floor; walnut posts, a black cap, washi with a lattice, lit from inside
     const lx = L.lantern[0], ly = L.lantern[1], LH = 0.74, pw = 0.2, p0 = 0.17, p1 = 0.64;
     for (const sx of [-1, 1]) for (const sy of [-1, 1]) box(0.016, LH, 0.016, mats.walnut, ...at(lx + sx * (pw / 2 + 0.004), ly + sy * (pw / 2 + 0.004), LH / 2));
@@ -295,7 +301,8 @@ export function createScene({ THREE, parent, renderer, playerColours = [0xf2c14e
   let last = null, prevState = null, placeKey = null, arrivedAt = -1e9;
   // heads: where the players are, [{ slot, x, y }] in the common frame (from everybody's presence: whose turn it is is lit at their feet)
   // deco: the document's jdeco (the room's garden, deco.js); garden: the Garden setting (0..2); shades: { lights, cursor, dark } (shades.js)
-  function update({ state, snap, now = performance.now(), t, lay, touches = [], heads = [], deco = null, garden = 2, shades: sh = null }) {
+  // hands: everybody's hands for the pinch's aim (fx.js), [{ at, gap, pinch }] in the common frame
+  function update({ state, snap, now = performance.now(), t, lay, touches = [], heads = [], hands = [], deco = null, garden = 2, shades: sh = null }) {
     if (!state) return;
     const ts = (t === undefined || t === null ? now : t) / 1000, dt = last === null ? 1 / 60 : Math.min(0.1, Math.max(0, (now - last) / 1000)); last = now;
     if (size !== state.size || !blocks.length) { buildBodies(state.size); seedUsed = null; }      // (new meshes: painted again)
@@ -321,6 +328,13 @@ export function createScene({ THREE, parent, renderer, playerColours = [0xf2c14e
     placeKey = pk;
     const swell = 1 + 0.45 * Math.max(0, 1 - (ts - arrivedAt) / 1.8) * Math.min(1, (ts - arrivedAt) / 0.25);
     const flick = rig.update(ts, rig.lampAt) * swell;
+    // the key light: from the real ceiling light nearest the game (within 3 m of the tower, along the floor), if the room has one
+    let near = null;
+    for (const lt of (sh && sh.lights) || []) {
+      const g = S.fromCommon(pl, [(lt.a[0] + lt.b[0]) / 2, (lt.a[1] + lt.b[1]) / 2, lt.h]), dd = Math.hypot(g[0], g[1]);
+      if (dd < 3 && (!near || dd < near.dd)) near = { x: g[0], y: g[1], h: lt.h, w: Math.max(lt.w || 0.1, lt.len || 0), dd };
+    }
+    rig.aim(near);
     lightFlick = flick; lightK += ((['fall', 'replay'].includes(state.phase) ? 0.3 : 1) - lightK) * Math.min(1, dt * 3);
     rig.lamp.intensity *= swell;
     if (lanternMat) lanternMat.emissiveIntensity = 0.78 * flick;
@@ -330,7 +344,7 @@ export function createScene({ THREE, parent, renderer, playerColours = [0xf2c14e
     const moments = prevState && prevState.rev !== state.rev && S.momentsBetween ? S.momentsBetween(prevState, state) : [];
     if (arrived) moments.push('arrived');
     prevState = state;
-    fx.update({ state, snap, t: ts, dt, blocks, dieMesh, L, place: pl, moments, fonts: fontsVer, lampAt: rig.lampAt, heads, colours: playerColours });
+    fx.update({ state, snap, t: ts, dt, blocks, dieMesh, L, place: pl, moments, fonts: fontsVer, lampAt: rig.lampAt, heads, colours: playerColours, hands });
     decor.update({ plan: deco, level: garden, t: ts, wc: fx.clock(), lightK });
     shades.update({ lights: sh ? sh.lights : [], cursor: sh ? sh.cursor : null, dark: sh ? sh.dark : 0, t: ts, lightK });
   }
@@ -345,5 +359,8 @@ export function createScene({ THREE, parent, renderer, playerColours = [0xf2c14e
     lightsOut[0].power = 0.9 * lightFlick * lightK; lightsOut[1].power = 0.35 * lightK;
     return lightsOut.concat(decor.relights(), shades.relights());
   }
-  return { root, update, relights, boardPose: stand.pose, boardAspect: stand.aspect, boardWidth: stand.width, dispose, group: { furniture, bodies, overlay } };
+  // how dear this page's drawing is (its player's Quality: 2 high, 1 medium, 0 low): shadows, the motes, the garden's smoke and petals
+  let qual = 2;
+  function quality(q) { if (q === qual) return; qual = q; rig.quality(q); fx.quality(q); decor.quality && decor.quality(q); }
+  return { root, update, relights, quality, boardPose: stand.pose, boardAspect: stand.aspect, boardWidth: stand.width, dispose, group: { furniture, bodies, overlay } };
 }

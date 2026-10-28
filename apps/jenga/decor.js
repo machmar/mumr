@@ -283,9 +283,10 @@ export function createDecor({ THREE, parent, env, own, relit = false }) {
     }
     if (smokes.length) {
       const N = SMOKE * smokes.length, g = new THREE.BufferGeometry();
-      g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(N * 3), 3)); g.setAttribute('color', new THREE.BufferAttribute(new Float32Array(N * 3), 3)); g.setAttribute('aSize', new THREE.BufferAttribute(new Float32Array(N), 1));
-      // (each puff its own size: thin where it leaves the stick, wider as it rises and spreads)
-      const mat = new THREE.PointsMaterial({ size: 1, map: tPuff, vertexColors: true, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, sizeAttenuation: true });
+      g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(N * 3), 3)); g.setAttribute('color', new THREE.BufferAttribute(new Float32Array(N * 4), 4)); g.setAttribute('aSize', new THREE.BufferAttribute(new Float32Array(N), 1));
+      // (each puff its own size: thin where it leaves the stick, wider as it rises and spreads). Pale grey, faded by its alpha, blended as usual: added
+      // light writes alpha too, and over the passthrough a puff of faint added grey was a puff of black (Marek's run, 2026-10-28)
+      const mat = new THREE.PointsMaterial({ size: 1, map: tPuff, vertexColors: true, transparent: true, depthWrite: false, sizeAttenuation: true });
       mat.onBeforeCompile = (sh) => { sh.vertexShader = sh.vertexShader.replace('uniform float size;', 'uniform float size;\nattribute float aSize;').replace('gl_PointSize = size;', 'gl_PointSize = size * aSize;'); };
       mat.customProgramCacheKey = () => 'jenga-smoke';
       smokePts = new THREE.Points(g, mat);
@@ -336,7 +337,9 @@ export function createDecor({ THREE, parent, env, own, relit = false }) {
       petals.instanceMatrix.needsUpdate = true;
     }
     // smoke: from each glowing tip a thread that rises straight a hand's width, then breaks into slow curls that widen and fade
-    if (smokePts) {
+    if (petals) petals.visible = qual >= 1;
+    if (smokePts) smokePts.visible = qual >= 1;
+    if (smokePts && smokePts.visible) {
       const pos = smokePts.geometry.attributes.position, col = smokePts.geometry.attributes.color, sz = smokePts.geometry.attributes.aSize;
       smokes.forEach((sm, si) => {
         const vis = show(sm.p) ? grownBy(sm.start + 3) : 0, s7 = sm.seed % 7;
@@ -348,7 +351,7 @@ export function createDecor({ THREE, parent, env, own, relit = false }) {
           pos.setXYZ(k, sm.at[0] + cx + Math.sin(h * 60 + wt * 2) * 0.0008, sm.at[1] + h, sm.at[2] + cz);
           sz.setX(k, 0.016 + 0.1 * Math.pow(ph, 1.3));
           const a = vis * Math.min(1, ph * 30) * Math.pow(1 - ph, 2.2) * (0.09 - 0.06 * Math.min(1, ph * 2));
-          col.setXYZ(k, a, a, a * 0.96);
+          col.setXYZW(k, 0.86, 0.85, 0.82, Math.min(1, a * 4) * lightK);
         }
       });
       pos.needsUpdate = true; col.needsUpdate = true; sz.needsUpdate = true;
@@ -365,5 +368,8 @@ export function createDecor({ THREE, parent, env, own, relit = false }) {
     return out.map((l, i) => { const w = lw[i]; w.at.set(...l.local).applyMatrix4(root.matrixWorld); w.colour = l.colour; w.range = l.range; w.power = l.power; return w; });
   }
   function dispose() { clear(); parent.remove(root); }
-  return { root, update, relights, dispose };
+  // a page's quality (2 high, 1 medium, 0 low): no smoke and no petals at low
+  let qual = 2;
+  const quality = (q) => { qual = q; };
+  return { root, update, relights, dispose, quality };
 }

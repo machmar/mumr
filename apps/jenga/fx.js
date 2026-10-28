@@ -41,6 +41,30 @@ export function createFx({ THREE, overlay, own }) {
     s.visible = true; s.geometry = mesh.geometry; s.position.copy(mesh.position); s.quaternion.copy(mesh.quaternion); s.scale.setScalar(grow); s.material.uniforms.strength.value = strength;
   };
 
+  // ---- the pinch's aim: a hand closing towards a pinch shows what it will take (Marek, 2026-10-28: "the external pinch isn't really intuitive"):
+  //      a thread of light from between the fingers to the block, a bead where it will be held, the block's edges lit; brighter as the fingers close
+  const aimMat = (c) => own(new THREE.MeshBasicMaterial({ color: c, transparent: true, depthWrite: false, depthTest: false, blending: THREE.AdditiveBlending, opacity: 0 }));
+  const threadGeo = own(new THREE.CylinderGeometry(1, 1, 1, 6, 1, true)), beadGeo = own(new THREE.SphereGeometry(1, 10, 8));
+  const aims = Array.from({ length: 4 }, () => {
+    const thread = new THREE.Mesh(threadGeo, aimMat(0xfff1d6)), bead = new THREE.Mesh(beadGeo, aimMat(0xffe0a8));
+    thread.renderOrder = bead.renderOrder = 7; thread.visible = bead.visible = false; overlay.add(thread, bead);
+    const sh = new THREE.Mesh(new THREE.BufferGeometry(), shellMat(0xfff1d6)); sh.visible = false; sh.renderOrder = 4; overlay.add(sh);
+    return { thread, bead, sh };
+  });
+  const vA = new THREE.Vector3(), vB = new THREE.Vector3(), up = new THREE.Vector3(0, 1, 0);
+  function drawAims(list, blocks, dieMesh, size, k) {
+    aims.forEach((a, n) => {
+      const h = list[n], m = h && (h.i === S.DIE ? dieMesh : blocks[h.i]);
+      a.thread.visible = a.bead.visible = a.sh.visible = !!(h && m && m.visible);
+      if (!a.thread.visible) return;
+      vA.set(...toV(h.at)); vB.set(...toV(h.near));
+      const len = Math.max(1e-4, vA.distanceTo(vB)), r = 0.0009 * Math.sqrt(k);
+      a.thread.position.copy(vA).add(vB).multiplyScalar(0.5); a.thread.scale.set(r, len, r); a.thread.quaternion.setFromUnitVectors(up, vB.clone().sub(vA).normalize());
+      a.thread.material.opacity = 0.55 * h.s; a.bead.position.copy(vB); a.bead.scale.setScalar(0.0035 * Math.sqrt(k) * (0.7 + 0.3 * h.s)); a.bead.material.opacity = 0.9 * h.s;
+      a.sh.geometry = m.geometry; a.sh.position.copy(m.position); a.sh.quaternion.copy(m.quaternion); a.sh.scale.setScalar(1.06); a.sh.material.uniforms.strength.value = 0.25 + 0.6 * h.s;
+    });
+  }
+
   // ---- the limit: four strips of soft gold light round the tower
   const bandTex = (() => { const c = document.createElement('canvas'); c.width = 4; c.height = 64; const g = c.getContext('2d'), gr = g.createLinearGradient(0, 0, 0, 64); gr.addColorStop(0, 'rgba(255,255,255,0)'); gr.addColorStop(0.42, 'rgba(255,255,255,0.35)'); gr.addColorStop(0.5, 'rgba(255,255,255,1)'); gr.addColorStop(0.58, 'rgba(255,255,255,0.35)'); gr.addColorStop(1, 'rgba(255,255,255,0)'); g.fillStyle = gr; g.fillRect(0, 0, 4, 64); return own(new THREE.CanvasTexture(c)); })();
   const limit = add(new THREE.Group()), bandMat = basic({ map: bandTex, color: 0xffc879, opacity: 0.8 });
@@ -127,7 +151,8 @@ export function createFx({ THREE, overlay, own }) {
   }
 
   let lastPhase = null, phaseAt = 0, lastFallRev = null;
-  function update({ state, snap, t, dt, blocks, dieMesh, L, place, moments, fonts, lampAt, heads = [], colours = [] }) {
+  // hands: everybody's hands this frame, [{ at (between thumb and index, common frame), gap (m), pinch }]
+  function update({ state, snap, t, dt, blocks, dieMesh, L, place, moments, fonts, lampAt, heads = [], colours = [], hands = [] }) {
     const d = L.d, T = L.plinth.top, k = d.k, ph = state.phase, mode = snap ? snap.mode : 0;
     game.position.set(place.x, 0, -place.y); game.rotation.set(0, place.yaw, 0);
     if (ph !== lastPhase) { lastPhase = ph; phaseAt = t; }
@@ -141,6 +166,17 @@ export function createFx({ THREE, overlay, own }) {
     shellOn('held', held && !(handled && handled.i === held.i) ? blocks[held.i] : null, 0.45);
     shellOn('culprit', culprit ? blocks[culprit.i] : null, 0.9 + 0.6 * (0.5 + 0.5 * Math.sin(t * 7)), 1.1);
     shellOn('die', ph === 'roll' && !dieHeld ? dieMesh : null, 0.1 + 0.14 * breathe, 1.05);
+    // -- the pinch's aim: a hand that is closing (thumb and index 2 to 7 cm apart, not pinching yet) and has something within reach
+    const aimList = [];
+    if (snap && ['lobby', 'roll', 'pull', 'place', 'round_end', 'match_end'].includes(ph)) {
+      const items = snap.items, free = (i) => { const it = items.find((q) => q.i === i); return !(it && it.flags & S.F.held); };
+      for (const h of hands) {
+        if (h.pinch || !(h.gap < 0.07)) continue;
+        const a = S.aim(h.at, items, state.size, free);
+        if (a) aimList.push(Object.assign(a, { at: h.at, s: Math.max(0, Math.min(1, (0.07 - h.gap) / 0.045)) }));
+      }
+    }
+    drawAims(aimList, blocks, dieMesh, state.size, k);
     // -- the limit
     const full = state.tower ? state.tower.full : 17, ly = T + full * d.H + 0.0012 * k, hx = d.L * 0.6;
     limit.visible = playing && full >= 0 && full < 22;
@@ -264,6 +300,7 @@ export function createFx({ THREE, overlay, own }) {
     }
     mGeo.attributes.position.needsUpdate = true; mGeo.attributes.color.needsUpdate = true;
   }
-  function dispose() { trail.geometry.dispose(); overlay.remove(game); for (const s of Object.values(shells)) overlay.remove(s); overlay.remove(trail, turnRing, turnPool); }
-  return { update, dispose, clock: () => worldPrev };
+  function dispose() { trail.geometry.dispose(); overlay.remove(game); for (const s of Object.values(shells)) overlay.remove(s); for (const a of aims) overlay.remove(a.thread, a.bead, a.sh); overlay.remove(trail, turnRing, turnPool); }
+  function quality(q) { motes.visible = q >= 1; }
+  return { update, dispose, quality, clock: () => worldPrev };
 }
