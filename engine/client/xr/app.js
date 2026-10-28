@@ -52,7 +52,9 @@
 //          ownerText(slot), gestures (this frame: everybody's hands' grab.js states), everyone (this frame: everybody's hand sources),
 //          dim({ dark, mute, over, fade }) (the room darkened and greyed for everybody, headsets and webcams: dim.js), dimLevel(),
 //          boardTouches(id) (a board's fingertips this frame), lights: { hemi, sun } (the scene's two lights: an app with a lighting of its own
-//          hides them: visible = false) }
+//          hides them: visible = false),
+//          relight(list) (the lights of the app's world that light the real room: [{ at: THREE.Vector3 (world), colour, range, power }], set
+//          each frame or when they change; the room's dim lifts round them and the real walls, floor and tables take their colour: dim3d.js) }
 //   (app.room.local(): the room in this page's floor plan, for the app's physics: room.js support / pushOut)
 // The page may have the elements #view (canvas), #enter, #xrNote, #say, #status (the cube's page does: its own look); without #view,
 // createApp makes the standard ones.
@@ -295,7 +297,7 @@ export async function createApp(o) {
   const app = { THREE, scene, world, camera, renderer, S, space, presence, menus, lineup, sys, room, grips, handMask, feet: FEET, life, say, bodies, ownerText,
     head: () => head, xr: () => xr, gestures: [], everyone: [],
     dim: (want) => S.dim(want), dimLevel: () => M.dim.level(S.doc.dim, S.serverNow()),
-    boardTouches: (id) => boardTouching.get(`board:${id}`) || [], lights: { hemi, sun } };
+    boardTouches: (id) => boardTouching.get(`board:${id}`) || [], lights: { hemi, sun }, relight: (list) => dim.lights(list) };
   // the hands on the hand wall: everybody's, with their gestures (this page's first, then the others by slot)
   const hex = (c) => `#${(c >>> 0).toString(16).padStart(6, '0')}`;
   function wallHands() {
@@ -357,6 +359,7 @@ export async function createApp(o) {
     room3d.set(room.local()); room3d.group.visible = !xr || lineup.active;
     if (handWall) handWall.update(room.local(), wallHands(), now, viewerPreview || viewerSpot());
     if (xr) handMask.update();
+    dim.surfaces(room.local(), world);                                 // (the real surfaces the app's lights light: the room this page uses)
     dim.update(M.dim.level(S.doc.dim, S.serverNow()));
     if (o.draw) o.draw(app, now);
     if (!xr) controls.update();

@@ -72,3 +72,16 @@ test('alone: the dim applies at once', () => {
   s.dim({ dark: 0.2, mute: 0.4 });
   assert.deepStrictEqual([s.doc.dim.dark, s.doc.dim.mute], [0.2, 0.4]);
 });
+
+test('relight: a light takes the dim back off the real room near it, less further away, none past its range', () => {
+  const l = D.layer({ dark: 0.9, mute: 1 });
+  near(D.reach(0, 2, 1, 1), 1, 'at the light, facing it');
+  assert.ok(D.reach(0.5, 2, 1, 1) > D.reach(1, 2, 1, 1), 'nearer is stronger');
+  assert.strictEqual(D.reach(2, 2, 1, 1), 0, 'none at its range');
+  assert.ok(D.reach(0.5, 2, 1, 0) < D.reach(0.5, 2, 1, 1) && D.reach(0.5, 2, 1, 0) > 0, 'a surface edge-on to it gets some');
+  near(D.reach(0.5, 2, 1, -1), D.reach(0.5, 2, 1, 1), 'either side of a surface');
+  const lit = D.relit(l, 0.5, 0.1);
+  near(lit.a, l.a * 0.5, 'half the dim taken off'); near(lit.c, l.c * 0.5 + 0.1, 'its grey too, and the light\'s colour laid on');
+  near(D.relit(l, 3).a, l.a * (1 - D.RELIT_MAX), 'never all of it');
+  assert.deepStrictEqual(D.relit(l, 0), l, 'no light: the dim as it is');
+});

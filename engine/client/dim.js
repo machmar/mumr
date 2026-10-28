@@ -13,6 +13,14 @@
 //   clean(e) -> the dim, or null          level(d, t) -> { dark, mute, over } at server time t
 //   event(d, want, t) -> the event for session.emit: want { dark, mute, over, fade } (a value left out stays as asked before)
 //   layer(lv) -> { a, c }: the layer over the room: alpha and its premultiplied grey (out = c + room * (1 - a))
+//
+// RELIGHT (Marek, 2026-10-28: "a light that's on a wall would kind of go against the darkening of the entire room"): a light of the virtual world
+// lights the real room. Where a light reaches a real surface (a wall, the floor, a table top of the room scan) the dim is taken back off it and a
+// little of the light's colour is laid on it, so a lantern by a wall seems to throw its light on the real wall even in a dark room. The surfaces
+// are drawn by xr/dim3d.js right after the layer; these are its numbers:
+//   reach(r, range, power, facing) -> s   how strongly a light reaches a point r metres away (0 at its range; facing: the cosine between the
+//                                         surface and the way to the light, either side counts)
+//   relit(layer, s, tint) -> { a, c }     the layer there: a' = a (1 - s), c' = c (1 - s) + tint (tint: the light's colour laid on, premultiplied)
 (function (M) {
   const GREY = 0.4;            // what mute 1 mixes the room towards (the screen's number, 0..1): a little below the middle, so muted is also a little darker
   const OFF = { dark: 0, mute: 0, over: true };
@@ -48,5 +56,16 @@
     return { a: 1 - k * (1 - lv.mute), c: k * lv.mute * GREY };
   }
 
-  M.dim = { clean, level, event, layer, GREY };
+  const RELIT_MAX = 0.95;              // (a light never takes all of the dim away: the room stays the game's)
+  function reach(r, range, power, facing = 1) {
+    if (!(range > 0) || !(power > 0)) return 0;
+    const f = Math.max(0, 1 - r / range), g = f * f * (3 - 2 * f);
+    return power * g * g * (0.35 + 0.65 * Math.min(1, Math.abs(facing)));
+  }
+  function relit(l, s, tint = 0) {
+    const k = 1 - Math.max(0, Math.min(RELIT_MAX, s));
+    return { a: l.a * k, c: l.c * k + tint };
+  }
+
+  M.dim = { clean, level, event, layer, reach, relit, GREY, RELIT_MAX };
 })(typeof module !== 'undefined' ? (module.exports = require('./ns.js')) : (globalThis.MUMR = globalThis.MUMR || {}));
