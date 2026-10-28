@@ -5,11 +5,33 @@
     "win": 12
   },
   "scenes": {
-    "calm": [],
-    "build": [],
-    "tense": [],
-    "danger": [],
-    "finale": [],
-    "win": []
+    "calm": [
+      "calm/AshTreJinkins - Null Territory EP - 01 Initializing.mp3",
+      "calm/Dreaming Of The Sun [Intermission] - AshTreJinkins - BandCampDownloader.app.mp3",
+      "calm/Tom Vernon - Unfolding (Ambient Mix).mp3",
+      "calm/２８１４ - 恢复.mp3"
+    ],
+    "build": [
+      "build/AshTreJinkins - Brine Pool - 05 Death of a Blue Whale.mp3",
+      "build/AshTreJinkins - Null Territory EP - 05 Which Version Survives.mp3",
+      "build/Sky H1 - Arctis.mp3",
+      "build/Space Afrika - Regards.mp3"
+    ],
+    "tense": [
+      "tense/04. AshTreJinkins - DAY ONE ARCHIVES.mp3",
+      "tense/AshTreJinkins - Null Territory EP - 02 Feel So Much (Feat. -T).mp3"
+    ],
+    "danger": [
+      "danger/Just The Start - AshTreJinkins - BandCampDownloader.app.mp3",
+      "danger/Mr. Oizo - Inside the Kidney Machine.mp3"
+    ],
+    "finale": [
+      "finale/AshTreJinkins - Null Territory EP - 07 To Be Continued.mp3",
+      "finale/Batu - half speed.mp3"
+    ],
+    "win": [
+      "win/AshTreJinkins - THE DOOR - 01 COLD, LOST PLANET.mp3",
+      "win/Waves of Fkkit [Intro] - AshTreJinkins - BandCampDownloader.app.mp3"
+    ]
   }
 }
