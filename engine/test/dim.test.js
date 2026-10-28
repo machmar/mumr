@@ -85,3 +85,12 @@ test('relight: a light takes the dim back off the real room near it, less furthe
   near(D.relit(l, 3).a, l.a * (1 - D.RELIT_MAX), 'never all of it');
   assert.deepStrictEqual(D.relit(l, 0), l, 'no light: the dim as it is');
 });
+
+test('a light that shines one way: full inside its cone, none outside, soft between (a shade lights the floor, not the ceiling round it)', () => {
+  const D = M.dim;
+  assert.strictEqual(D.spot(1, 0.2), 1);
+  assert.strictEqual(D.spot(-0.5, 0.2), 0, 'up at the ceiling: nothing');
+  const mid = D.spot(0.3, 0.2); assert.ok(mid > 0 && mid < 1, 'soft at the edge');
+  assert.strictEqual(D.reach(1, 3, 0.5, 1, 0), 0);
+  assert.strictEqual(D.reach(1, 3, 0.5, 1, 1), D.reach(1, 3, 0.5, 1));
+});

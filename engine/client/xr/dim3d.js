@@ -15,8 +15,9 @@
 // It is right on a headset, over a desktop page's background and over a webcam's picture alike (nothing is taken back from what is behind).
 //   dim.surfaces(room, parent)   room: room.js { planes } in the floor plan of `parent` (THREE (x, h, -y)), or null (a floor only); redrawn
 //                                only when the room object or the parent changes
-//   dim.lights(list)             this frame's lights, [{ at: THREE.Vector3 (world), colour (hex), range (m), power (0..1) }]; at most 8, the
-//                                strongest; [] for none
+//   dim.lights(list)             this frame's lights, [{ at: THREE.Vector3 (world), colour (hex), range (m), power (0..1), dir, cone }]; at most
+//                                8, the strongest; [] for none. dir (THREE.Vector3, world, unit) and cone (a cosine): a light that shines one
+//                                way only (dim.js spot), e.g. down from a shade under the ceiling; without them, every way
 export function createDim3d({ THREE, scene, cutouts = true }) {
   const u = { a: { value: 0 }, c: { value: 0 } };
   const mat = new THREE.ShaderMaterial({
@@ -32,7 +33,8 @@ export function createDim3d({ THREE, scene, cutouts = true }) {
   const D = window.MUMR.dim;
   // ---- the relight: the real surfaces, drawn with the lights
   const MAXL = 8, lp = Array.from({ length: MAXL }, () => new THREE.Vector3()), lc = Array.from({ length: MAXL }, () => new THREE.Color()), lr = Array.from({ length: MAXL }, () => new THREE.Vector2());
-  const ru = { lp: { value: lp }, lc: { value: lc }, lr: { value: lr }, n: { value: 0 }, tint: { value: 0.2 }, lin: { value: 0 }, a: { value: 0 }, c: { value: 0 } };
+  const ld = Array.from({ length: MAXL }, () => new THREE.Vector4(0, -1, 0, -2));          // (the way it shines and its cone's cosine; -2: every way)
+  const ru = { lp: { value: lp }, lc: { value: lc }, lr: { value: lr }, ld: { value: ld }, n: { value: 0 }, tint: { value: 0.2 }, lin: { value: 0 }, a: { value: 0 }, c: { value: 0 } };
   const rmat = new THREE.ShaderMaterial({
     uniforms: ru, depthWrite: true, toneMapped: false, side: THREE.DoubleSide,
     blending: THREE.CustomBlending, blendSrc: THREE.OneFactor, blendDst: THREE.OneMinusSrcAlphaFactor,
@@ -40,7 +42,7 @@ export function createDim3d({ THREE, scene, cutouts = true }) {
     // (lit where the surface really is; drawn at the far end of the depth range, a hair nearer than the layer)
     vertexShader: 'varying vec3 vW; varying vec3 vN; void main() { vec4 w = modelMatrix * vec4(position, 1.0); vW = w.xyz; vN = normalize(mat3(modelMatrix) * normal); gl_Position = projectionMatrix * viewMatrix * w; gl_Position.z = 0.99998 * gl_Position.w; }',
     // (dim.js reach for each light, then relit; in a linear target the numbers are turned as the layer's are)
-    fragmentShader: `uniform vec3 lp[${MAXL}]; uniform vec3 lc[${MAXL}]; uniform vec2 lr[${MAXL}]; uniform int n; uniform float tint; uniform float lin; uniform float a; uniform float c; varying vec3 vW; varying vec3 vN;
+    fragmentShader: `uniform vec3 lp[${MAXL}]; uniform vec3 lc[${MAXL}]; uniform vec2 lr[${MAXL}]; uniform vec4 ld[${MAXL}]; uniform int n; uniform float tint; uniform float lin; uniform float a; uniform float c; varying vec3 vW; varying vec3 vN;
       vec3 toLin(vec3 v) { return mix(v / 12.92, pow((v + 0.055) / 1.055, vec3(2.4)), step(vec3(0.04045), v)); }
       void main() {
         float s = 0.0; vec3 col = vec3(0.0);
@@ -48,6 +50,7 @@ export function createDim3d({ THREE, scene, cutouts = true }) {
           if (i >= n) break;
           vec3 d = lp[i] - vW; float r = length(d), f = clamp(1.0 - r / lr[i].x, 0.0, 1.0), g = f * f * (3.0 - 2.0 * f);
           float k = lr[i].y * g * g * (0.35 + 0.65 * min(1.0, abs(dot(normalize(vN), d / max(r, 1e-4)))));
+          if (ld[i].w > -1.5) { float lo = ld[i].w, hi = lo + 0.35 * (1.0 - lo), t = clamp((dot(-d / max(r, 1e-4), ld[i].xyz) - lo) / max(1e-6, hi - lo), 0.0, 1.0); k *= t * t * (3.0 - 2.0 * t); }
           s += k; col += lc[i] * k;
         }
         float keep = 1.0 - min(s, ${D.RELIT_MAX.toFixed(2)});
@@ -86,7 +89,7 @@ export function createDim3d({ THREE, scene, cutouts = true }) {
   }
   function lights(list) {
     const L = (list || []).filter((q) => q && q.at && q.range > 0 && q.power > 0).sort((p, q) => q.power - p.power).slice(0, MAXL);
-    L.forEach((q, i) => { lp[i].copy(q.at); lc[i].set(q.colour === undefined ? 0xffb066 : q.colour); lr[i].set(q.range, Math.min(1, q.power)); });
+    L.forEach((q, i) => { lp[i].copy(q.at); lc[i].set(q.colour === undefined ? 0xffb066 : q.colour); lr[i].set(q.range, Math.min(1, q.power)); if (q.dir && Number.isFinite(q.cone)) ld[i].set(q.dir.x, q.dir.y, q.dir.z, Math.max(-1, Math.min(0.99, q.cone))); else ld[i].set(0, -1, 0, -2); });
     lightN = ru.n.value = L.length;
   }
   surfaces(null, null);

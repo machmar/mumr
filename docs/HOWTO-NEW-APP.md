@@ -124,6 +124,12 @@ piece, for an app that needs something else:
   dim lifts off the real walls, floor and table tops of the room scan and they take a little of its colour, so a lantern by a wall seems to throw its
   light on the real wall, the same on every headset (the room is the server's, the lights come from your shared state) and on a webcam page whose
   view hands them over as `window.view.relights()`. With no scan only a floor round the player is lit; with no dim only the warm colour is laid on.
+  A light may shine one way only: `dir` (THREE.Vector3, world) and `cone` (a cosine), e.g. down from a shade under the ceiling, so the floor
+  under it is lit and the ceiling round it stays dark.
+- **The room's real ceiling lights** (`M.room.lights(room, S.doc.rlights)`; apps/jenga hangs paper shades over them): the lamps of the scan up at the
+  ceiling and the ones players marked, one list for everybody in the common frame. Add `rlight: M.room.LIGHT_KIND` to a PC view's kinds (createApp has
+  it). To let players mark them, run a `new M.room.LightMarker()` on the marking player's own page with its head and hands and the ceiling's height
+  (`M.room.ceilingHeight`), emit its `done` in the common frame; the others draw the same aim from that player's presence.
 - The engine's menu is on the wrist: `new MUMR.sysmenu.SysMenu(session, lineup, { exit, roomSetup, roomUsed })`; add `SysMenu.ACTIONS`
   to the session's `actions` and call `sys.press(id)` first from the `action` listener; draw it at `sys.place(head, leftHandJoints,
   floorY)` with `SysMenu.layout(sys.info())`, and send it as panel `wrist` with `{ sys: sys.info() }` in the menus' info. The app's own

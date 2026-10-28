@@ -203,3 +203,61 @@ test('a scan that only shifts by a centimetre is the same scan (no new log line)
   assert.strictEqual(R.setScan(jitter(0.2)), true, 'moved 20 cm: new');
   assert.strictEqual(R.setScan({ planes: scan().planes.slice(1) }), true, 'a plane fewer: new');
 });
+
+// ---- the room's lights: the ceiling's height, the lamps of the scan, the marked ones, marking with a hand
+test('the ceiling: its plane, else the tops of the walls, else 2.5 m', () => {
+  assert.strictEqual(M.room.ceilingHeight(scan()), 2.4);
+  assert.strictEqual(M.room.ceilingHeight({ planes: [{ l: 'wall', v: true, p: [[0, 0, 0], [3, 0, 0], [3, 0, 2.6], [0, 0, 2.6]] }] }), 2.6);
+  assert.strictEqual(M.room.ceilingHeight(null), 2.5);
+});
+
+test('the room\'s lights: a long lamp of the scan is a strip, a square one round; marked ones; one taken away', () => {
+  const room = { planes: scan().planes.concat([
+    { l: 'lamp', v: false, p: [[1, 1, 2.38], [2.2, 1, 2.38], [2.2, 1.15, 2.38], [1, 1.15, 2.38]] },
+    { l: 'light', v: false, p: [[0.3, 0.3, 2.38], [0.7, 0.3, 2.38], [0.7, 0.7, 2.38], [0.3, 0.7, 2.38]] },
+    { l: 'lamp', v: false, p: [[2.5, 1.5, 1.2], [2.8, 1.5, 1.2], [2.8, 1.8, 1.2], [2.5, 1.8, 1.2]] },          // (a lamp on a sideboard: not the ceiling's)
+  ]) };
+  let L = M.room.lights(room, {});
+  assert.strictEqual(L.length, 2);
+  const tube = L.find((l) => !l.round), disc = L.find((l) => l.round);
+  near(tube.len, 1.2, 0.01, 'the tube\'s length'); near(tube.w, 0.15, 0.01, 'its width'); near((tube.a[1] + tube.b[1]) / 2, 1.075, 0.01, 'along its middle');
+  near(disc.w, 0.4, 0.01, 'the round one across'); assert.deepStrictEqual(disc.a, [0.5, 0.5]);
+  L = M.room.lights(room, { [tube.id]: { del: true }, m1: { a: [1, 1], b: [1, 1], h: 2.4, w: 0.4 } });
+  assert.deepStrictEqual(L.map((l) => `${l.id} ${l.from}`).sort(), ['m1 mark', `${disc.id} scan`]);
+});
+
+test('the document keeps the marked lights: a strip, a round one, one taken away; nonsense is not kept', () => {
+  const S = { doc: {}, notify() {} }, K = M.room.LIGHT_KIND;
+  assert.deepStrictEqual(K.keep({ id: 'm1' }), { key: 'rlight:m1' });
+  K.apply(S, { k: 'rlight', id: 'm1', a: [1, 1], b: [2, 1], h: 2.4, w: 0.12 });
+  K.apply(S, { k: 'rlight', id: 'm2', a: [0, 0], b: [0, 0], h: 2.4, w: 0.4 });
+  K.apply(S, { k: 'rlight', id: 'm3', a: [0, 0], h: 2.4, w: 0.4 });
+  K.apply(S, { k: 'rlight', id: 'm2', del: true });
+  assert.deepStrictEqual(S.doc.rlights, { m1: { a: [1, 1], b: [2, 1], h: 2.4, w: 0.12 }, m2: { del: true } });
+});
+
+test('marking a light with a hand: the line from the eye through the pinch; a tap marks a round one or takes one away, a drag a strip', () => {
+  const R = M.room, eye = [0, 0, 1.6];
+  assert.deepStrictEqual(R.aimUp(eye, [0.1, 0, 1.8], 2.4).map((v) => +v.toFixed(3)), [0.4, 0], 'up through the fingers to the ceiling');
+  assert.strictEqual(R.aimUp(eye, [0.5, 0, 1.6], 2.4), null, 'a hand held level points at no ceiling');
+  const hand = (x, y, z, pinch) => ({ id: 'right', pinch, points: [{ name: 'thumb', x: x - 0.01, y, z }, { name: 'index', x: x + 0.01, y, z }] });
+  const at = (p) => hand(eye[0] + (p[0] - eye[0]) * 0.25, eye[1] + (p[1] - eye[1]) * 0.25, eye[2] + (2.4 - eye[2]) * 0.25, false);
+  const pinchAt = (p) => Object.assign(at(p), { pinch: true });
+  let mk = new R.LightMarker(), out, t = 0;
+  const run = (h, list = []) => { let d = null; for (let i = 0; i < 12; i++) { out = mk.update(eye, [h], 2.4, list, (t += 16)); d = d || out.done; } out.done = d; return out; };
+  run(at([1, 1])); assert.ok(Math.abs(out.aim[0] - 1) < 0.01 && Math.abs(out.aim[1] - 1) < 0.01, 'aims where the line meets the ceiling');
+  run(pinchAt([1, 1])); assert.strictEqual(out.done, null, 'nothing until it is let go');
+  run(at([1, 1])); assert.ok(out.done && out.done.a[0] === 1 && out.done.a[1] === 1 && out.done.w === R.ROUND_W && out.done.h === 2.4, 'a tap: a round fitting');
+  const tapId = out.done.id;
+  run(at([1, 1])); assert.strictEqual(out.done, null, 'once');
+  // a drag along a tube
+  mk = new R.LightMarker(); run(at([0, 2])); run(pinchAt([0, 2]));
+  for (let x = 0; x <= 1.2; x += 0.1) out = mk.update(eye, [pinchAt([x, 2])], 2.4, [], (t += 16));
+  run(pinchAt([1.2, 2])); assert.ok(out.drag && Math.abs(out.drag.b[0] - 1.2) < 0.02, 'while drawn: the strip so far');
+  run(at([1.2, 2])); assert.ok(out.done && out.done.w === R.STRIP_W && Math.abs(out.done.b[0] - 1.2) < 0.02 && out.done.a[0] === 0, 'let go: a strip');
+  assert.notStrictEqual(out.done.id, tapId);
+  // a tap on a light takes it away
+  mk = new R.LightMarker(); const list = [{ id: 'm9', a: [1, 1], b: [2, 1], h: 2.4, w: 0.12 }];
+  run(at([1.5, 1.04]), list); assert.strictEqual(out.over.id, 'm9', 'aimed at it');
+  run(pinchAt([1.5, 1.04]), list); run(at([1.5, 1.04]), list); assert.deepStrictEqual(out.done, { k: 'rlight', id: 'm9', del: true });
+});

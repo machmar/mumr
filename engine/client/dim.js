@@ -21,6 +21,8 @@
 //   reach(r, range, power, facing) -> s   how strongly a light reaches a point r metres away (0 at its range; facing: the cosine between the
 //                                         surface and the way to the light, either side counts)
 //   relit(layer, s, tint) -> { a, c }     the layer there: a' = a (1 - s), c' = c (1 - s) + tint (tint: the light's colour laid on, premultiplied)
+//   spot(cosA, cone) -> 0..1              a light that shines one way (a shade under a ceiling light shines down, not on the ceiling round it): cosA
+//                                         the cosine between its way and the way to the point; full inside, none outside cone (a cosine), soft between
 (function (M) {
   const GREY = 0.4;            // what mute 1 mixes the room towards (the screen's number, 0..1): a little below the middle, so muted is also a little darker
   const OFF = { dark: 0, mute: 0, over: true };
@@ -57,15 +59,19 @@
   }
 
   const RELIT_MAX = 0.95;              // (a light never takes all of the dim away: the room stays the game's)
-  function reach(r, range, power, facing = 1) {
+  function reach(r, range, power, facing = 1, spotK = 1) {
     if (!(range > 0) || !(power > 0)) return 0;
     const f = Math.max(0, 1 - r / range), g = f * f * (3 - 2 * f);
-    return power * g * g * (0.35 + 0.65 * Math.min(1, Math.abs(facing)));
+    return power * g * g * (0.35 + 0.65 * Math.min(1, Math.abs(facing))) * spotK;
+  }
+  function spot(cosA, cone) {
+    const lo = cone, hi = cone + 0.35 * (1 - cone), t = Math.max(0, Math.min(1, (cosA - lo) / Math.max(1e-6, hi - lo)));
+    return t * t * (3 - 2 * t);
   }
   function relit(l, s, tint = 0) {
     const k = 1 - Math.max(0, Math.min(RELIT_MAX, s));
     return { a: l.a * k, c: l.c * k + tint };
   }
 
-  M.dim = { clean, level, event, layer, reach, relit, GREY, RELIT_MAX };
+  M.dim = { clean, level, event, layer, reach, relit, spot, GREY, RELIT_MAX };
 })(typeof module !== 'undefined' ? (module.exports = require('./ns.js')) : (globalThis.MUMR = globalThis.MUMR || {}));
