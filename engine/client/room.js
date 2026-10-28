@@ -179,7 +179,7 @@
         const h = pl.p.reduce((a, p) => a + p[2], 0) / pl.p.length, xs = pl.p.map((p) => p[0]), ys = pl.p.map((p) => p[1]);
         const t = { h, pts: pl.p, x0: Math.min(...xs), x1: Math.max(...xs), y0: Math.min(...ys), y1: Math.max(...ys), l: pl.l, k };
         q.tops.push(t);
-        if (k === 'table') q.blocks.push(Object.assign({ lo: h - TABLE_T, hi: h }, t));
+        if (k === 'table') q.blocks.push(Object.assign({ lo: h - (pl.thick > 0 ? pl.thick : TABLE_T), hi: h }, t));          // (thick: an app's own slab, e.g. a tray's wall on a table)
         if (k === 'solid') q.blocks.push(Object.assign({ lo: -1, hi: h }, t));
       } else if (k === 'wall') {
         let best = -1, a = pl.p[0], b = pl.p[0];          // its two ends on the floor plan: the two points furthest apart

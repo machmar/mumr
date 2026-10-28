@@ -13,6 +13,10 @@
 // touches. The default velocity motor is cancelled by friction inside the same solver step when the body carries a load (a block under a
 // tower stays put while the motor says it moves): apps/jenga uses `force`.
 // World options for things that must stand still under a load: velocitySteps, positionSteps, speculative, baumgarte, minBounceV (Jolt's own).
+// softHands: { force (N), omega (rad/s), mass (kg) }: the hands are not kinematic but light bodies pulled to the tracked hand by a spring of limited
+// force, so a fingertip pressing a block against another one stops at it instead of driving one into the other (Marek's run, 2026-10-28: "it
+// squishes things"). A hand shape left more than GHOST behind the real hand (the real hand went through the blocks) stops colliding until the
+// place where the real hand is is free again. Hands never touch each other or the room (their own layer).
 const M = require('./index.js');
 const path = require('node:path');
 const { pathToFileURL } = require('node:url');
@@ -37,7 +41,7 @@ async function load() {
   const fin = (a) => a.every(Number.isFinite);
   const differs = (a, b) => a[0] !== b[0] || a[1] !== b[1] || a[2] !== b[2] || (a.length > 3 && a[3] !== b[3]);
   const MAX_DT = 0.05, HAND_MAX = 4, HOLD_W = 10, V_MAX = 30, W_MAX = 100, WALL_T = 0.2, PLATE_T = 0.01, FAR = 0.5, NEAR_WAKE = 0.05, GROUND = 100, MAX_SUB = 32, CATCH_TAU = 0.05, CATCH_UP = 2;
-  const STATIC = 0, MOVING = 1;
+  const STATIC = 0, MOVING = 1, HAND = 2, GHOST = 0.05, SOFT_W = 40;
   const nearOn = (s, x) => { if (!s.q) return s.p; const d = sub(s.q, s.p), L = dot(d, d), t = L > 1e-12 ? Math.max(0, Math.min(1, dot(sub(x, s.p), d) / L)) : 0; return add(s.p, d, t); };
   // the turn that takes the y axis to direction d (unit)
   const fromY = (d) => { const c = cross([0, 1, 0], d), w = 1 + d[1]; return w < 1e-6 ? [1, 0, 0, 0] : Q.normalize([c[0], c[1], c[2], w]); };
@@ -64,11 +68,11 @@ async function load() {
     }
     // the Jolt system itself (its limits are fixed when it is made: _grow makes a bigger one when the bodies come near them)
     _open() {
-      const s = new J.JoltSettings(), ol = new J.ObjectLayerPairFilterTable(2);
-      ol.EnableCollision(STATIC, MOVING); ol.EnableCollision(MOVING, MOVING);
-      const bp = new J.BroadPhaseLayerInterfaceTable(2, 2);
-      bp.MapObjectToBroadPhaseLayer(STATIC, new J.BroadPhaseLayer(0)); bp.MapObjectToBroadPhaseLayer(MOVING, new J.BroadPhaseLayer(1));
-      s.mObjectLayerPairFilter = ol; s.mBroadPhaseLayerInterface = bp; s.mObjectVsBroadPhaseLayerFilter = new J.ObjectVsBroadPhaseLayerFilterTable(bp, 2, ol, 2);
+      const s = new J.JoltSettings(), ol = new J.ObjectLayerPairFilterTable(3);
+      ol.EnableCollision(STATIC, MOVING); ol.EnableCollision(MOVING, MOVING); ol.EnableCollision(HAND, MOVING);
+      const bp = new J.BroadPhaseLayerInterfaceTable(3, 2);
+      bp.MapObjectToBroadPhaseLayer(STATIC, new J.BroadPhaseLayer(0)); bp.MapObjectToBroadPhaseLayer(MOVING, new J.BroadPhaseLayer(1)); bp.MapObjectToBroadPhaseLayer(HAND, new J.BroadPhaseLayer(1));
+      s.mObjectLayerPairFilter = ol; s.mBroadPhaseLayerInterface = bp; s.mObjectVsBroadPhaseLayerFilter = new J.ObjectVsBroadPhaseLayerFilterTable(bp, 2, ol, 3);
       s.mMaxBodies = this.cap; s.mMaxBodyPairs = this.cap * 16; s.mMaxContactConstraints = this.cap * 8;      // (a heap has about 5 contacts a cube; the room for them grows with the cap)
       this.jolt = new J.JoltInterface(s); J.destroy(s);
       this.sys = this.jolt.GetPhysicsSystem(); this.bi = this.sys.GetBodyInterface();
@@ -184,6 +188,7 @@ async function load() {
       this.bi.SetLinearAndAngularVelocity(id, this.v1, this.v2);
       if (b.asleep) this.bi.DeactivateBody(id);
       b._j = { id, p: b.p.slice(), q: b.q.slice(), v: b.v.slice(), w: b.w.slice(), asleep: !!b.asleep, gf: 1 };
+      if (b.noSleep) { b.noSleep = false; this.keepAwake(b, true); }
     }
     remove(b) {
       const i = this.bodies.indexOf(b);
@@ -192,6 +197,14 @@ async function load() {
       if (b._j) { this._kill(b._j.id, true); b._j = null; }
     }
     wake(b) { b.asleep = false; b.calm = 0; if (b._j) { this.bi.ActivateBody(b._j.id); b._j.asleep = false; } }
+    // a body that may not sleep (on) or may again: a stack woken from sleep settles a little each time (Jolt starts its contacts afresh), so one
+    // that is woken often (a tower that hands come near) is better kept awake
+    keepAwake(b, on) {
+      b.noSleep = !!on;
+      if (!b._j) return;
+      const body = this.sys.GetBodyLockInterfaceNoLock().TryGetBody(b._j.id);
+      if (body && body.GetAllowSleeping() === !!on) { body.SetAllowSleeping(!on); if (on) this.wake(b); }
+    }
     // a state a packet or a caller put into a body that it cannot be in is put right (as physics.js does)
     _clean(b) {
       if (fin(b.p)) b.good = b.p.slice(); else { const g = (b.good || [0, 0, b.size[2] / 2]); for (let i = 0; i < 3; i++) b.p[i] = g[i]; }
@@ -262,13 +275,17 @@ async function load() {
       let e = this._hands.get(key);
       if (!e) {
         this.rv.Set(p[0], p[1], p[2]); const rot = this._quat(q);
-        const cs = new J.BodyCreationSettings(shape, this.rv, rot, J.EMotionType_Kinematic, MOVING);
+        const soft = this.opts.softHands, cs = new J.BodyCreationSettings(shape, this.rv, rot, soft ? J.EMotionType_Dynamic : J.EMotionType_Kinematic, HAND);
         cs.mFriction = 0.6; cs.mRestitution = 0;
-        e = { id: this._mk(cs, J.EActivation_Activate), shape, p: p.slice(), q: q.slice(), on: true, seen: true, fresh: true };
+        if (soft) {
+          cs.mGravityFactor = 0; cs.mLinearDamping = 0; cs.mAngularDamping = 0; cs.mAllowSleeping = false; cs.mMotionQuality = J.EMotionQuality_LinearCast;
+          cs.mOverrideMassProperties = J.EOverrideMassProperties_CalculateInertia; cs.mMassPropertiesOverride.mMass = soft.mass || 0.05;
+        }
+        e = { id: this._mk(cs, J.EActivation_Activate), shape, p: p.slice(), q: q.slice(), on: true, seen: true, fresh: true, ghost: false };
         J.destroy(cs); J.destroy(rot); this._hands.set(key, e); return e;
       }
       if (e.shape !== shape) { this.bi.SetShape(e.id, shape, false, J.EActivation_Activate); e.shape = shape; }
-      if (!e.on) { this.bi.AddBody(e.id, J.EActivation_Activate); e.on = true; e.fresh = true; }
+      if (!e.on && !e.ghost) { this.bi.AddBody(e.id, J.EActivation_Activate); e.on = true; e.fresh = true; }
       e.seen = true; return e;
     }
     // every hand shape of this frame: [{ key, shape, p, q }] (the pose it is to have at the end of the step)
@@ -277,9 +294,9 @@ async function load() {
       for (const s of this.kin.spheres) {
         if (s.q) {
           const d = sub(s.q, s.p), len = Math.hypot(...d);
-          if (len > 1e-4) out.push({ key: s.key, shape: this._pill(len, s.r), p: mulv(add(s.p, s.q), 0.5), q: fromY(mulv(d, 1 / len)), v: s.v });
-          else out.push({ key: s.key, shape: this._ball(s.r), p: s.p, q: [0, 0, 0, 1], v: s.v });
-        } else out.push({ key: s.key, shape: this._ball(s.r), p: s.p, q: [0, 0, 0, 1], v: s.v });
+          if (len > 1e-4) out.push({ key: s.key, shape: this._pill(len, s.r), p: mulv(add(s.p, s.q), 0.5), q: fromY(mulv(d, 1 / len)), v: s.v, r: s.r, half: len / 2 });
+          else out.push({ key: s.key, shape: this._ball(s.r), p: s.p, q: [0, 0, 0, 1], v: s.v, r: s.r });
+        } else out.push({ key: s.key, shape: this._ball(s.r), p: s.p, q: [0, 0, 0, 1], v: s.v, r: s.r });
       }
       for (const pl of this.kin.plates) {
         const n = pl.normal, q = M.align.quatFromBasis(pl.axes[0], pl.axes[1], n);
@@ -329,6 +346,7 @@ async function load() {
       // (a fast body moves at most maxMove in a substep: a throw at 10 m/s cannot go deep into a table's edge before it is stopped)
       const targets = this._handTargets(), n = Math.min(MAX_SUB, Math.max(1, Math.ceil(dt / this.substep - 1e-9), Math.ceil((dt * fast) / this.maxMove - 1e-9))), h = dt / n;
       for (const e of this._hands.values()) e.seen = false;
+      if (this.opts.softHands) return this._stepSoft(n, h, targets);
       const hands = targets.map((t) => {
         const e = this._hand(t.key, t.shape, t.p, t.q), err = sub(t.p, e.p), jump = Math.hypot(...err);
         if (e.fresh || jump > FAR) {                                                // (new, or far: it is put there, with no speed)
@@ -358,6 +376,58 @@ async function load() {
       }
       for (const b of this.bodies) this._pull(b);
     }
+    // ---- one frame with soft hands: each hand shape is pulled to where the hand is by a spring of limited force, inside every substep
+    _stepSoft(n, h, targets) {
+      const S = this.opts.softHands, w0 = S.omega || 120, fmax = S.force || 2, mass = S.mass || 0.05, bi = this.bi;
+      for (const e of this._hands.values()) e.seen = false;
+      const hands = [];
+      for (const t of targets) {
+        const e = this._hand(t.key, t.shape, t.p, t.q), v = t.v && fin(t.v) ? t.v : [0, 0, 0];
+        if (e.ghost) {                                                  // (left behind: back when the place where the hand is is free of bodies)
+          if (this._occupied(t)) { e.p = t.p.slice(); e.q = t.q.slice(); continue; }
+          e.ghost = false; bi.AddBody(e.id, J.EActivation_Activate); e.on = true; e.fresh = true;
+        }
+        if (e.fresh || Math.hypot(...sub(t.p, e.p)) > FAR) {
+          this.rv.Set(t.p[0], t.p[1], t.p[2]); const r = this._quat(t.q); bi.SetPositionAndRotation(e.id, this.rv, r, J.EActivation_Activate); J.destroy(r);
+          this.v1.Set(v[0], v[1], v[2]); this.v2.Set(0, 0, 0); bi.SetLinearAndAngularVelocity(e.id, this.v1, this.v2);
+          e.fresh = false; e.p = t.p.slice(); e.q = t.q.slice();
+        }
+        hands.push({ e, v, p0: e.p.slice(), q0: e.q.slice(), p1: t.p.slice(), q1: t.q });
+      }
+      for (const e of this._hands.values()) if (!e.seen && e.on) { bi.RemoveBody(e.id); e.on = false; }
+      for (let i = 0; i < n; i++) {
+        const f = (i + 1) / n;
+        for (const b of this.bodies) if (b.held) { if (b.held.force) this._force(b, h); else { this._pullPose(b); this._motor(b, h); } }
+        for (const a of hands) {
+          if (a.e.ghost) continue;
+          const id = a.e.id, tp = add(a.p0, sub(a.p1, a.p0), f), P = bi.GetPosition(id), V = bi.GetLinearVelocity(id), cur = [P.GetX(), P.GetY(), P.GetZ()], cv = [V.GetX(), V.GetY(), V.GetZ()];
+          const err = sub(tp, cur);
+          if (Math.hypot(...err) > GHOST) { bi.RemoveBody(id); a.e.on = false; a.e.ghost = true; continue; }
+          let force = mulv(add(mulv(err, w0 * w0), sub(a.v, cv), 2 * w0), mass); const fl = Math.hypot(...force); if (fl > fmax) force = mulv(force, fmax / fl);
+          this.v1.Set(force[0], force[1], force[2]); bi.AddForce(id, this.v1);
+          const R = bi.GetRotation(id), tq = Q.slerp(a.q0, a.q1, f); let qe = Q.mul(tq, Q.conj([R.GetX(), R.GetY(), R.GetZ(), R.GetW()])); if (qe[3] < 0) qe = qe.map((c) => -c);
+          let w = mulv([qe[0], qe[1], qe[2]], 1 / Math.max(h, 1e-4)); const ws = Math.hypot(...w); if (ws > SOFT_W) w = mulv(w, SOFT_W / ws);
+          this.v2.Set(w[0], w[1], w[2]); bi.SetAngularVelocity(id, this.v2);
+        }
+        this.jolt.Step(h, 1);
+      }
+      for (const a of hands) { a.e.p = a.p1.slice(); a.e.q = a.q1.slice(); }
+      for (const b of this.bodies) this._pull(b);
+    }
+    // is a hand shape's place (t: { p, q, shape }) inside or touching one of the bodies? (boxes; a pill is tried at its ends and middle)
+    _occupied(t) {
+      const r = t.r || 0.01, pts = [t.p];
+      if (t.half) { const d = Q.rotate(t.q, [0, t.half, 0]); pts.push(add(t.p, d), sub(t.p, d)); }
+      for (const b of this.bodies) {
+        for (const p of pts) {
+          const l = Q.rotate(Q.conj(b.q), sub(p, b.p));
+          if (Math.hypot(Math.max(0, Math.abs(l[0]) - b.size[0] / 2), Math.max(0, Math.abs(l[1]) - b.size[1] / 2), Math.max(0, Math.abs(l[2]) - b.size[2] / 2)) < r + 0.002) return true;
+        }
+      }
+      return false;
+    }
+    // where each hand shape is now: [{ key, p, ghost }] (soft hands lag behind the real hand where they press on something)
+    handPoses() { const out = []; for (const [key, e] of this._hands) if (e.on || e.ghost) { const P = e.on ? this.bi.GetPosition(e.id) : null; out.push({ key, p: P ? [P.GetX(), P.GetY(), P.GetZ()] : e.p.slice(), ghost: e.ghost }); } return out; }
     // (the pose of a held body, read before its motor)
     _pullPose(b) {
       const id = b._j.id, p = this.bi.GetPosition(id), r = this.bi.GetRotation(id);

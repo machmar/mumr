@@ -143,7 +143,7 @@
       if (room !== this.arrangedFor && ['lobby', 'round_end', 'match_end'].includes(ph)) { this.rearrange(); this.makeTower(); }
       const tw = this.tower;
       if (room !== tw.realRoom) tw.setRoom(room);
-      tw.frozen = !!this.frozen;
+      tw.frozen = !!this.frozen; tw.awake = ['roll', 'pull', 'place'].includes(ph);
       tw.step(dt, this.t, hands || []);
       while (tw.log.length) this.life(`jenga: ${tw.log.shift()}`);
       if (ph === 'fall' || ph === 'replay') this.playReplay(nowMs);

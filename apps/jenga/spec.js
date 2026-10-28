@@ -34,8 +34,10 @@
   const tuning = (size) => {
     const d = dims(size), k = d.k, r = Math.sqrt(k);
     return {
-      world: { substep: 1 / 240, slop: 0.0005 * k, maxMove: 0.004 * k, sleepAfter: 0.4, sleepV: 0.02 * r, velocitySteps: 20, positionSteps: 6 },
+      world: { substep: 1 / 240, slop: 0.0005 * k, maxMove: 0.004 * k, sleepAfter: 0.4, sleepV: 0.02 * r, velocitySteps: 20, positionSteps: 6, baumgarte: 0.05 },      // (a gentle position correction: a stronger one has no friction in it and walks a stack
+                                                                                                                                    //  that leans on one side off it, block by block, when the tower is kept awake)
       hold: { force: 4 * k * k * k, omega: 80 / r, spring: 20, speed: 5, breakAway: 1.5 * d.L },      // a grip's strength (N), how stiff its spring is (rad/s), when it lets go (m behind the hand)
+      hand: { force: 3 * k * k * k, omega: 120, mass: 0.02 * k * k * k },                               // a fingertip pushes with at most this (N): it stops at a block that will not give
       grab: 0.02 + 0.01 * Math.min(k, 3), tip: Math.max(0.005, Math.min(0.01, 0.35 * d.H)),
       still: 0.04 * r,                                                                                  // m/s: slower than this is at rest
     };
@@ -115,7 +117,9 @@
     const planes = [{ l: 'plinth', v: false, p: [[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([a, b]) => at([a * L.plinth.half, b * L.plinth.half, L.plinth.top])) }];
     planes.push({ l: 'table', v: false, p: rect(c.c, c.half[0], c.half[1], c.top) });
     const w = t.wall / 2, h = c.top + t.rim, T = t.half, on = (du, dv) => [t.c[0] + U[0] * du + V[0] * dv, t.c[1] + U[1] * du + V[1] * dv];
-    for (const [q, hu, hv] of [[on(-T, 0), w, T + w], [on(T, 0), w, T + w], [on(0, -T), T + w, w], [on(0, T), T + w, w]]) planes.push({ l: 'tray', v: false, p: rect(q, hu, hv, h) });
+    // (the tray's walls stand on the table: slabs from its top up, not solids from the floor, which made an edge under the table that a falling block
+    //  caught on: Marek's run, 2026-10-28)
+    for (const [q, hu, hv] of [[on(-T, 0), w, T + w], [on(T, 0), w, T + w], [on(0, -T), T + w, w], [on(0, T), T + w, w]]) planes.push({ l: 'tray table', v: false, p: rect(q, hu, hv, h), thick: t.rim });
     return planes;
   }
   // the real room with the furniture added (one object per room, so that the physics sees "the same room" and rebuilds nothing)

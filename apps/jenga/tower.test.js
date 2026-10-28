@@ -90,3 +90,96 @@ t('the die: read where it lies once it is still, with its colour and how far fro
   w.resetDie(); run(w, 1);
   assert.ok(w.dieRead().onTray); assert.strictEqual(w.dieRead().moved, false);
 });
+
+// a pretend tracked hand with joints (its turn q: the hand's own x from the wrist to the middle knuckle, y across to the index knuckle)
+const jhand = (id, at, pinch, q = [0, 0, 0, 1], open = 0.008) => {
+  const x = S.qRot(q, [1, 0, 0]), y = S.qRot(q, [0, 1, 0]), o = (a, b) => [at[0] + x[0] * a + y[0] * b, at[1] + x[1] * a + y[1] * b, at[2] + x[2] * a + y[2] * b];
+  const joints = Array.from({ length: 25 }, () => o(-0.05, 0)); joints[0] = o(-0.09, 0); joints[11] = o(-0.01, 0); joints[6] = o(-0.02, 0.02); joints[21] = o(-0.02, -0.025);
+  const th = o(0, -open / 2), ix = o(0, open / 2); joints[4] = th; joints[9] = ix; joints[14] = o(0.07, 0); joints[19] = o(0.065, -0.02); joints[24] = o(0.05, -0.04);     // (an open hand: the other fingers out)
+  const pts = [['thumb', th], ['index', ix], ['middle', joints[14]], ['ring', joints[19]], ['pinky', joints[24]], ['palm', o(-0.04, 0)]];
+  return { id, pinch, joints, points: pts.map(([name, p]) => ({ name, x: p[0], y: p[1], z: p[2] })) };
+};
+const moved = (w, from) => Math.max(...w.blocks.map((b, i) => Math.hypot(...b.body.p.map((v, k) => v - from[i][k]))));
+const poses = (w) => w.blocks.map((b) => b.body.p.slice());
+const turnDeg = (a, b) => { const d = Math.abs(a[0] * b[0] + a[1] * b[1] + a[2] * b[2] + a[3] * b[3]); return 2 * Math.acos(Math.min(1, d)) * 180 / Math.PI; };
+
+t('in play the tower is kept awake and stands still: half a minute, and a fingertip sliding past it a few millimetres away moves nothing (Marek, 2026-10-28)', () => {
+  for (const size of ['normal', 'huge']) {
+    const w = tower({ size }); w.awake = true;
+    const p0 = poses(w);
+    run(w, 30);
+    assert.ok(moved(w, p0) < 0.0015 * w.d.k, `${size}: it crept ${(moved(w, p0) * 1000).toFixed(2)} mm in half a minute`);
+    assert.ok(w.blocks.every((b) => !b.body.asleep), `${size}: awake`);
+    assert.strictEqual(w.moving(), 0, `${size}: nothing counts as moving`);
+    const p1 = poses(w), b = w.blocks[27 + 1].body, c = w.local(b.p);            // level 9 lies along y: its face is at x = L/2
+    for (const gap of [0.02, 0.006, 0.003]) {
+      run(w, 4, (s) => { const p = S.toCommon(w.place, [w.d.L / 2 + gap + w.tun.tip, (s - 2) * 0.15, c[2]]); return [{ id: 'h', pinch: false, points: [{ name: 'index', x: p[0], y: p[1], z: p[2] }] }]; });
+      assert.ok(moved(w, p1) < 0.001 * w.d.k, `${size}: a fingertip ${gap * 1000} mm away moved the tower ${(moved(w, p1) * 1000).toFixed(2)} mm`);
+    }
+    assert.strictEqual(w.fell(), null);
+  }
+});
+
+t('a fingertip pressing hard on a block that is held by the tower stops at it: it does not drive blocks into each other', () => {
+  const w = tower(); w.awake = true; run(w, 0.5);
+  const i = 3 * 9 + 1, b = w.blocks[i].body, c = w.local(b.p), p0 = poses(w);      // the middle block of level 9 (along y), pushed at its end, 2 cm deeper than its face
+  run(w, 2, (s) => { const p = S.toCommon(w.place, [c[0], w.d.L / 2 + w.tun.tip - Math.min(0.02, s * 0.04), c[2]]); return [{ id: 'h', pinch: false, points: [{ name: 'index', x: p[0], y: p[1], z: p[2] }] }]; });
+  // whatever moved, no two blocks overlap by more than a millimetre (the corners of one in the other)
+  let worst = 0;
+  for (const A of w.blocks) for (const B of w.blocks) {
+    if (A === B || Math.hypot(...M.physics.quat.rotate([0, 0, 0, 1], [A.body.p[0] - B.body.p[0], A.body.p[1] - B.body.p[1], A.body.p[2] - B.body.p[2]])) > w.d.L) continue;
+    const h = A.body.size.map((v) => v / 2);
+    for (const sx of [-1, 1]) for (const sy of [-1, 1]) for (const sz of [-1, 1]) {
+      const corner = M.physics.quat.rotate(A.body.q, [sx * h[0], sy * h[1], sz * h[2]]).map((v, k) => v + A.body.p[k]);
+      const l = M.physics.quat.rotate(M.physics.quat.conj(B.body.q), corner.map((v, k) => v - B.body.p[k])), e = B.body.size.map((v) => v / 2);
+      const inside = Math.min(e[0] - Math.abs(l[0]), e[1] - Math.abs(l[1]), e[2] - Math.abs(l[2]));
+      if (inside > 0) worst = Math.max(worst, inside);
+    }
+  }
+  assert.ok(worst < 0.001, `blocks overlap by ${(worst * 1000).toFixed(2)} mm`);
+  assert.ok(moved(w, p0) > 0.001, 'the finger did push');
+});
+
+t('a block on the top level slid by a finger is not a pulled block; one pushed out of a level that may be taken is', () => {
+  const w = tower(); w.awake = true; run(w, 0.5);
+  const slide = (i, d) => { const b = w.blocks[i].body, l = w.local(b.p), ax = w.restLevel[i] % 2 === 0 ? [1, 0] : [0, 1]; b.p = S.toCommon(w.place, [l[0] + ax[0] * d, l[1] + ax[1] * d, l[2]]); w.world.wake(b.body || b); };
+  slide(52, 0.6 * w.d.L); run(w, 1.5);                    // (as a finger slides it along its length)
+  assert.ok(w.away(52).dist > 0.5 * w.d.L, `it moved out (${w.away(52).dist})`);
+  assert.strictEqual(w.handled, null, 'a block of the top level, not held, is not a move');
+  slide(52, -0.6 * w.d.L); run(w, 1); w.captureRest();
+  slide(3 * 6 + 0, 0.6 * w.d.L); run(w, 1.5);            // (level 6 may be taken)
+  assert.strictEqual(w.handled, 3 * 6 + 0, 'a block of a level that may be taken, pushed out, is the pulled one');
+});
+
+t('a pinch that drops for a moment keeps its block; one that opens lets go', () => {
+  const w = tower(); w.awake = true; run(w, 0.5);
+  const i = 3 * 4 + 0, b = w.blocks[i].body, p0 = b.p.slice(), hd = S.toCommon({ x: 0, y: 0, yaw: w.place.yaw }, [1, 0, 0]), beyond = w.d.L / 2 + 0.012;
+  const out = (d) => [p0[0] + hd[0] * (d + beyond), p0[1] + hd[1] * (d + beyond), p0[2]];
+  run(w, 3, (s) => [hand('r', out(Math.min(0.08, 0.04 * s)), s > 0.2 && !(s > 1.5 && s < 1.7))]);
+  assert.strictEqual(w.heldBy(i), 'r', 'still held after the pinch dropped for 0.2 s');
+  run(w, 0.5, () => [Object.assign(hand('r', out(0.08), false), { points: [{ name: 'thumb', x: out(0.08)[0], y: out(0.08)[1], z: out(0.08)[2] - 0.04 }, { name: 'index', x: out(0.08)[0], y: out(0.08)[1], z: out(0.08)[2] + 0.04 }] })]);
+  assert.strictEqual(w.heldBy(i), null, 'the fingers opened: let go');
+});
+
+t('a held block keeps its turn while it comes out of the tower and turns with the hand once it is clear; the die always turns with the hand', () => {
+  const w = tower(); w.awake = true; run(w, 0.5);
+  const i = 3 * 4 + 0, b = w.blocks[i].body, p0 = b.p.slice(), q0 = b.q.slice(), hd = S.toCommon({ x: 0, y: 0, yaw: w.place.yaw }, [1, 0, 0]), beyond = w.d.L / 2 + 0.012;
+  const out = (d) => [p0[0] + hd[0] * (d + beyond), p0[1] + hd[1] * (d + beyond), p0[2]];
+  const yawQ = (a) => { const y = w.place.yaw + Math.PI + a; return [0, 0, Math.sin(y / 2), Math.cos(y / 2)]; };      // (the hand's fingers point away from the tower)
+  // the hand twists by 30 degrees while the block is still in the tower: the block does not
+  run(w, 1.5, (s) => [jhand('r', out(Math.min(0.02, 0.02 * s)), s > 0.2, yawQ(s > 0.6 ? 0.5 : 0))]);
+  assert.strictEqual(w.heldBy(i), 'r');
+  assert.ok(turnDeg(b.q, q0) < 5, `in the tower it kept its turn (${turnDeg(b.q, q0).toFixed(1)} degrees)`);
+  // out, clear of the tower, the hand turns another 60 degrees: the block follows
+  run(w, 3, (s) => [jhand('r', out(0.02 + Math.min(0.1, 0.05 * s)), true, yawQ(0.5))]);
+  assert.ok(w.clear(i), 'clear of the tower');
+  const qc = b.q.slice();
+  run(w, 1.5, (s) => [jhand('r', out(0.12), true, yawQ(0.5 + Math.min(1, s) * (Math.PI / 3)))]);
+  const turned = turnDeg(b.q, qc);
+  assert.ok(turned > 45 && turned < 75, `it turned with the hand (${turned.toFixed(1)} degrees)`);
+  // the die, taken from the tray and turned: it turns at once
+  const d = w.die.body, at = d.p.slice(), dq = d.q.slice();
+  run(w, 1.5, (s) => [jhand('l', [at[0], at[1], at[2] + 0.025], s > 0.1, yawQ(s > 0.4 ? 1.0 : 0))]);
+  assert.strictEqual(w.heldBy(S.DIE), 'l');
+  assert.ok(turnDeg(d.q, dq) > 40, `the die turned (${turnDeg(d.q, dq).toFixed(1)} degrees)`);
+});
