@@ -10,11 +10,17 @@ const J = window.JENGA;
 const stream = new J.Stream(60);
 const sound = new J.Soundtrack({ base: 'music/' });
 let scene3d = null, common = null, app = null, lastDraw = performance.now(), noHostAt = null, lastClear = -1e9;
-const sampleBoard = J.board(J.waiting(), {}), aspect = sampleBoard.h / sampleBoard.w;
 const state = () => (app && app.S.doc.jenga) || J.waiting();
 const hostHere = () => !!app && (app.S.hostHere || app.S.isHost);
 const info = () => ({ here: app.S.connected ? app.S.others + 1 : 1, game: app.S.stateOf(null), mine: app.S.stateOf(null), host: hostHere() && !!app.S.doc.jenga });
 const hostBody = () => app.bodies[0];
+// where everybody stands, in the common frame (this player's head and the others' from presence): the scene lights the feet of whoever is on turn
+function heads(a, now) {
+  const sp = a.space, c = (x, y) => (sp.ok ? sp.toCommon([x, y]) : [x, y]), h = a.head(), out = [];
+  if (a.S.me !== null && a.S.me !== undefined) { const p = c(h[0], h[1]); out.push({ slot: a.S.me, x: p[0], y: p[1] }); }
+  for (const o of a.presence.others(now)) { const p = c(o.head[0], o.head[1]); out.push({ slot: o.slot, x: p[0], y: p[1] }); }
+  return out;
+}
 
 // the buttons of the board: the host's commands (the game is the host's), and the settings (acting on the shared settings, or on this player's own)
 function press(id) {
@@ -34,17 +40,18 @@ app = await createApp({
   session: { game: J.GAME, player: J.PLAYER, actions: J.ACTIONS, press: J.press, kinds: J.KINDS },
   menu: false,                                  // one menu for everybody: the board
   handMask: true,
-  boards: [{ id: 'main', w: 0.64, pose: () => scene3d && scene3d.boardPose(state()), lay: () => J.board(state(), info()), press }],
+  boards: [{ id: 'main', w: J.BOARD.w, panel: false, pose: () => scene3d && scene3d.boardPose(state()), lay: () => J.board(state(), info()), press }],      // (drawn by stand.js)
   bodies: () => [{ token: J.TOKEN, type: 'jenga', policy: 'host', slowEvery: 0, adapter: J.pageAdapter(stream) }],
-  setup: ({ world }) => {
+  setup: ({ world, renderer, lights }) => {
     common = new THREE.Group(); world.add(common);          // the common frame: moved by this page's line-up every frame
-    scene3d = createScene({ THREE, parent: common, playerColours: PLAYER_COLOURS, boardAspect: aspect });
+    scene3d = createScene({ THREE, parent: common, renderer, playerColours: PLAYER_COLOURS });
+    lights.hemi.visible = false; lights.sun.visible = false;              // (the scene has its own light: look.js)
   },
   draw: (a, now) => {
     const sp = a.space;
     if (sp.ok) { common.position.set(sp.frame.x, sp.fz, -sp.frame.y); common.rotation.set(0, sp.frame.yaw, 0); } else { common.position.set(0, 0, 0); common.rotation.set(0, 0, 0); }
     const snap = stream.at(now);
-    scene3d.update({ state: state(), snap, now, camera: a.camera });
+    scene3d.update({ state: state(), snap, now, t: a.S.serverNow(), lay: J.board(state(), info()), touches: a.boardTouches('main'), heads: heads(a, now) });
     // the soundtrack follows the shared state and the bodies (every headset hears the same scene: it is worked out from the same data)
     if (sound.music.ctx) { const h = a.head(), sp = a.space, c = sp.ok ? sp.toCommon([h[0], h[1]]) : [h[0], h[1]]; sound.update(app.S.doc.jenga || null, snap ? snap.items : null, Math.min(0.1, (now - lastDraw) / 1000), app.S.game('music'), { x: c[0], y: c[1], yaw: sp.ok ? sp.yawToCommon(h[2]) : h[2] }); }
     lastDraw = now;

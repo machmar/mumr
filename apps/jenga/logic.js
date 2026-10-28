@@ -3,7 +3,6 @@
 (function (J) {
   const need = (n) => (typeof module !== 'undefined' ? require(`./${n}.js`) : J);
   const S = need('spec'), { scoreboard, banner } = need('rules');
-  const M = typeof module !== 'undefined' ? require('../../engine/client/index.js') : globalThis.MUMR;
 
   const GAME = { music: 2, dim: 2 };            // the music's volume, 0..4, and how far the game dims the real room, 0..2 (focus.js): one setting for everybody (it is the room's)
   const PLAYER = { ghost: true };               // whether this player's ghost fingers are shown (what a player carries)
@@ -26,32 +25,56 @@
 
   const colourLabel = (c) => (c === null || c === undefined ? '?' : S.COLOURS[c].label);
   // The board: ONE menu for everybody, drawn from the shared state (s: the game state, g: the shared settings, mine: this player's, here: how many players).
-  // The buttons that cannot be pressed now are off.
+  // It is not a grid of buttons: it is a stand of wood (stand.js) with a lit paper panel that says what is going on, and wooden plaques hanging on cords
+  // that are pressed with a fingertip (the engine's board presses: menus.hit on these rectangles, in pixels of a BOARD.px x BOARD.py canvas).
+  // A button that cannot be pressed now is `off` (its plaque hangs turned round). kind: 'ema' (a plaque), 'token' (a small round one), 'tag' (a
+  // plaque that only says something).
+  const BOARD = { w: 0.72, px: 1200, py: 780, status: { x: 50, y: 22, w: 1100, h: 262 }, rails: [318, 592] };
   function board(s, info = {}) {
     const ph = s.phase, noHost = info.host === false, g = info.game || GAME, mine = info.mine || PLAYER, here = info.here || 0, midRound = ['roll', 'pull', 'place', 'fall', 'replay', 'aftermath'].includes(ph);
-    const turn = s.players[s.turn] ? s.players[s.turn].name : '-', size = S.SIZES[s.size] || S.SIZES.normal, tw = s.tower || { full: 17 };
-    const main = [];
-    if (noHost) main.push({ plate: true, label: 'Waiting for the PC host', value: 'start the server on the PC: node tools/run.js jenga', span: 3 });
-    else if (ph === 'lobby') main.push({ id: 'start', label: 'Start game', value: here ? `${here} ${here === 1 ? 'player' : 'players'} here` : 'nobody here', span: 3, active: true, off: !here });
-    else if (ph === 'roll' || ph === 'pull') main.push({ id: 'reroll', label: 'Roll the die again', value: 'puts it back on the tray', span: 3, off: !!s.handled });
-    else if (ph === 'place') main.push({ id: 'back', label: 'Block lost?', value: 'puts it back on the plinth', span: 3 });
-    else if (ph === 'fall' || ph === 'replay') main.push({ id: 'skip', label: 'Skip the replay', value: 'the tower finishes falling', span: 3, active: true });
-    else if (ph === 'round_end') main.push({ id: 'round', label: `Round ${s.round + 1} of ${s.rounds}`, value: 'build the tower again', span: 3, active: true });
-    else if (ph === 'match_end') main.push({ id: 'lobby', label: 'New match', value: 'back to the start', span: 3, active: true });
-    else main.push({ label: banner(s, colourLabel), span: 3 });
-    const vol = g.music === undefined ? 2 : g.music, dim = g.dim === undefined ? 2 : g.dim;
-    return M.menus.grid({ w: 1024, title: 'JENGA', note: s.tower ? `take from below level ${tw.full + 1}` : '', rowH: 92,
-      rows: [
-        [{ plate: true, span: 3, label: noHost ? 'No host' : banner(s, colourLabel), value: noHost ? 'the tower is built by the PC host' : s.ticker && s.ticker.length ? s.ticker[s.ticker.length - 1] : '' }],
-        [{ plate: true, label: ph === 'lobby' ? 'Tower' : `Round ${s.round} of ${s.rounds}`, value: ph === 'lobby' ? `${size.name}, ${size.note}` : `${s.moves} ${s.moves === 1 ? 'move' : 'moves'}` }, { plate: true, label: 'On turn', value: ph === 'lobby' ? '-' : turn }, { plate: true, label: 'Die', value: s.roll === null || s.roll === undefined ? 'not rolled' : `${S.COLOURS[s.roll].name} (${S.COLOURS[s.roll].label})` }],
-        main,
-        [{ id: 'size', label: 'Size', value: `${size.name}: ${size.note}`, off: ph !== 'lobby' }, { id: 'place', label: 'Move the game here', value: 'in front of me', off: midRound }, { plate: true, label: 'Music', value: VOL[vol], sub: [{ id: 'musicDown', label: '-', off: vol <= 0 }, { id: 'musicUp', label: '+', off: vol >= 4 }] }],
-        [{ plate: true, label: 'Room dim', value: DIM[dim], sub: [{ id: 'dimDown', label: '-', off: dim <= 0 }, { id: 'dimUp', label: '+', off: dim >= 2 }] }, { id: 'ghost', label: 'My ghost fingers', value: mine.ghost === false ? 'hidden' : 'shown', active: mine.ghost !== false, span: 2 }],
-      ] });
+    const turnP = s.players[s.turn], size = S.SIZES[s.size] || S.SIZES.normal, tw = s.tower || { full: 17 };
+    // the plaque in the middle: what can be done now
+    let main;
+    if (noHost) main = { label: 'Waiting', value: 'for the PC host', off: true };
+    else if (ph === 'lobby') main = { id: 'start', label: 'Start game', value: here ? `${here} ${here === 1 ? 'player' : 'players'} here` : 'nobody here', active: true, off: !here };
+    else if (ph === 'roll' || ph === 'pull') main = { id: 'reroll', label: 'Roll again', value: 'the die back on the tray', off: !!s.handled };
+    else if (ph === 'place') main = { id: 'back', label: 'Block lost?', value: 'back on the plinth' };
+    else if (ph === 'fall' || ph === 'replay') main = { id: 'skip', label: 'Skip replay', value: 'let it fall', active: true };
+    else if (ph === 'round_end') main = { id: 'round', label: `Round ${s.round + 1}`, value: `of ${s.rounds}: build it again`, active: true };
+    else if (ph === 'match_end') main = { id: 'lobby', label: 'New match', value: 'back to the start', active: true };
+    else main = { label: '', value: '', off: true };
+    const vol = g.music === undefined ? 2 : g.music, dim = g.dim === undefined ? 2 : g.dim, R1 = 340, R2 = 612;
+    const b = (o, x, y, w, h, kind) => Object.assign({ value: '', active: false, off: false }, o, { x, y, w, h, kind });
+    const buttons = [
+      b({ id: 'size', label: 'Size', value: `${size.name} · ${size.note.replace(' tower', '')}`, off: ph !== 'lobby' || noHost }, 80, R1 + 14, 260, 196, 'ema'),
+      b(main, 400, R1, 400, 224, 'ema'),
+      b({ id: 'place', label: 'Move here', value: 'the game, in front of me', off: midRound || noHost }, 860, R1 + 14, 260, 196, 'ema'),
+      b({ id: 'musicDown', label: '-', off: vol <= 0 }, 80, R2 + 14, 88, 88, 'token'),
+      b({ label: 'Music', value: VOL[vol], level: vol / 4 }, 178, R2, 150, 118, 'tag'),
+      b({ id: 'musicUp', label: '+', off: vol >= 4 }, 338, R2 + 14, 88, 88, 'token'),
+      b({ id: 'dimDown', label: '-', off: dim <= 0 }, 466, R2 + 14, 88, 88, 'token'),
+      b({ label: 'Room dim', value: DIM[dim], level: dim / 2 }, 564, R2, 150, 118, 'tag'),
+      b({ id: 'dimUp', label: '+', off: dim >= 2 }, 724, R2 + 14, 88, 88, 'token'),
+      b({ id: 'ghost', label: 'Ghost fingers', value: mine.ghost === false ? 'hidden' : 'shown', active: mine.ghost !== false }, 870, R2, 250, 118, 'ema'),
+    ];
+    // the paper panel: a headline, a line under it, the die's colour, the round
+    let head = banner(s, colourLabel), sub = '';
+    if (noHost) { head = 'Waiting for the host'; sub = 'start the server on the PC: node tools/run.js jenga'; }
+    else if (ph === 'lobby') { head = 'Jenga'; sub = here ? 'gather round the tower, then press Start game' : 'nobody is here yet'; }
+    else if (ph === 'roll') { head = turnP ? turnP.name : ''; sub = 'roll the die on the tray'; }
+    else if (ph === 'pull') { const c = colourLabel(s.roll); head = turnP ? turnP.name : ''; sub = `pull ${/^[aeiou]/.test(c) ? 'an' : 'a'} ${c} block from below level ${tw.full + 1}`; }
+    else if (ph === 'place') { head = turnP ? turnP.name : ''; sub = 'now put it on top'; }
+    else if (ph === 'fall') { head = 'Timber'; sub = s.fall ? `${(s.players.find((p) => p.slot === s.fall.by) || {}).name || ''} toppled it` : ''; }
+    else if (ph === 'replay') { head = 'Replay'; sub = 'once more, slowly'; }
+    else if (ph === 'aftermath') sub = 'three points lost';
+    else if (ph === 'round_end') sub = s.ticker && s.ticker.length ? s.ticker[s.ticker.length - 1] : '';
+    else if (ph === 'match_end') sub = 'the match is over';
+    const status = { head, sub, phase: ph, noHost, roll: ['pull', 'place'].includes(ph) ? s.roll : null, round: s.round, rounds: s.rounds, turn: ph === 'match_end' ? (s.winner && s.winner.length === 1 ? s.winner[0] : null) : turnP ? turnP.slot : null };
+    return { w: BOARD.px, h: BOARD.py, title: { text: 'JENGA', note: s.tower ? `take from below level ${tw.full + 1}` : '', h: 0 }, status, buttons };
   }
 
   // what a page shows before the host has said anything: the lobby, in the default place
   const waiting = () => ({ v: 1, rev: 0, size: 'normal', seed: 1, place: { x: 1.6, y: 0.6, yaw: 0 }, phase: 'lobby', round: 0, rounds: 3, players: [], turn: 0, roll: null, moves: 0, scores: {}, ticker: [], handled: null, fall: null, winner: null, last: null, tower: { full: 17, top: 17, topCount: 3 } });
 
-  Object.assign(J, { GAME, PLAYER, ACTIONS, VOL, DIM, press, KINDS, board, colourLabel, scoreboard, banner, waiting });
+  Object.assign(J, { GAME, PLAYER, ACTIONS, VOL, DIM, press, KINDS, BOARD, board, colourLabel, scoreboard, banner, waiting });
 })(typeof module !== 'undefined' ? module.exports : (globalThis.JENGA = globalThis.JENGA || {}));

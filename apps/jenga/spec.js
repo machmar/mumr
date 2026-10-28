@@ -72,14 +72,14 @@
   function layout(size) {
     const d = dims(size), half = Math.max(0.16, 2 * d.L), top = d.plinth, tableH = 0.78;
     const P = [-(half + 0.8), 0], C = [-0.15, half + 0.62], face = (p) => Math.atan2(P[1] - p[1], P[0] - p[0]);
-    const bc = [C[0] + 0.12, C[1] + 0.22], sc = [C[0] + 0.95, C[1] + 0.15], tray = [C[0] - 0.3, C[1] - 0.06];
+    const bc = [C[0] + 0.1, C[1] + 0.14], sc = [C[0] + 0.95, C[1] + 0.15], tray = [C[0] - 0.3, C[1] - 0.06];
     return {
       d, P, plinth: { half, top },
       console: { c: C, half: [0.55, 0.3], top: tableH },                                            // a low table: 1.1 m wide (x), 0.6 m deep
       tray: { c: tray, half: 0.17, rim: 0.045, wall: 0.02 },                                        // the die rolls here
-      board: { c: bc, w: 0.64, bottom: tableH + 0.06, pitch: 0.2, yaw: face(bc) },                  // the shared menu stands at the back of the table
+      board: { c: bc, w: 0.72, bottom: tableH + 0.05, pitch: 0, yaw: -Math.PI / 2 - 0.35 },         // the shared menu: a stand along the back of the table, turned a little towards P
       score: { c: sc, w: 0.62, h: 0.86, bottom: tableH + 0.02, yaw: face(sc) },                     // the scoreboard hangs beside it
-      lantern: [C[0] - 0.45, C[1] + 0.2],
+      lantern: [C[0] - 0.8, C[1] + 0.05],                                                          // a paper lantern standing on the floor at the table's end
       die: { size: Math.max(0.04, Math.min(0.06, 0.04 * Math.sqrt(d.k))), at: [tray[0], tray[1], tableH + 0.025] },
     };
   }

@@ -12,14 +12,14 @@ node --test "apps/jenga/*.test.js"
 
 ## How to play
 
-1. **Move the game here** (on the board, in front of you), choose the **Size**, press **Start game**. Everybody who is in the room plays; a match is three rounds.
+1. **Move here** (a plaque on the board: the game goes in front of you), choose the **Size**, press **Start game**. Everybody who is in the room plays; a match is three rounds.
 2. **Roll the die** on the tray of the console (pinch it and let go; a die that lands cocked, or when no block of its colour can be taken, is rolled again).
 3. **Pull a block of that colour** from a level below the highest complete one (the gold line round the tower is the limit), and **put it on top**. A clean move scores
    1, 2 if the block came from the bottom third (levels 1 to 6). A block of the wrong colour, or from a level that is not allowed, scores nothing.
 4. The player on turn when a block other than the pulled one reaches the ground **topples the tower: -3**, and the round is over (if it falls within three seconds of a
    placement it is the placer's). The highest total after three rounds wins.
 5. **The replay.** When the first block hits the ground everything freezes where it is (the block that did it glows, TIMBER!), rewinds two seconds, plays them again
-   at 0.3x, and the collapse finishes in real time. Anybody can **Skip the replay** on the board.
+   at 0.3x, and the collapse finishes in real time. Anybody can **Skip replay** on the board.
 
 | Size | Tower | The block | Stands on |
 |---|---|---|---|
@@ -29,16 +29,34 @@ node --test "apps/jenga/*.test.js"
 
 ## One menu for everybody (the board)
 
-There is no menu of your own: the board standing on the console is **one thing for everybody** (engine `boards`, `createApp({ menu: false })`; the wrist menu is the
-engine's and is untouched). It faces the player who put the game down; everybody can press it and everybody sees a button go down. Its buttons: Start game / Next round /
-New match, Roll the die again, Block lost? (puts the pulled block back on the plinth), Skip the replay, Size, Move the game here, Music - +, Room dim - +, My ghost fingers. The scoreboard
-is a scroll next to it: names, the points of each round, the total, whose turn it is.
+There is no menu of your own: the board on the console is **one thing for everybody** (engine `boards`, `createApp({ menu: false })`; the wrist menu is the engine's and is
+untouched). It is not a panel of buttons but a thing of the game's own (`stand.js`; the engine is asked only to press it: `boards: [{ panel: false }]`): a walnut stand like a
+small gate at the back of the table, turned a little towards the player who put the game down. Under its beam a **panel of washi lit from behind** says what is going on: whose
+turn (an ensō with the player's colour), the colour the die gave (its sign and its name, Ai · indigo), what to do, and the round as a red seal. Under it **wooden plaques (ema) hang
+on vermilion cords**, and small round tokens on a bamboo rod: Start game / Round 2 / New match, Roll again, Block lost? (puts the pulled block back on the plinth), Skip replay,
+Size, Move here, Music - +, Room dim - +, Ghost fingers. A fingertip pushes a plaque back on its cord and it swings when let go; everybody's fingertips are seen on every page, so
+everybody sees it swing. A plaque that cannot be pressed now **hangs turned round** (its back is plain wood, the name burnt in faintly), and one whose words change turns once on its
+cord and comes back with the new words. The score is a **hanging scroll** (kakejiku) on a stand like the board's: names, the points of each round, the total, an ensō round whose
+turn it is, the referee's last words.
+
+## The look
+
+A quiet room with one warm light (`look.js`, `draw.js`, `fx.js`): the tower of pine blocks stained in the six colours, each colour's sign burnt into both ends; a plinth of charred
+cedar (yakisugi) on a black foot, with a hinoki rim and sand raked in rings round the slate stone the tower stands on; the console in walnut with the die's tray in black lacquer lined
+with vermilion; a paper andon on the floor at the end of the table, which is a real light. The key light throws the tower's shadows on the sand and on the real floor; the furniture has
+soft contact shadows. The moments are drawn in light, never as panels: a gold band round the tower at the level a block may be taken from, a gold edge on the pulled block, the
+tray breathing at the die's turn and a ring of the colour it gave, a ring of light off the top for a block put on top (gold sparks for a good move), the floor of the player on
+turn lit in their colour, and at the fall the floor rippling out, a puff of sawdust, the trail of the block that did it, and **TIMBER / REWIND / REPLAY** circling above the tower in
+letters of light with a ring that fills as the replay goes on. Motes of dust drift in the lantern's light on the **world's clock**: they stop when everything freezes, run back
+with the rewind and slowly with the replay. Every motion (the flicker, the sway of the plaques, the turn of the words) follows the server's clock, so it is the same on every
+headset. The fonts (Shippori Mincho B1, Zen Kaku Gothic New) are in `fonts/`, SIL OFL, so a headset needs no internet for them.
 
 ## Rule 1
 
 Everything is shared and physical. The tower, the die and the replay are bodies the host simulates and sends (packet 23, all 55 bodies, 22 bytes each, 45 a second while
 anything moves); the state (phase, turn, roll, scores, the pulled block, the allowed level, the fall and its trail) is one kept event of the document (`jstate`);
-the console, plinth, tray, board and scoreboard are worked out on every page from that state (`spec.js layout`); the furniture is also in the host's physics
+the console, plinth, tray, board and scoreboard are worked out on every page from that state (`spec.js layout`), and every glow, ring and swing from that state, the bodies,
+everybody's fingertips at the board and the server's clock; the furniture is also in the host's physics
 (`spec.js furniture` adds it to the room's planes), so the die rolls on the same tray everybody sees. No page simulates anything. The one thing that is not a thing in
 the room is the sound: each headset plays the music itself, from the same shared state (the same scene, the same track), and the volume is a shared setting.
 
@@ -82,7 +100,11 @@ The board's **Room dim** (off, gentle = half of everything, full) is a shared se
 | `net.js` | the wire packet, the page's smoothing buffer (60 ms in the past), the body adapter of a page |
 | `logic.js` | settings (`music`, `ghost`), the `jstate` kind, the board's layout |
 | `host.js` | the host module (engine `host.js` runs it); logs every grab and release, and the step time every 5 s |
-| `textures.js`, `draw.js` | the zen scene: wood grain and its normal map, stains, stamps, sand, felt, washi; the blocks, the die, the furniture, the markers, the replay banner (one module for the page and the PC view) |
+| `textures.js` | the textures, made at start: stained pine with burnt brands, yakisugi, walnut, hinoki, sand raked in rings, felt, washi, seigaiha, the ensō, glows |
+| `look.js` | the fonts (`fonts/`), the reflections (a small warm room as an environment map), the lights: key light with the tower's shadows, sky light, the lantern |
+| `draw.js` | the scene (one module for the page and the PC view): the blocks, the die, the plinth, the console and tray, the lantern, the scroll and its stand |
+| `stand.js` | the board: the stand, the lit paper panel, the hanging plaques (swing, turn round) |
+| `fx.js` | the moments: edge glows, the limit band, rings, sparks, sawdust, the words of the fall, the trail, the turn's ring, the motes on the world's clock |
 | `app.js`, `index.html` | the page on `createApp` |
 | `view.js`, `view.html` | the PC view (a watcher; keys 1 2 3 4 move the camera, M the music) |
 | `focus.js` | the room's dim: the look of each phase, what tension adds, the Room dim setting; asked by the referee through `session.dim` |
@@ -110,4 +132,6 @@ Found with a pretend hand that pulls blocks out of a tower under its own weight 
 Everything here ran on the PC: Node tests (physics with pretend hands, the whole app with pretend headsets) and browser tabs through the real server and host (a full turn:
 Start, the die thrown by a pinch, a block pulled and put on top, scored; the fall with the replay). **Not yet on a headset**: how a real pinch finds a 15 mm block at the normal size
 (huge and giant should be easier), the feel of the lag of a tight block, the board at arm's length, the audio on the Quest browser (it plays after the first tap: the Enter button),
-the soundtrack with real tracks, and a four-player round. And the room's dim on a real passthrough: the numbers in the table above are a first guess (how dark a living room can get before the hands and the way to the wall are lost, how the grey reads against the lantern).
+the soundtrack with real tracks, and a four-player round. The look (2026-10-28) was checked in a desktop browser only: whether the Quest keeps its frame rate with the
+shadows and the reflections (about 230 draw calls and one 1024 shadow map), how the shadows on the real floor, the lantern's light and the letters of light read over passthrough,
+and the plaques at arm's length. And the room's dim on a real passthrough: the numbers in the table above are a first guess (how dark a living room can get before the hands and the way to the wall are lost, how the grey reads against the lantern).

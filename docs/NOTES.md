@@ -273,4 +273,22 @@ Kept from the first plan's section 6, plus what came after it:
      more than every 0.7 s, or the document gets an event for every wobble. The PC view has no real room: it can only list the look.
   Rehearsed through the real server and Jolt host with two tabs: Start on the board, the die thrown by a pinch and read, a block pulled out and put on top (+1, the next player), a fall with its replay
   (TIMBER, -3, rewind, 0.3x, aftermath, round end), the PC view, and music crossfading in a desktop browser. Not yet on a headset.
-
+- **2026-10-28: Jenga's look** (Marek: "make it feel good, very pretty, very polished ... zen-like ... re-imagine the menu, it does not have to match the wrist menu"). The scene was
+  redrawn (`look.js`, `textures.js`, `draw.js`, `stand.js`, `fx.js`, apps/jenga/README.md "The look"), the board became a stand with hanging plaques, and the engine got two small
+  generic things: **`boards: [{ panel: false }]`** with `app.boardTouches(id)` (the engine presses a board the app draws) and **`app.lights`**. What was learnt:
+  1. **A sprite faces each viewer: it breaks rule 1.** The old TIMBER banner was a sprite, so every headset saw it turned its own way. Words for everybody are now a band round the tower
+     (a cylinder whose far half is not drawn, so it never reads backwards), turning on the server's clock: the same place and the same turn for everybody, readable from all sides.
+  2. **Every motion on the server's clock.** The pulses of the old markers ran on each page's `performance.now()`: the same glow at different moments on two headsets. The lantern's
+     flicker, the sway of the plaques, the turn of the words and the breathing of the glows now follow `session.serverNow()` (`feed.serverNow()` on the PC view). A swing after a press
+     follows the shared fingertips (the `M` stream's touches), so it starts on every page together.
+  3. **The dust lives on the world's clock**: the server's, stopped at the freeze, run back with the rewind and at 0.3x with the replay (from the packet's mode and progress), then
+     caught up over a few seconds. The puff of sawdust of the first block on the ground is on the same clock, so the replay shows it again in slow motion.
+  4. **The blocks were never painted again after a size change** (new meshes, the same seed: all of them the first colour). The meshes are painted whenever they are made since.
+  5. **Lights cost every pixel even at intensity 0**: the engine's lights are hidden, not turned down. In a software renderer the scene costs about twice the old one (shadows,
+     reflections, the lantern as a point light); 230 draw calls and one 1024 shadow map, with only the tower, the die and the plinth casting and only the sand and the floor round the
+     tower receiving. Not yet measured on a Quest.
+  6. Fonts for canvas text must be in the repo (`fonts/`, SIL OFL, loaded with `FontFace` from the app's own server): a headset on the LAN may have no internet.
+  7. Rehearsing the moments in a headless browser: a screenshot waits for a frame, and with three pages on a software renderer a frame takes a second, so a whole replay goes by between two
+     shots. The PC view can be given a pretend state and packet instead (only in the test's browser: `feed.sample` and `session.doc` wrapped), which shows every phase still.
+  Rehearsed through the real server and Jolt host: every phase on the PC view and the desktop page (a staged game, a nudged tower falling, the replay), a mouse click on the Start
+  plaque pressing it, the three sizes; 57 Jenga tests. Not yet on a headset.
