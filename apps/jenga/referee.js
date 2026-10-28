@@ -5,7 +5,7 @@
 // hands and a pretend clock.
 (function (J) {
   const need = (n) => (typeof module !== 'undefined' ? require(`./${n}.js`) : J);
-  const S = need('spec'), { Tower } = need('tower'), { Rules } = need('rules'), N = need('net'), R = need('replay');
+  const S = need('spec'), { arrange } = need('arrange'), { decoPlan } = need('deco'), { Tower } = need('tower'), { Rules } = need('rules'), N = need('net'), R = need('replay'), Mu = need('music'), F = need('focus');
   const T = { dieStill: 0.7, cocked: 12, aftermath: 4500, backAfter: 3, putBack: 1.2, restWait: 0.3 };      // seconds, degrees, ms
   const DEFAULT_PLACE = { x: 1.6, y: 0.6, yaw: 0 };
   const DEBUG = () => typeof process !== 'undefined' && !!process.env && !!process.env.JENGA_DEBUG;
@@ -16,11 +16,12 @@
       this.Engine = opts.Engine || null; this.session = opts.session; this.room = opts.room || null; this.life = opts.life || (() => {});
       this.nowMs = 0; this.now = opts.now || (() => this.nowMs);
       this.rules = new Rules({ now: () => this.now(), present: (slot) => this.here().includes(slot) });
-      this.rules.s.place = Object.assign({}, DEFAULT_PLACE);
       if (opts.size) this.rules.s.size = opts.size;
+      this.rules.s.place = this.arranged(this.headOf(DEFAULT_PLACE), DEFAULT_PLACE.yaw);
       this.seed = opts.seed === undefined ? 1 : opts.seed;
       this.rec = new R.Recorder(); this.replay = null; this.frozen = null; this.timer = null; this.mode = N.MODE.live; this.progress = 0; this.culprit = null;
       this.lastRev = -1; this.t = 0; this.stats = { steps: 0, ms: 0, worst: 0 };
+      this.focus = new F.Focus(); this.tension = new Mu.Tension(); this.fAcc = 0; this.fState = null;          // the room's dim follows the game (focus.js)
       this.tower = null; this.makeTower();
       this.publish();
     }
@@ -37,6 +38,29 @@
     }
     towerInfo() { const l = this.tower.levels(); return { full: l.full, top: l.top, topCount: l.topCount }; }
     realRoom() { return this.room && this.room.local ? this.room.local() : null; }
+    // ---- where the furniture stands (arrange.js): worked out from the real room for the player who put the game down, kept in the place
+    // where the player stood for a place that does not say (the tower is in front of them, the usual distance away)
+    headOf(pl) { const base = S.layout(this.rules.s.size).P[0]; return Number.isFinite(pl.hx) && Number.isFinite(pl.hy) ? [pl.hx, pl.hy] : [pl.x + Math.cos(pl.yaw) * base, pl.y + Math.sin(pl.yaw) * base]; }
+    arranged(head, yaw) {
+      const room = this.realRoom(), r = arrange({ size: this.rules.s.size, head, yaw, room });
+      this.arrangedFor = room;
+      this.life(`jenga: arranged for ${room ? `the room (${room.planes.length} planes)` : 'no room'}: tower ${r.place.x}, ${r.place.y}, console ${r.place.arr.c}${r.hard > 0 ? `, NOTHING FITS (collides ${r.hard.toFixed(1)})` : ''}`);
+      return Object.assign(r.place, { hyaw: +yaw.toFixed(4) });
+    }
+    // the same player, another size or another room
+    rearrange() { const pl = this.rules.s.place; this.rules.setPlace(this.arranged(this.headOf(pl), Number.isFinite(pl.hyaw) ? pl.hyaw : pl.yaw)); this.planDeco(); }
+    // ---- the room's garden (deco.js): planned for the room round the game's arrangement, kept in the document. A plan that is the same as the one
+    // the document has is not sent again (the garden would grow in again for nothing)
+    planDeco() {
+      const room = this.realRoom(), plan = decoPlan({ room, size: this.rules.s.size, place: this.rules.s.place });
+      const have = this.session && this.session.doc && this.session.doc.jdeco, same = have && JSON.stringify(have.items) === JSON.stringify(plan.items);
+      if (same) return false;
+      const t = this.session && typeof this.session.serverNow === 'function' ? this.session.serverNow() : Date.now();
+      this.deco = { at: Math.round(t), items: plan.items };
+      if (this.session && this.session.emit) this.session.emit({ k: 'jdeco', d: this.deco });
+      if (plan.items.length) this.life(`jenga: the room's garden: ${plan.items.map((i) => i.kind).join(', ')}`);
+      return true;
+    }
     // the state goes into the document when it has changed (every page and PC view reads it from there)
     publish() {
       const s = this.rules.s;
@@ -57,7 +81,7 @@
       this.publish();
     }
     // the link came up: the first one here publishes this state, anybody after takes the server's
-    joined(first) { const d = this.session.doc && this.session.doc.jenga; if (!first && d) this.adopt(d); else { this.lastRev = -1; this.publish(); } }
+    joined(first) { const d = this.session.doc && this.session.doc.jenga; if (!first && d) this.adopt(d); else { this.lastRev = -1; this.publish(); } this.planDeco(); }
     peerChanged() { if (this.rules.playerLeft()) this.tower.resetDie(); this.publish(); }
 
     // ---- the board's commands (anybody may press anything): -> true if it did something
@@ -69,11 +93,13 @@
         lobby: () => { if (ph !== 'match_end') return false; r.toLobby(); this.makeTower(); return true; },
         size: () => {
           if (ph !== 'lobby') return false;
-          const i = S.SIZE_KEYS.indexOf(s.size); r.setSize(a.size && S.SIZES[a.size] ? a.size : S.SIZE_KEYS[(i + 1) % S.SIZE_KEYS.length]); this.makeTower(); return true;
+          const i = S.SIZE_KEYS.indexOf(s.size); r.setSize(a.size && S.SIZES[a.size] ? a.size : S.SIZE_KEYS[(i + 1) % S.SIZE_KEYS.length]); this.rearrange(); this.makeTower(); return true;
         },
         place: () => {
           if (!['lobby', 'round_end', 'match_end'].includes(ph) || ![a.x, a.y, a.yaw].every(Number.isFinite)) return false;
-          r.setPlace({ x: +a.x.toFixed(3), y: +a.y.toFixed(3), yaw: +a.yaw.toFixed(4) }); this.makeTower(); return true;
+          // (a page sends where its player stands, hx, hy, and the tower's place in front of them; the arrangement may move the tower to where it fits)
+          const head = Number.isFinite(a.hx) && Number.isFinite(a.hy) ? [a.hx, a.hy] : this.headOf(a);
+          r.setPlace(this.arranged(head, a.yaw)); this.planDeco(); this.makeTower(); return true;
         },
         reroll: () => { if (!['roll', 'pull'].includes(ph) || s.handled) return false; r.reroll('The die is rolled again'); this.tower.resetDie(); return true; },
         skip: () => { if (!this.replay) return false; this.replay.skip(); return true; },
@@ -109,9 +135,12 @@
 
     // ---- one host tick: dt seconds, nowMs, everybody's hands (common frame)
     step(dt, nowMs, hands) {
-      const t0 = typeof performance !== 'undefined' ? performance.now() : 0, tw = this.tower, r = this.rules, ph = r.phase;
+      const t0 = typeof performance !== 'undefined' ? performance.now() : 0, r = this.rules, ph = r.phase;
       this.t += dt; this.nowMs = nowMs;
       const room = this.realRoom();
+      // a new room (uploaded by a headset): the furniture is arranged for it again, between rounds (never under a game in play)
+      if (room !== this.arrangedFor && ['lobby', 'round_end', 'match_end'].includes(ph)) { this.rearrange(); this.makeTower(); }
+      const tw = this.tower;
       if (room !== tw.realRoom) tw.setRoom(room);
       tw.frozen = !!this.frozen;
       tw.step(dt, this.t, hands || []);
@@ -123,7 +152,20 @@
         if (['roll', 'pull', 'place'].includes(ph)) this.play(dt, nowMs);
       }
       this.publish();
+      this.focusStep(dt, nowMs);
       if (t0) { const ms = performance.now() - t0; this.stats.steps++; this.stats.ms += ms; this.stats.worst = Math.max(this.stats.worst, ms); }
+    }
+    // ---- the focus: ten times a second the tension is read off the tower, and the room's dim (engine dim.js) is asked for when the look has to change
+    dimLevel() { const g = this.session && this.session.game ? this.session.game('dim') : undefined; return g === undefined ? 2 : g; }
+    focusStep(dt, nowMs) {
+      this.fAcc += dt;
+      if (this.fAcc < 0.1 || !this.session || !this.session.dim) return;
+      const d = this.fAcc, view = this.rules.view(); this.fAcc = 0;
+      const k = this.tension.update(view, this.pack().items, d);
+      for (const w of Mu.momentsBetween(this.fState, view)) if (w === 'pulled') this.focus.pulse(nowMs);
+      this.fState = view;
+      const ask = this.focus.update(view, k, this.dimLevel(), nowMs);
+      if (ask) { this.session.dim(ask); this.life(`jenga: the room ${ask.dark ? `dims to ${ask.dark} and greys to ${ask.mute}` : 'is as it is'} over ${ask.fade} ms (${view.phase}, tension ${k.toFixed(2)})`); }
     }
     // ---- a game in play: roll, pull, place; and the tower falling
     play(dt, nowMs) {

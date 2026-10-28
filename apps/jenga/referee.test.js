@@ -14,7 +14,7 @@ const t = (name, fn) => test(name, (c) => { if (!ok) return c.skip('jolt-physics
 
 function session(slots = [0, 1]) { return { peers: new Map(slots.map((s) => [s, {}])), events: [], doc: {}, emit(e) { this.events.push(e); } }; }
 function referee(o = {}) {
-  const sess = o.session || session(), ref = new Referee({ Engine: M.physics.JoltWorld, session: sess, seed: 11, size: o.size || 'normal' });
+  const sess = o.session || session(), ref = new Referee({ Engine: M.physics.JoltWorld, session: sess, seed: 11, size: o.size || 'normal', room: o.room || null });
   made.push(ref); ref.sess = sess; ref.clock = 0; return ref;
 }
 const DT = 1 / 90;
@@ -51,7 +51,9 @@ t('size and place are set in the lobby and the tower is built there: three sizes
     assert.ok(Math.abs(ref.tower.d.height - h) < 1e-9); assert.strictEqual(ref.rules.s.size, size);
   }
   assert.strictEqual(ref.command('place', { x: 2, y: -1, yaw: 1 }), true);
-  assert.deepStrictEqual(ref.rules.s.place, { x: 2, y: -1, yaw: 1 });
+  const pl = ref.rules.s.place;
+  assert.deepStrictEqual([pl.x, pl.y, pl.yaw], [2, -1, 1], 'with no room in the way the tower goes where it was asked');
+  assert.strictEqual(pl.arr.size, 'normal'); assert.deepStrictEqual(pl.arr.c, [-0.15, 0.78], 'and the furniture stands as usual');
   assert.ok(Math.abs(ref.tower.blocks[0].body.p[0] - 2) < 0.15, 'the tower stands where it was put');
   assert.strictEqual(ref.command('place', { x: NaN, y: 0, yaw: 0 }), false);
 });
@@ -156,4 +158,74 @@ t('a nudge (JENGA_DEBUG) moves the top levels of a standing tower', () => {
 t('the debug commands do nothing without JENGA_DEBUG', () => {
   const ref = referee(); ref.command('start'); delete process.env.JENGA_DEBUG;
   assert.strictEqual(ref.command('stage', { moves: 3 }), false); assert.strictEqual(ref.command('shove'), false); assert.strictEqual(ref.command('nudge'), false); assert.strictEqual(ref.command('setroll', { colour: 1 }), false);
+});
+
+// ---- the focus: the room's dim follows the game
+function dimSession(settings = {}) { const s = session(); s.settings = settings; s.dims = []; s.dim = function (want) { this.dims.push(want); }; s.game = function (k) { return this.settings[k]; }; return s; }
+
+t('the room dims with the game: as it is in the lobby, receding for a round, out at the fall and back after (the host asks the engine)', () => {
+  process.env.JENGA_DEBUG = '1';
+  try {
+    const sess = dimSession(), ref = referee({ session: sess });
+    drive(ref, 0.5);
+    assert.deepStrictEqual([sess.dims[0].dark, sess.dims[0].mute], [0, 0], 'the first thing the host says: the room as it is (a host that came back must not leave a dark one)');
+    ref.command('start'); drive(ref, 1);
+    const roll = sess.dims.at(-1); assert.deepStrictEqual([roll.dark, roll.mute, roll.fade, roll.over], [0.3, 0.2, 2500, true], 'the room recedes for the die');
+    ref.command('shove', { vx: 3 });
+    for (let k = 0; k < 90 * 8 && !['fall', 'replay'].includes(ref.rules.phase); k++) drive(ref, DT);
+    assert.ok(['fall', 'replay'].includes(ref.rules.phase)); drive(ref, 0.3);
+    const fall = sess.dims.find((d) => d.fade === 150 && d.mute === 1); assert.ok(fall, 'the freeze: out in 150 ms');
+    assert.ok(fall.dark >= 0.85 && sess.dims.indexOf(fall) > sess.dims.indexOf(roll));
+    ref.command('skip'); drive(ref, 1);
+    const after = sess.dims.at(-1); assert.strictEqual(ref.rules.phase, 'aftermath'); assert.ok(after.dark < fall.dark && after.dark > 0 && after.fade >= 3000, 'it comes back slowly');
+    drive(ref, 6); assert.strictEqual(ref.rules.phase, 'round_end'); assert.ok(sess.dims.at(-1).dark <= 0.15);
+    assert.ok(sess.dims.length < 14, `a few asks, not a stream (${sess.dims.length})`);
+  } finally { delete process.env.JENGA_DEBUG; }
+});
+
+t('the Room dim setting is read from the shared settings: off keeps the room as it is, a change is answered at once', () => {
+  const sess = dimSession({ dim: 0 }), ref = referee({ session: sess });
+  ref.command('start'); drive(ref, 1.5);
+  assert.ok(sess.dims.length >= 1 && sess.dims.every((d) => d.dark === 0 && d.mute === 0), 'off: the room stays as it is');
+  sess.settings.dim = 2; drive(ref, 0.3);
+  assert.deepStrictEqual([sess.dims.at(-1).dark, sess.dims.at(-1).mute], [0.3, 0.2]);
+  sess.settings.dim = 1; drive(ref, 0.3);
+  assert.deepStrictEqual([sess.dims.at(-1).dark, sess.dims.at(-1).mute], [0.15, 0.1], 'gentle: half');
+});
+
+t('a session with no dim (the other tests\' pretend one) is left alone', () => {
+  const ref = referee(); ref.command('start'); drive(ref, 1); assert.strictEqual(ref.rules.phase, 'roll');
+});
+
+t('the furniture is arranged for the real room: put down by a wall, the console goes to the free side; a room that comes later re-arranges it between rounds', () => {
+  const box = (l, x0, y0, x1, y1, h) => ({ l, v: false, p: [[x0, y0, h], [x1, y0, h], [x1, y1, h], [x0, y1, h]] });
+  const wall = (x0, y0, x1, y1) => ({ l: 'wall', v: true, p: [[x0, y0, 0], [x1, y1, 0], [x1, y1, 2.4], [x0, y0, 2.4]] });
+  const corridor = { planes: [box('floor', 0, 0, 5, 1.9, 0), wall(0, 0, 5, 0), wall(5, 0, 5, 1.9), wall(5, 1.9, 0, 1.9), wall(0, 1.9, 0, 0)] };
+  let room = null;
+  const ref = referee({ room: { local: () => room } });
+  assert.strictEqual(ref.command('place', { x: 1.46, y: 1.1, yaw: 0, hx: 0.5, hy: 1.1 }), true);
+  assert.ok(ref.rules.s.place.arr.v[1] > 0, 'no room: the console on the left');
+  room = corridor; drive(ref, 0.05);
+  assert.ok(ref.rules.s.place.arr.v[1] < 0, 'the room came: the wall on the left sends the console to the right');
+  assert.strictEqual(ref.tower.realRoom, corridor, 'the tower\'s physics has the room');
+  const table = S.furniture('normal', ref.rules.s.place).find((p) => p.l === 'table');
+  assert.ok(table.p.every((q) => q[1] > 0.01 && q[1] < 1.89), 'the console\'s plane is inside the corridor');
+  assert.strictEqual(ref.command('size', { size: 'huge' }), true);
+  assert.strictEqual(ref.rules.s.place.arr.size, 'huge', 'a new size: arranged again');
+  assert.ok(Math.abs(ref.rules.s.place.hx - 0.5) < 1e-9, 'for the same player');
+});
+
+t('the room\'s garden is planned by the host for the room round the game, kept in the document, and sent again only when it changes', () => {
+  const box = (l, x0, y0, x1, y1, h) => ({ l, v: false, p: [[x0, y0, h], [x1, y0, h], [x1, y1, h], [x0, y1, h]] });
+  const wall = (x0, y0, x1, y1) => ({ l: 'wall', v: true, p: [[x0, y0, 0], [x1, y1, 0], [x1, y1, 2.4], [x0, y0, 2.4]] });
+  const room = { planes: [box('floor', 0, 0, 5.5, 4.2, 0), wall(0, 0, 5.5, 0), wall(5.5, 0, 5.5, 4.2), wall(5.5, 4.2, 0, 4.2), wall(0, 4.2, 0, 0), box('table', 4.4, 0.2, 5.3, 1.0, 0.75)] };
+  const sess = session(), ref = referee({ session: sess, room: { local: () => room } });
+  assert.strictEqual(ref.command('place', { x: 2.6, y: 2.4, yaw: 1.2, hx: 2.6, hy: 1.6 }), true);
+  const sent = sess.events.filter((e) => e.k === 'jdeco');
+  assert.ok(sent.length >= 1 && sent.at(-1).d.items.length > 0, 'a plan for the room went to the document');
+  assert.ok(sent.at(-1).d.items.some((i) => i.kind === 'garden') && sent.at(-1).d.items.some((i) => i.kind === 'vase'), 'a garden at a wall, a vase on the table');
+  sess.doc.jdeco = sent.at(-1).d;
+  assert.strictEqual(ref.planDeco(), false, 'the same plan is not sent again (the garden would grow in again for nothing)');
+  assert.strictEqual(ref.command('size', { size: 'huge' }), true);
+  assert.ok(sess.events.filter((e) => e.k === 'jdeco').length > sent.length, 'another size, another arrangement: planned again');
 });

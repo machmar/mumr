@@ -264,6 +264,63 @@ Kept from the first plan's section 6, plus what came after it:
      their own menu. The game frame now has the console beside the plinth and the board and scoreboard face where the placing player stands.
   6. A desktop rehearsal of a hand needs patience: a scripted pinch that starts while the hand is already rising is seen by the host 7 cm up (the page runs at 19 frames a second in a headless
      browser); close the fingers first, then move. `__mumr.poke(x, y, pinch, fist, z)` takes a height since this entry.
+  7. **A streamed track cannot start half way from a server that sends whole files.** The ambient tracks now come in at a place of their own (a hash of the seed, scene, round and file: the same on
+     every headset) instead of always at 0:00, which needs `audio.currentTime` to jump inside a file that has not been downloaded. Python's `SimpleHTTPRequestHandler` has no byte ranges, so
+     `serve.py` answers `Range: bytes=a-b` (206, 416 outside the file) since this entry; checked in Chromium (both tracks 206, entered at 0:55 and 0:24 of 3:20).
+  8. **The room's dim is the host's to ask, and the server keeps what it was told.** Jenga drives `session.dim` from the referee (focus.js) instead of from a page: it is the one process that sees every phase.
+     Two things follow from the dim being a kept document item. A host that restarts must say something at once (its first ask is the lobby's look, so a dim left by a host that died in a fall is
+     undone), and a host that does not come back must not leave a dark room: the pages let it go after 4 s with no host. A look that follows the tension has to be asked in steps (0.05) and not
+     more than every 0.7 s, or the document gets an event for every wobble. The PC view has no real room: it can only list the look.
   Rehearsed through the real server and Jolt host with two tabs: Start on the board, the die thrown by a pinch and read, a block pulled out and put on top (+1, the next player), a fall with its replay
   (TIMBER, -3, rewind, 0.3x, aftermath, round end), the PC view, and music crossfading in a desktop browser. Not yet on a headset.
-
+- **2026-10-28: Jenga's look** (Marek: "make it feel good, very pretty, very polished ... zen-like ... re-imagine the menu, it does not have to match the wrist menu"). The scene was
+  redrawn (`look.js`, `textures.js`, `draw.js`, `stand.js`, `fx.js`, apps/jenga/README.md "The look"), the board became a stand with hanging plaques, and the engine got two small
+  generic things: **`boards: [{ panel: false }]`** with `app.boardTouches(id)` (the engine presses a board the app draws) and **`app.lights`**. What was learnt:
+  1. **A sprite faces each viewer: words on one break rule 1** (a round glow, a mote of dust or a spark looks the same from everywhere, so those may be
+     sprites; anything with a front may not). The old TIMBER banner was a sprite, so every headset saw it turned its own way. Words for everybody are now a band round the tower
+     (a cylinder whose far half is not drawn, so it never reads backwards), turning on the server's clock: the same place and the same turn for everybody, readable from all sides.
+  2. **Every motion on the server's clock.** The pulses of the old markers ran on each page's `performance.now()`: the same glow at different moments on two headsets. The lantern's
+     flicker, the sway of the plaques, the turn of the words and the breathing of the glows now follow `session.serverNow()` (`feed.serverNow()` on the PC view). A swing after a press
+     follows the shared fingertips (the `M` stream's touches), so it starts on every page together.
+  3. **The dust lives on the world's clock**: the server's, stopped at the freeze, run back with the rewind and at 0.3x with the replay (from the packet's mode and progress), then
+     caught up over a few seconds. The puff of sawdust of the first block on the ground is on the same clock, so the replay shows it again in slow motion.
+  4. **The blocks were never painted again after a size change** (new meshes, the same seed: all of them the first colour). The meshes are painted whenever they are made since.
+  5. **Lights cost every pixel even at intensity 0**: the engine's lights are hidden, not turned down. In a software renderer the scene costs about twice the old one (shadows,
+     reflections, the lantern as a point light); one 1024 shadow map, with only the tower and the plinth casting and only the sand and the floor round the tower
+     receiving. The draw calls came down from about 300 to 111 (shadow pass included) with the same picture: the blocks are instanced (one InstancedMesh for
+     each of the 12 stains), the furniture and the board's stand are merged per material once built (`look.js mergeStatic`), a plaque's cord is one mesh.
+     Not yet measured on a Quest.
+  6. Fonts for canvas text must be in the repo (`fonts/`, SIL OFL, loaded with `FontFace` from the app's own server): a headset on the LAN may have no internet.
+  7. Rehearsing the moments in a headless browser: a screenshot waits for a frame, and with three pages on a software renderer a frame takes a second, so a whole replay goes by between two
+     shots. The PC view can be given a pretend state and packet instead (only in the test's browser: `feed.sample` and `session.doc` wrapped), which shows every phase still.
+  Rehearsed through the real server and Jolt host: every phase on the PC view and the desktop page (a staged game, a nudged tower falling, the replay), a mouse click on the Start
+  plaque pressing it, the three sizes; 57 Jenga tests. Not yet on a headset.
+- **2026-10-28 (night): Jenga arranges itself in the room** (Marek: "make sure that the room layout accommodates different room sizes and furniture placement -
+  if a space is narrow, the tables rearrange to still have optimal layout that makes sense and doesn't overlap with real-world objects"). `apps/jenga/arrange.js`:
+  a search on the host, from the server's room in the common frame (rule 1: worked out once, from shared data, and kept in the shared place as `place.arr`;
+  never from a page's own scan). Candidates in order of how far they are from the usual arrangement (the tower nearer, further, aside or turned about the
+  player; the console on either side, along or across, behind the tower; the scroll and the lantern in a few places each), outlines checked against the
+  walls (segments), the things on the floor (outlines with a height) and the floor's outline; the cheapest with no collision wins, or the one that collides
+  least. Learnt: a flat check is wrong for a stand whose beam passes over a table: between the game's own things only the feet count, against a wall the
+  whole width. 100 to 400 ms on the host, once per Move here. The layout (`spec.js`) takes the place: the console has two axes (along it, towards its back),
+  so a mirrored arrangement is the same code; an arrangement made for another size is not used. Rehearsed with `?room=demo` (the tower steps off the pretend
+  table) and in `arrange.test.js` (corridors, a short room, a sofa and a table, the giant tower in 4 x 3 m). Not yet in a real room.
+- **2026-10-28: the room's garden, and lights that relight the room** (Marek: "automatic room decorations for more immersion and calmness ... placed on objects or
+  at the bottoms of walls (never under tables)"; then "a light that's on a wall would kind of go against the darkening of the entire room ... allow for objects to alter
+  the dimming"). Engine (on main): `dim.js reach / relit`, and the dim layer draws itself on the scanned surfaces of the server's room (floor, walls, tables) a hair
+  in front of the full-screen quad, which then skips them by depth; each surface fragment takes some of the dim away for each light near it (distance, facing) and
+  is warmed in its colour; `app.relight(list)` hands the lights over each frame, the webcam page asks the app's view for its `relights()`. Learnt: a material with
+  `depthTest: false` writes no depth either, so the quad skipping the lit surfaces needed `depthTest: true` with `depthFunc: Always` on them. Jenga: `deco.js` plans
+  on the host (free stretches at the walls' feet, corners, tops; never under or behind furniture, in a doorway or in the game's way) and keeps it as `jdeco`;
+  `decor.js` grows it in on every page from the server's clock (a shader offset on merged meshes: one mesh a material and a priority), petals and smoke on the
+  world's clock; the lantern, the lamps and the candles relight the room. `deco.test.js`; rehearsed on the PC view with a living room uploaded from the desktop page.
+  Not yet on a headset.
+- **2026-10-28: shades over the ceiling lights** (Marek: "Real world rooms might have a large ceiling light, which might feel too harsh"; of five ways,
+  "2 sounds best ... but account for fluorescent lights which are long and narrow"). Engine (on main): `room.js` knows the real ceiling lights, the
+  scan's lamps up at the ceiling (a long one is a strip) and the marked ones (`rlight`, kept, common frame), and `LightMarker` marks them: the line from
+  the eye through the pinch meets the ceiling; a tap is a round fitting or takes one away, a pinch drawn along is a strip. Relight lights may shine one way
+  (`dir`, `cone`: dim.js `spot`), so a shade lights the floor under it and not the ceiling round it. Jenga (`shades.js`): an akari under a round fitting,
+  a kumiko panel (asanoha) under a strip, a veil on the ceiling round each when the room is darkened; the board's Lights (`jmark`: one player marks,
+  everybody sees the aim, worked out by every page from that player's presence). Learnt: the PC view's orbit stops the camera below its target (a shot
+  from under a ceiling needs `maxPolarAngle = PI`); `half` is a reserved word in GLSL ES. Rehearsed on the PC view and the desktop page (a mouse poke
+  held between the eye and the ceiling); not yet on a headset.

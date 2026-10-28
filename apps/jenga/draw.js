@@ -1,46 +1,77 @@
 // How Jenga looks: the same module for the headset page and the PC view (rule 1: the drawing of a shared thing lives in one place). An ES module; THREE
-// is handed in. Everything is drawn from the shared state (the document's `jstate`) and the bodies the host sends (`snap`, net.js), in the COMMON frame:
-// `parent` is a group that holds the page's line-up (the page moves it), and inside it a point (x, y, z) of the floor plan is THREE (x, z, -y).
+// is handed in. Everything is drawn from the shared state (the document's `jstate`), the bodies the host sends (`snap`, net.js), the touches at the board
+// and the server's clock, in the COMMON frame: `parent` is a group that holds the page's line-up (the page moves it), and inside it a point (x, y, z) of
+// the floor plan is THREE (x, z, -y).
 //
-// The zen look (Marek's choice): pale pine blocks stained in six colours, each with a shape stamped on its ends; a plinth of raked sand in a dark wood
-// frame; a low console with the die's felt tray, a paper lantern and a scoreboard like a hanging scroll of washi paper.
+// The zen look (Marek's choice), a quiet room with one warm light:
+//   the tower    pine blocks stained in six colours, each colour's sign burnt into both ends; a satin oil finish
+//   the plinth   charred cedar (yakisugi) on a black foot, a rim of pale hinoki, raked sand in rings round a slate stone under the tower
+//   the console  a walnut table on tapered legs; the die's tray in black lacquer lined with vermilion, on indigo felt
+//   the board    a walnut stand like a small gate, a panel of washi lit from behind, wooden plaques hanging on cords (stand.js)
+//   the score    a hanging scroll (kakejiku) in a brocade of waves, on a stand like the board's
+//   the lantern  a paper andon on the floor at the end of the table: the scene's warm light (look.js), its flicker the same everywhere
+//   the moments  in fx.js
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
-import { ATLAS, woodAtlas, sandTexture, darkWood, feltTexture, drawShape, washi } from './textures.js';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+import { ATLAS, blockAtlas, dieFace, yakisugi, walnut, hinoki, sand, felt, washi, seigaiha, enso, glow, blobShadow } from './textures.js';
+import { FONT, loadFonts, environment, createRig, mergeStatic } from './look.js';
+import { createStand } from './stand.js';
+import { createFx } from './fx.js';
+import { createDecor } from './decor.js';
+import { createShades } from './shades.js';
 
 const S = window.JENGA;
 const toV = (p) => [p[0], p[2], -p[1]];
-const FONT_HEAD = '"Hiragino Mincho ProN", "Yu Mincho", ui-serif, Georgia, "Times New Roman", serif', FONT_BODY = 'system-ui, "Helvetica Neue", Arial, sans-serif';
 const hex = (c) => `#${(c >>> 0).toString(16).padStart(6, '0')}`;
 
-export function createScene({ THREE, parent, playerColours = [0xf2c14e, 0x4ea1ff, 0xff6b6b, 0x7bd88f], boardAspect = 0.59 }) {
+// relit: the page hands the scene's lights to the engine (app.relight), which lights the real floor and walls with them: the painted pool of light
+// under the lantern is then not drawn (the PC view has no real room and keeps it)
+export function createScene({ THREE, parent, renderer, playerColours = [0xf2c14e, 0x4ea1ff, 0xff6b6b, 0x7bd88f], fontBase = 'fonts/', relit = false }) {
   const root = new THREE.Group(); parent.add(root);
   const furniture = new THREE.Group(); root.add(furniture);               // in the game frame: moved to `place` and turned by its yaw
   const bodies = new THREE.Group(); root.add(bodies);                    // blocks and die: common frame
-  const overlay = new THREE.Group(); root.add(overlay);                   // rings, banner, trail: common frame
+  const overlay = new THREE.Group(); root.add(overlay);                   // glows, rings, words: common frame
   const disposables = [];
   const own = (o) => { disposables.push(o); return o; };
+  let fontsVer = 0;
+  loadFonts(fontBase).then(() => { fontsVer++; });
 
-  // ---- materials
-  const dark = darkWood(THREE, 8), sand = sandTexture(THREE, 4), felt = feltTexture(THREE, 12);
-  const matDark = own(new THREE.MeshStandardMaterial({ map: dark.map, normalMap: dark.normal, roughness: 0.7 }));
-  const matSand = own(new THREE.MeshStandardMaterial({ map: sand.map, normalMap: sand.normal, roughness: 0.95, normalScale: new THREE.Vector2(0.9, 0.9) }));
-  const matFelt = own(new THREE.MeshStandardMaterial({ map: felt.map, normalMap: felt.normal, roughness: 1 }));
-  const matPaper = own(new THREE.MeshStandardMaterial({ color: 0xfff1c9, emissive: 0xffa33a, emissiveIntensity: 0.9, roughness: 0.9, transparent: true, opacity: 0.96 }));
-  const atlases = new Map(), mats = new Map();
+  // ---- light and materials
+  const env = renderer ? own(environment(THREE, renderer)) : null;
+  const rig = createRig({ THREE, renderer, parent: furniture });
+  const T = { walnut: walnut(THREE), hinoki: hinoki(THREE), yaki: yakisugi(THREE), felt: felt(THREE) };
+  for (const t of Object.values(T)) { own(t.map); own(t.normal); }
+  const std = (o) => own(new THREE.MeshStandardMaterial(Object.assign({ envMap: env, envMapIntensity: 0.6 }, o)));
+  const phys = (o) => own(new THREE.MeshPhysicalMaterial(Object.assign({ envMap: env, envMapIntensity: 0.7 }, o)));
+  const mats = {
+    env,
+    walnut: std({ map: T.walnut.map, normalMap: T.walnut.normal, normalScale: new THREE.Vector2(0.35, 0.35), roughness: 0.44 }),
+    hinoki: std({ map: T.hinoki.map, normalMap: T.hinoki.normal, normalScale: new THREE.Vector2(0.3, 0.3), roughness: 0.6 }),
+    yaki: std({ map: T.yaki.map, normalMap: T.yaki.normal, normalScale: new THREE.Vector2(1.2, 1.2), roughness: 0.55, metalness: 0.15, envMapIntensity: 0.9 }),
+    lacquer: phys({ color: 0x0d0a09, roughness: 0.32, clearcoat: 1, clearcoatRoughness: 0.12, envMapIntensity: 1.0 }),
+    shu: phys({ color: 0xa8301c, roughness: 0.35, clearcoat: 1, clearcoatRoughness: 0.15 }),
+    felt: std({ map: T.felt.map, normalMap: T.felt.normal, roughness: 1, envMapIntensity: 0.2 }),
+    slate: std({ color: 0x6b6762, roughness: 0.7, envMapIntensity: 0.5 }),
+    bamboo: std({ color: 0xc9a56a, roughness: 0.3 }),
+    cord: std({ color: 0xb2321d, roughness: 0.8, envMapIntensity: 0.2 }),
+    lampBack: own(new THREE.MeshBasicMaterial({ color: 0x5a3010 })),
+  };
+  T.felt.map.repeat.set(3, 3); T.felt.normal.repeat.set(3, 3);
+  const blockMats = new Map();
   const blockMat = (colour, variant) => {
     const k = `${colour}:${variant}`;
-    let m = mats.get(k);
+    let m = blockMats.get(k);
     if (!m) {
-      const c = S.COLOURS[colour], a = woodAtlas(THREE, { colour: c.hex, shape: c.shape, seed: 31 * colour + 7 * variant + 1 });
-      atlases.set(k, a);
-      m = own(new THREE.MeshStandardMaterial({ map: a.map, normalMap: a.normal, normalScale: new THREE.Vector2(0.9, 0.9), roughness: 0.64, metalness: 0 }));
-      mats.set(k, m);
+      const c = S.COLOURS[colour], a = blockAtlas(THREE, { colour: c.hex, shape: c.shape, variant });
+      own(a.map); own(a.normal);
+      m = std({ map: a.map, normalMap: a.normal, normalScale: new THREE.Vector2(0.55, 0.55), roughness: 0.46, envMapIntensity: 0.65 });
+      blockMats.set(k, m);
     }
     return m;
   };
-  // a block's geometry: a rounded box (long along THREE x, flat along y) whose faces use the atlas: the two ends the right third, the rest the left two thirds
+  // a block's geometry: a rounded box (long along THREE x, flat along y) whose faces use the atlas: the two ends the right quarter, the rest the left
   function blockGeometry(d) {
-    const g = own(new RoundedBoxGeometry(d.L, d.H, d.W, 2, Math.min(0.0016 * d.k * 2.2, d.H * 0.18)));
+    const g = own(new RoundedBoxGeometry(d.L, d.H, d.W, 2, Math.min(0.0016 * d.k * 1.6, d.H * 0.14)));
     const uv = g.attributes.uv, per = uv.count / 6;
     for (let side = 0; side < 6; side++) {
       const [u0, u1] = side < 2 ? ATLAS.endU : ATLAS.longU;
@@ -49,250 +80,270 @@ export function createScene({ THREE, parent, playerColours = [0xf2c14e, 0x4ea1ff
     uv.needsUpdate = true;
     return g;
   }
-  // the die: six coloured faces, each with its shape
   function dieMaterials() {
-    const face = (ci) => {
-      const c = document.createElement('canvas'); c.width = c.height = 128;
-      const g = c.getContext('2d'), col = S.COLOURS[ci];
-      g.fillStyle = hex(col.hex); g.fillRect(0, 0, 128, 128);
-      g.fillStyle = 'rgba(255,240,210,0.16)'; for (let i = 0; i < 40; i++) g.fillRect(Math.random() * 128, Math.random() * 128, 30, 1);
-      g.strokeStyle = 'rgba(255,245,225,0.9)'; g.lineWidth = 7; g.strokeRect(10, 10, 108, 108);
-      g.fillStyle = 'rgba(255,245,225,0.95)'; g.strokeStyle = 'rgba(255,245,225,0.95)'; drawShape(g, col.shape, 64, 64, 30);
-      const t = own(new THREE.CanvasTexture(c)); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4;
-      return own(new THREE.MeshStandardMaterial({ map: t, roughness: 0.5 }));
-    };
     const D = S.DIE_COLOURS;                                        // (physics faces +x -x +y -y +z -z; THREE order: right left top bottom front back)
-    return [D[0], D[1], D[4], D[5], D[3], D[2]].map(face);
+    return [D[0], D[1], D[4], D[5], D[3], D[2]].map((ci, k) => { const c = S.COLOURS[ci], t = dieFace(THREE, c.hex, c.shape, 70 + k); own(t.map); own(t.normal); return std({ map: t.map, normalMap: t.normal, normalScale: new THREE.Vector2(0.6, 0.6), roughness: 0.45, envMapIntensity: 0.65 }); });
   }
 
-  // ---- the blocks and the die
-  let size = null, geo = null, dieMesh = null;
+  // ---- the blocks and the die. A block is an Object3D that holds where it is (fx.js reads it) and is drawn as one instance of the InstancedMesh of
+  // its stain: 12 draw calls for 54 blocks, in the picture and in the shadow
+  let size = null, geo = null, dieMesh = null, inst = [];
   const blocks = [];
   function buildBodies(sz) {
-    for (const m of blocks) bodies.remove(m);
     blocks.length = 0;
     if (dieMesh) bodies.remove(dieMesh);
     const d = S.dims(sz), L = S.layout(sz);
     geo = blockGeometry(d);
-    for (let i = 0; i < S.BLOCKS; i++) { const m = new THREE.Mesh(geo, blockMat(0, 0)); m.visible = false; m.userData.i = i; bodies.add(m); blocks.push(m); }
-    dieMesh = new THREE.Mesh(own(new RoundedBoxGeometry(L.die.size, L.die.size, L.die.size, 3, L.die.size * 0.14)), dieMaterials());
+    for (let i = 0; i < S.BLOCKS; i++) { const o = new THREE.Object3D(); o.geometry = geo; o.visible = false; o.userData.i = i; blocks.push(o); }
+    dieMesh = new THREE.Mesh(own(new RoundedBoxGeometry(L.die.size, L.die.size, L.die.size, 3, L.die.size * 0.13)), dieMaterials());
     dieMesh.visible = false; bodies.add(dieMesh);
     size = sz;
   }
   let seedUsed = null;
   function paintBlocks(seed) {
-    const col = S.colourOrder(seed);
-    blocks.forEach((m, i) => { m.material = blockMat(col[i], i % 2); });
+    const col = S.colourOrder(seed), byMat = new Map();
+    for (const im of inst) { bodies.remove(im); im.dispose(); }
+    blocks.forEach((o, i) => { const m = blockMat(col[i], i % 2); if (!byMat.has(m)) byMat.set(m, []); byMat.get(m).push(i); });
+    inst = [...byMat].map(([m, list]) => {
+      const im = new THREE.InstancedMesh(geo, m, list.length); im.castShadow = true; im.receiveShadow = true; im.frustumCulled = false;
+      list.forEach((i, k) => { blocks[i].userData.inst = im; blocks[i].userData.k = k; });
+      bodies.add(im); return im;
+    });
     seedUsed = seed;
   }
 
-  // ---- the furniture (game frame), rebuilt when the size or the place changes
-  let furnKey = null, boardFrame = null, scoreTex = null, scoreCtx = null, scoreCanvas = null, lanternGlow = null;
-  function disposeGroup(g) { while (g.children.length) { const c = g.children.pop(); if (c.geometry && c.userData.own) c.geometry.dispose(); } }
-  // (a box's faces each get the wood's grain at one scale: the texture repeats every TILE metres)
-  const TILE = 0.3;
-  function boxGeo(w, h, dp) {
-    const g = new THREE.BoxGeometry(w, h, dp), uv = g.attributes.uv, per = uv.count / 6, sc = [[dp, h], [dp, h], [w, dp], [w, dp], [w, h], [w, h]];
-    for (let f = 0; f < 6; f++) for (let i = f * per; i < (f + 1) * per; i++) uv.setXY(i, uv.getX(i) * sc[f][0] / TILE, uv.getY(i) * sc[f][1] / TILE);
+  // ---- the furniture (game frame), rebuilt when the size changes
+  const shadowTex = { round: own(blobShadow(THREE, 128, false)), square: own(blobShadow(THREE, 128, true)) };
+  const furnSig = (sz, place) => `${sz}|${place && place.arr ? JSON.stringify(place.arr) : ''}`;
+  let furnKey = null, scroll = null, lanternGlow = null, lanternMat = null, catcher = null;
+  function disposeGroup(g) { for (let i = g.children.length - 1; i >= 0; i--) { const c = g.children[i]; if (c.userData.own) { g.remove(c); c.traverse((o) => { if (o.geometry) o.geometry.dispose(); }); } } }
+  // a box with the wood's grain at one scale on each face (the texture repeats every TILE metres)
+  const TILE = 0.36;
+  function boxGeo(w, h, dp, rounded = 0, turn = true) {
+    const g = rounded ? new RoundedBoxGeometry(w, h, dp, 2, rounded) : new THREE.BoxGeometry(w, h, dp), uv = g.attributes.uv, per = uv.count / 6, sc = [[dp, h], [dp, h], [w, dp], [w, dp], [w, h], [w, h]];
+    const up = turn && h > w && h > dp;             // (a post: the grain runs up it; not the charred boards, which stand up in their texture)
+    for (let f = 0; f < 6; f++) for (let i = f * per; i < (f + 1) * per; i++) {
+      const a = uv.getX(i) * sc[f][0] / TILE, b = uv.getY(i) * sc[f][1] / TILE;
+      if (up && f !== 2 && f !== 3) uv.setXY(i, b, a); else uv.setXY(i, a, b);
+    }
     return g;
   }
-  const box = (w, h, dp, mat, x, y, z, parentG = furniture) => { const m = new THREE.Mesh(mat === matDark ? boxGeo(w, h, dp) : new THREE.BoxGeometry(w, h, dp), mat); m.position.set(x, y, z); m.userData.own = true; parentG.add(m); return m; };
+  // a tapered post (a four-sided cylinder) with the grain running up it
+  const postGeo = (r0, r1, len) => { const g = new THREE.CylinderGeometry(r0, r1, len, 4, 1); g.rotateY(Math.PI / 4); const uv = g.attributes.uv; for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getY(i) * len / TILE, uv.getX(i) * 0.25); return g; };
+  // (shadows: only the plinth casts, besides the bodies; only the plinth, the sand and the floor round it take them: the light's box is round the tower)
+  let shadows = false;
+  const add = (geo, mat, x, y, z, parentG = furniture, shadow = true) => { const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); m.userData.own = true; m.castShadow = shadow && shadows; m.receiveShadow = shadows; parentG.add(m); return m; };
+  const box = (w, h, dp, mat, x, y, z, parentG, r = 0) => add(boxGeo(w, h, dp, r, mat !== mats.yaki), mat, x, y, z, parentG);
   const at = (gx, gy, gz) => [gx, gz, -gy];                     // game frame floor plan -> THREE inside the furniture group
-  function buildFurniture(sz) {
+  // a soft shadow on the floor under something (round or square, w x d metres)
+  const floorShadow = (gx, gy, w, dp, square, opacity = 0.55, yaw = 0, parentG = furniture) => {
+    const m = add(new THREE.PlaneGeometry(w, dp), own(new THREE.MeshBasicMaterial({ map: square ? shadowTex.square : shadowTex.round, transparent: true, opacity, depthWrite: false, color: 0x000000 })), ...at(gx, gy, 0.0015), parentG, false);
+    m.rotation.set(-Math.PI / 2, 0, yaw); m.receiveShadow = false; m.renderOrder = 1; return m;
+  };
+  // a beam whose ends curve up (the kasagi of a gate), along x
+  const beamGeo = (len, th, dp, lift) => {
+    const g = new THREE.BoxGeometry(len, th, dp, 32, 1, 1), p = g.attributes.position, uv = g.attributes.uv;
+    for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) * len / TILE, uv.getY(i) * 0.1);
+    for (let i = 0; i < p.count; i++) { const x = p.getX(i) / (len / 2); p.setY(i, p.getY(i) + lift * Math.pow(Math.abs(x), 3.2)); }
+    g.computeVertexNormals(); return g;
+  };
+  const sandCache = new Map();
+  function buildFurniture(sz, place) {
     disposeGroup(furniture);
-    const L = S.layout(sz), d = L.d, h = L.plinth.half, top = L.plinth.top;
-    // the plinth: a dark wood body, raked sand on top in a low frame
-    box(2 * h, top, 2 * h, matDark, 0, top / 2, 0);
-    const tile = 0.45 * Math.max(1, d.k), rep = (2 * h * 0.97) / tile;
-    sand.map.repeat.set(rep, rep); sand.normal.repeat.set(rep, rep);
-    const top3 = new THREE.Mesh(new THREE.PlaneGeometry(2 * h * 0.97, 2 * h * 0.97), matSand); top3.rotation.x = -Math.PI / 2; top3.position.set(0, top + 0.0012, 0); top3.userData.own = true; furniture.add(top3);
-    const fw = 0.02 * Math.max(1, d.k * 0.6), fh = 0.014 * Math.max(1, d.k * 0.6);
-    for (const [x, z, w, dp] of [[0, -h + fw / 2, 2 * h, fw], [0, h - fw / 2, 2 * h, fw], [-h + fw / 2, 0, fw, 2 * h], [h - fw / 2, 0, fw, 2 * h]]) box(w, fh, dp, matDark, x, top + fh / 2, z);
-    // the console: a low table with four legs; the die's tray on it
-    const c = L.console, cx = c.c[0], cy = c.c[1], tt = 0.04;
-    box(2 * c.half[0], tt, 2 * c.half[1], matDark, ...at(cx, cy, c.top - tt / 2));
-    for (const sx of [-1, 1]) for (const sy of [-1, 1]) box(0.05, c.top - tt, 0.05, matDark, ...at(cx + sx * (c.half[0] - 0.05), cy + sy * (c.half[1] - 0.05), (c.top - tt) / 2));
-    const T = L.tray, tw = T.wall;
-    const felt3 = new THREE.Mesh(new THREE.PlaneGeometry(2 * T.half, 2 * T.half), matFelt); felt3.rotation.x = -Math.PI / 2; felt3.position.set(...at(T.c[0], T.c[1], c.top + 0.001)); felt3.userData.own = true; furniture.add(felt3);
-    for (const [x, y, w, dp] of [[T.c[0] - T.half, T.c[1], tw, 2 * T.half + tw], [T.c[0] + T.half, T.c[1], tw, 2 * T.half + tw], [T.c[0], T.c[1] - T.half, 2 * T.half + tw, tw], [T.c[0], T.c[1] + T.half, 2 * T.half + tw, tw]]) box(w, T.rim, dp, matDark, ...at(x, y, c.top + T.rim / 2));
-    // the board's stand: two posts and a bezel round the shared menu (the menu itself is the engine's panel, drawn by createApp)
-    const B = L.board, bh = B.w * boardAspect, bz = B.bottom + bh / 2, pitch = B.pitch, fx = Math.cos(B.yaw), fy = Math.sin(B.yaw), lx2 = -fy, ly2 = fx;   // (f: the way it faces; l: along it)
-    boardFrame = new THREE.Group(); boardFrame.position.set(...at(B.c[0], B.c[1], bz)); boardFrame.rotation.y = Math.PI / 2 + B.yaw; furniture.add(boardFrame);        // (its front, +z, towards B.yaw)
-    const lean = new THREE.Group(); lean.rotation.x = -pitch; boardFrame.add(lean);                                                                                // (leaning back by the board's pitch)
-    const bt = 0.035;
-    for (const [x, y, w, hh] of [[0, bh / 2 + bt / 2, B.w + 2 * bt, bt], [0, -bh / 2 - bt / 2, B.w + 2 * bt, bt], [-B.w / 2 - bt / 2, 0, bt, bh], [B.w / 2 + bt / 2, 0, bt, bh]]) box(w, hh, 0.05, matDark, x, y, -0.022, lean);
-    box(B.w + 2 * bt, bh + 2 * bt, 0.012, matDark, 0, 0, -0.052, lean);
-    for (const sx of [-1, 1]) { const post = box(0.05, bz - c.top + 0.02, 0.05, matDark, ...at(B.c[0] - fx * 0.07 + lx2 * sx * (B.w / 2 + bt), B.c[1] - fy * 0.07 + ly2 * sx * (B.w / 2 + bt), (bz - c.top) / 2 + c.top - 0.02)); post.rotation.y = Math.PI / 2 + B.yaw; }
-    // the lantern: a wooden frame with paper on four sides, and a soft glow
-    const lx = L.lantern[0], ly = L.lantern[1], lh = 0.36;
-    box(0.2, 0.025, 0.2, matDark, ...at(lx, ly, c.top + 0.0125)); box(0.21, 0.025, 0.21, matDark, ...at(lx, ly, c.top + lh));
-    const paper = new THREE.Mesh(new THREE.BoxGeometry(0.17, lh - 0.03, 0.17), matPaper); paper.position.set(...at(lx, ly, c.top + lh / 2 + 0.005)); paper.userData.own = true; furniture.add(paper);
-    for (const sx of [-1, 1]) for (const sy of [-1, 1]) box(0.014, lh, 0.014, matDark, ...at(lx + sx * 0.088, ly + sy * 0.088, c.top + lh / 2));
-    if (!lanternGlow) {
-      const cv = document.createElement('canvas'); cv.width = cv.height = 128;
-      const gg = cv.getContext('2d'), gr = gg.createRadialGradient(64, 64, 4, 64, 64, 64);
-      gr.addColorStop(0, 'rgba(255,190,90,0.85)'); gr.addColorStop(0.4, 'rgba(255,160,60,0.25)'); gr.addColorStop(1, 'rgba(255,140,40,0)');
-      gg.fillStyle = gr; gg.fillRect(0, 0, 128, 128);
-      lanternGlow = new THREE.Sprite(own(new THREE.SpriteMaterial({ map: own(new THREE.CanvasTexture(cv)), blending: THREE.AdditiveBlending, depthWrite: false, transparent: true })));
+    const L = S.layout(sz, place), d = L.d, h = L.plinth.half, top = L.plinth.top, k = d.k;
+    rig.fit(L);
+    // -- the plinth: a black foot set back, the charred cedar body, a rim of hinoki, sand, the slate stone
+    shadows = true;
+    const foot = Math.min(0.03, top * 0.3), inset = Math.min(0.018, h * 0.08), rimW = Math.max(0.018, 0.022 * Math.sqrt(k)), rimUp = 0.006 * Math.sqrt(k), sink = 0.002;
+    box(2 * (h - inset), foot, 2 * (h - inset), mats.lacquer, 0, foot / 2, 0);
+    box(2 * h, top - foot - 0.004, 2 * h, mats.yaki, 0, foot + (top - foot - 0.004) / 2, 0);
+    for (const [x, z, w, dp] of [[0, -h + rimW / 2, 2 * h, rimW], [0, h - rimW / 2, 2 * h, rimW], [-h + rimW / 2, 0, rimW, 2 * h - 2 * rimW], [h - rimW / 2, 0, rimW, 2 * h - 2 * rimW]]) box(w, 0.004 + rimUp, dp, mats.hinoki, x, top - 0.004 + (0.004 + rimUp) / 2, z, furniture, 0.0015);
+    const sh = h - rimW, stoneH = d.L * 0.5 * 1.3, sk = `${sz}`;
+    if (!sandCache.has(sk)) { const t = sand(THREE, { stone: stoneH / sh, rings: Math.max(7, Math.round(9 * Math.sqrt(sh / 0.14))), seed: 4 }); own(t.map); own(t.normal); sandCache.set(sk, std({ map: t.map, normalMap: t.normal, normalScale: new THREE.Vector2(1, 1), roughness: 0.96, envMapIntensity: 0.25 })); }
+    const sandM = add(new THREE.PlaneGeometry(2 * sh, 2 * sh), sandCache.get(sk), 0, top - sink, 0, furniture, false); sandM.rotation.x = -Math.PI / 2; sandM.receiveShadow = true;
+    const stoneT = 0.006 * Math.sqrt(k);
+    add(new RoundedBoxGeometry(2 * stoneH, stoneT, 2 * stoneH, 2, stoneT * 0.4), mats.slate, 0, top - stoneT / 2, 0);
+    shadows = false;
+    floorShadow(0, 0, 2 * h * 1.35, 2 * h * 1.35, true, 0.6);
+    // the shadow catcher: the real floor round the tower takes the tower's shadows (and the blocks' when they fall)
+    const r = Math.max(0.42, h * 1.5 + d.height * 0.9);
+    catcher = add(new THREE.PlaneGeometry(2 * r, 2 * r), own(new THREE.ShadowMaterial({ color: 0x140a04, opacity: 0.42, depthWrite: false })), 0, 0.002, 0, furniture, false);
+    catcher.rotation.x = -Math.PI / 2; catcher.renderOrder = 1; catcher.receiveShadow = true;
+    // -- the console: a walnut top, tapered legs, an apron; black lacquer feet. It is built in its own frame (x along it, y across it towards
+    //    its back) and stood where the arrangement puts it (spec.js layout: u, v; a mirrored arrangement has its back on the other hand)
+    const c = L.console, tt = 0.034, hx = c.half[0], hy = c.half[1], vs = Math.sign(c.u[0] * c.v[1] - c.u[1] * c.v[0]) || 1;
+    const cg = new THREE.Group(); cg.position.set(...at(c.c[0], c.c[1], 0)); cg.rotation.y = c.yaw; cg.userData.own = true; furniture.add(cg);
+    box(2 * hx, tt, 2 * hy, mats.walnut, ...at(0, 0, c.top - tt / 2), cg, 0.006);
+    const legIn = 0.06, legH = c.top - tt;
+    for (const sx of [-1, 1]) for (const sy of [-1, 1]) {
+      add(postGeo(0.026, 0.017, legH), mats.walnut, ...at(sx * (hx - legIn), sy * (hy - legIn), legH / 2), cg);
+      add(new THREE.CylinderGeometry(0.02, 0.021, 0.012, 4, 1).rotateY(Math.PI / 4), mats.lacquer, ...at(sx * (hx - legIn), sy * (hy - legIn), 0.006), cg);
+      floorShadow(sx * (hx - legIn), sy * (hy - legIn), 0.16, 0.16, false, 0.5, 0, cg);
     }
-    lanternGlow.scale.set(0.9, 0.9, 1); lanternGlow.position.set(...at(lx, ly, c.top + lh / 2)); furniture.add(lanternGlow);
-    // the scoreboard: a washi scroll between two bars, hanging from a beam on two posts
-    const SC = L.score, sh = SC.h, sz0 = SC.bottom + sh / 2;
-    const sg = new THREE.Group(); sg.position.set(...at(SC.c[0], SC.c[1], sz0)); sg.rotation.y = Math.PI / 2 + SC.yaw; furniture.add(sg);
-    if (!scoreCanvas) { scoreCanvas = document.createElement('canvas'); scoreCanvas.width = 1024; scoreCanvas.height = Math.round(1024 * SC.h / SC.w); scoreCtx = scoreCanvas.getContext('2d'); scoreTex = own(new THREE.CanvasTexture(scoreCanvas)); scoreTex.colorSpace = THREE.SRGBColorSpace; scoreTex.anisotropy = 4; }
-    const sp = new THREE.Mesh(new THREE.PlaneGeometry(SC.w, sh), own(new THREE.MeshStandardMaterial({ map: scoreTex, roughness: 0.95, emissive: 0xffffff, emissiveMap: scoreTex, emissiveIntensity: 0.25 }))); sp.userData.own = true; sg.add(sp);
-    box(SC.w + 0.1, 0.035, 0.035, matDark, 0, sh / 2 + 0.018, 0.012, sg); box(SC.w + 0.06, 0.04, 0.04, matDark, 0, -sh / 2 - 0.02, 0.012, sg);
-    for (const sx of [-1, 1]) box(0.045, sz0 + sh / 2 + 0.05, 0.045, matDark, sx * (SC.w / 2 + 0.07), -(sz0 + sh / 2 + 0.05) / 2 + sh / 2 + 0.05, 0.0, sg);
-    sg.userData.scoreH = sh; furniture.userData.sg = sg;
-    limit.line.position.set(0, 0, 0);
-    furnKey = sz;
+    for (const sy of [-1, 1]) box(2 * (hx - legIn), 0.055, 0.018, mats.walnut, ...at(0, sy * (hy - legIn), c.top - tt - 0.0275), cg);
+    for (const sx of [-1, 1]) box(0.018, 0.055, 2 * (hy - legIn), mats.walnut, ...at(sx * (hx - legIn), 0, c.top - tt - 0.0275), cg);
+    floorShadow(0, 0, 2 * hx + 0.25, 2 * hy + 0.25, true, 0.32, 0, cg);
+    // -- the die's tray: black lacquer walls lined with vermilion, a vermilion lip, indigo felt (square to the table)
+    const Tr = L.tray, tw = Tr.wall, th = Tr.rim, tz = c.top, tc = [-0.3, vs * -0.06];
+    const felt3 = add(new THREE.PlaneGeometry(2 * Tr.half, 2 * Tr.half), mats.felt, ...at(tc[0], tc[1], tz + 0.0008), cg, false); felt3.rotation.x = -Math.PI / 2;
+    for (const [x, y, w, dp, ix, iy] of [[tc[0] - Tr.half, tc[1], tw, 2 * Tr.half + tw, 1, 0], [tc[0] + Tr.half, tc[1], tw, 2 * Tr.half + tw, -1, 0], [tc[0], tc[1] - Tr.half, 2 * Tr.half + tw, tw, 0, 1], [tc[0], tc[1] + Tr.half, 2 * Tr.half + tw, tw, 0, -1]]) {
+      // (w is along the table, dp across it: in THREE, x and z)
+      box(w, th, dp, mats.lacquer, ...at(x, y, tz + th / 2), cg, 0.004);
+      const lw = ix ? 0.002 : w - 2 * tw, ld = iy ? 0.002 : dp - 2 * tw;
+      box(lw, th - 0.006, ld, mats.shu, ...at(x + ix * (tw / 2 + 0.001), y + iy * (tw / 2 + 0.001), tz + (th - 0.006) / 2 + 0.001), cg);
+    }
+    // -- the lantern: a paper andon on the floor; walnut posts, a black cap, washi with a lattice, lit from inside
+    const lx = L.lantern[0], ly = L.lantern[1], LH = 0.74, pw = 0.2, p0 = 0.17, p1 = 0.64;
+    for (const sx of [-1, 1]) for (const sy of [-1, 1]) box(0.016, LH, 0.016, mats.walnut, ...at(lx + sx * (pw / 2 + 0.004), ly + sy * (pw / 2 + 0.004), LH / 2));
+    for (const z of [p0 - 0.008, p1 + 0.008, 0.05]) for (const [ax, ay, w, dp] of [[0, -1, pw + 0.03, 0.014], [0, 1, pw + 0.03, 0.014], [-1, 0, 0.014, pw + 0.03], [1, 0, 0.014, pw + 0.03]]) box(w, 0.014, dp, mats.walnut, ...at(lx + ax * (pw / 2 + 0.004), ly + ay * (pw / 2 + 0.004), z));
+    box(pw + 0.07, 0.016, pw + 0.07, mats.lacquer, ...at(lx, ly, LH + 0.008), furniture, 0.004);
+    if (!lanternMat) {
+      const cv = document.createElement('canvas'); cv.width = 256; cv.height = 512; const g = cv.getContext('2d');
+      washi(g, 256, 512, 17, [246, 214, 168]);
+      const gr = g.createLinearGradient(0, 0, 0, 512); gr.addColorStop(0, 'rgba(120,60,20,0.25)'); gr.addColorStop(0.45, 'rgba(255,220,160,0)'); gr.addColorStop(1, 'rgba(120,60,20,0.3)'); g.fillStyle = gr; g.fillRect(0, 0, 256, 512);
+      g.strokeStyle = 'rgba(70,40,20,0.85)'; g.lineWidth = 5; for (const x of [85, 171]) { g.beginPath(); g.moveTo(x, 0); g.lineTo(x, 512); g.stroke(); } for (let y = 102; y < 512; y += 102) { g.beginPath(); g.moveTo(0, y); g.lineTo(256, y); g.stroke(); }
+      const t = own(new THREE.CanvasTexture(cv)); t.colorSpace = THREE.SRGBColorSpace;
+      lanternMat = own(new THREE.MeshStandardMaterial({ map: t, emissive: 0xffd9a8, emissiveMap: t, emissiveIntensity: 0.8, roughness: 1, side: THREE.DoubleSide }));
+    }
+    const paper = add(new THREE.BoxGeometry(pw, p1 - p0, pw), lanternMat, ...at(lx, ly, (p0 + p1) / 2), furniture, false);
+    paper.material = [lanternMat, lanternMat, own(new THREE.MeshBasicMaterial({ visible: false })), own(new THREE.MeshBasicMaterial({ color: 0x3a2010 })), lanternMat, lanternMat];
+    if (!lanternGlow) lanternGlow = new THREE.Sprite(own(new THREE.SpriteMaterial({ map: own(glow(THREE)), color: 0xffa250, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, opacity: 0.5 })));
+    lanternGlow.scale.set(0.95, 1.25, 1); lanternGlow.position.set(...at(lx, ly, (p0 + p1) / 2)); furniture.add(lanternGlow);
+    if (!relit) { const pool = floorShadow(lx, ly, 1.3, 1.3, false, 0.2); pool.material.color.set(0xffa860); pool.material.blending = THREE.AdditiveBlending; pool.material.map = own(glow(THREE)); }       // (its light on the floor)
+    floorShadow(lx, ly, 0.36, 0.36, true, 0.5);
+    rig.lampAt = [lx, ly, (p0 + p1) / 2];
+    // -- the scroll's stand: two posts on cross feet, a top beam like the board's, the scroll hanging from it on a cord
+    const SC = L.score, sh0 = SC.bottom + SC.h, sg = new THREE.Group(); sg.position.set(...at(SC.c[0], SC.c[1], 0)); sg.rotation.y = Math.PI / 2 + SC.yaw; sg.userData.own = true; furniture.add(sg);
+    const postX = SC.w / 2 + 0.09, postH = sh0 + 0.16;
+    for (const sx of [-1, 1]) {
+      add(postGeo(0.016, 0.02, postH), mats.walnut, sx * postX, postH / 2, 0, sg);
+      box(0.05, 0.035, 0.34, mats.walnut, sx * postX, 0.0175, 0, sg, 0.006);
+      add(new THREE.BoxGeometry(0.056, 0.008, 0.08), mats.lacquer, sx * postX, 0.004, 0.13, sg); add(new THREE.BoxGeometry(0.056, 0.008, 0.08), mats.lacquer, sx * postX, 0.004, -0.13, sg);
+    }
+    add(beamGeo(2 * postX + 0.2, 0.03, 0.05, 0.02), mats.walnut, 0, postH, 0, sg);
+    add(beamGeo(2 * postX + 0.23, 0.012, 0.058, 0.023), mats.lacquer, 0, postH + 0.021, 0, sg);
+    box(2 * postX, 0.02, 0.026, mats.walnut, 0, postH - 0.12, 0, sg);
+    floorShadow(SC.c[0], SC.c[1], 2 * postX + 0.3, 0.5, true, 0.4, SC.yaw + Math.PI / 2);
+    buildScroll(sg, SC, postH);
+    mergeStatic(THREE, mergeGeometries, furniture);
+    furnKey = furnSig(sz, place);
   }
-  // the line above which a block may not be taken: a thin gold frame round the tower at the bottom of the highest complete level
-  const limit = (() => {
-    const g = new THREE.BufferGeometry(), line = new THREE.LineLoop(g, own(new THREE.LineBasicMaterial({ color: 0xf2c14e, transparent: true, opacity: 0.8, depthTest: false })));
-    line.renderOrder = 5; furniture.add(line); line.visible = false; return { line, g };
-  })();
-  const rolling = (() => { const m = new THREE.Mesh(own(new THREE.RingGeometry(0.17, 0.19, 48)), own(new THREE.MeshBasicMaterial({ color: 0xf2c14e, transparent: true, opacity: 0.6, side: THREE.DoubleSide, depthWrite: false }))); m.rotation.x = -Math.PI / 2; m.visible = false; furniture.add(m); return m; })();
 
-  // ---- overlays: the markers of the pulled block, the block that toppled the tower, the one a hand holds; the replay banner and trail; a ring when it falls
-  const shells = {};
-  for (const [k, colour] of [['handled', 0xf2c14e], ['culprit', 0xff4a2a], ['held', 0xffffff]]) {
-    const m = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), own(new THREE.MeshBasicMaterial({ color: colour, transparent: true, opacity: 0.35, blending: THREE.AdditiveBlending, depthWrite: false })));
-    m.visible = false; overlay.add(m); shells[k] = m;
+  // ---- the scroll (kakejiku): brocade of waves round a washi heart; a thin rod at the top, a roller with black ends at the bottom; ink and a red seal
+  const SCW = 1024;
+  function buildScroll(sg, SC, postH) {
+    const W = SC.w, Hh = SC.h, H = Math.round(SCW * Hh / W);
+    if (!scroll) {
+      const cv = document.createElement('canvas'); cv.width = SCW; cv.height = H;
+      const tex = own(new THREE.CanvasTexture(cv)); tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 8;
+      const mat = own(new THREE.MeshStandardMaterial({ map: tex, roughness: 0.9, emissive: 0xffffff, emissiveMap: tex, emissiveIntensity: 0.16, envMap: env, envMapIntensity: 0.25 }));
+      scroll = { cv, g: cv.getContext('2d'), tex, mat, H, key: null };
+    }
+    const cy = SC.bottom + Hh / 2, grp = new THREE.Group(); grp.position.set(0, cy, 0.0); sg.add(grp); grp.userData.own = true;
+    add(new THREE.PlaneGeometry(W, Hh), scroll.mat, 0, 0, 0, grp, false);
+    add(new THREE.PlaneGeometry(W, Hh), own(new THREE.MeshStandardMaterial({ color: 0x1d2236, roughness: 0.9 })), 0, 0, -0.001, grp, false).rotation.y = Math.PI;
+    add(new THREE.BoxGeometry(W + 0.02, 0.016, 0.012), mats.walnut, 0, Hh / 2 + 0.006, 0.004, grp);
+    const roller = new THREE.CylinderGeometry(0.012, 0.012, W + 0.03, 16); roller.rotateZ(Math.PI / 2);
+    add(roller, mats.walnut, 0, -Hh / 2 - 0.008, 0.004, grp);
+    for (const sx of [-1, 1]) { const cap = new THREE.CylinderGeometry(0.016, 0.016, 0.03, 16); cap.rotateZ(Math.PI / 2); add(cap, mats.lacquer, sx * (W / 2 + 0.03), -Hh / 2 - 0.008, 0.004, grp); }
+    // the cord: from the top rod up to a hook in the beam
+    const hookY = postH - 0.012 - cy, rodY = Hh / 2 + 0.012;
+    for (const sx of [-1, 1]) { const len = Math.hypot(W * 0.3, hookY - rodY), cg = new THREE.CylinderGeometry(0.0013, 0.0013, len, 5); const cm = add(cg, mats.cord, sx * W * 0.15, (hookY + rodY) / 2, 0.004, grp, false); cm.rotation.z = -sx * Math.atan2(W * 0.3, hookY - rodY); }
+    scroll.grp = grp; scroll.key = null;
   }
-  const trailLine = new THREE.Line(new THREE.BufferGeometry(), own(new THREE.LineBasicMaterial({ color: 0xff6a3a, transparent: true, opacity: 0.9, depthTest: false }))); trailLine.visible = false; trailLine.renderOrder = 6; overlay.add(trailLine);
-  const bannerCv = document.createElement('canvas'); bannerCv.width = 1024; bannerCv.height = 256;
-  const bannerTex = own(new THREE.CanvasTexture(bannerCv)); bannerTex.colorSpace = THREE.SRGBColorSpace;
-  const banner = new THREE.Sprite(own(new THREE.SpriteMaterial({ map: bannerTex, transparent: true, depthTest: false, depthWrite: false }))); banner.renderOrder = 7; banner.visible = false; overlay.add(banner);
-  const wave = new THREE.Mesh(own(new THREE.RingGeometry(0.95, 1, 64)), own(new THREE.MeshBasicMaterial({ color: 0xffd9a0, transparent: true, opacity: 0, side: THREE.DoubleSide, depthWrite: false }))); wave.rotation.x = -Math.PI / 2; wave.visible = false; overlay.add(wave);
-  let bannerText = null, waveAt = -1e9, trailKey = null, scoreKey = null, lastPhase = null;
-  function drawBanner(lines) {
-    const g = bannerCv.getContext('2d'); g.clearRect(0, 0, 1024, 256);
-    g.textAlign = 'center'; g.textBaseline = 'middle'; g.lineJoin = 'round';
-    lines.forEach((l, i) => {
-      g.font = `${l.weight || 800} ${l.size}px ${l.font || FONT_HEAD}`; g.lineWidth = l.size * 0.14; g.strokeStyle = 'rgba(25,12,8,0.9)'; g.fillStyle = l.colour || '#fff3d6';
-      g.strokeText(l.text, 512, l.y); g.fillText(l.text, 512, l.y);
-    });
-    bannerTex.needsUpdate = true;
-  }
-
-  // ---- the scoreboard (washi paper, ink, a red seal for whose turn it is)
-  function drawScore(state) {
-    const g = scoreCtx, W = scoreCanvas.width, H = scoreCanvas.height;
-    washi(g, W, H, 3);
-    g.fillStyle = '#2a211b'; g.textAlign = 'center'; g.textBaseline = 'middle';
-    g.font = `800 120px ${FONT_HEAD}`; g.fillText('SCORE', W / 2, 120);
-    g.font = `500 44px ${FONT_BODY}`; g.fillStyle = '#6a5a4b';
-    g.fillText(state.round ? `round ${state.round} of ${state.rounds}` : 'three rounds make a match', W / 2, 205);
-    g.strokeStyle = '#2a211b'; g.lineWidth = 5; g.beginPath(); g.moveTo(70, 250); g.lineTo(W - 70, 250); g.stroke();
-    const rows = S.scoreboard(state);
-    const rowH = 190, y0 = 290;
-    g.textAlign = 'left';
+  function drawScore(state, colours) {
+    const g = scroll.g, W = SCW, H = scroll.H, B = 70;                   // (B: the brocade's width)
+    seigaiha(g, 0, 0, W, H, { r: 26 });
+    g.fillStyle = 'rgba(201,162,90,0.85)'; g.fillRect(B - 6, B - 6, W - 2 * B + 12, H - 2 * B + 12);                  // (a thin gold rule round the paper)
+    washi(g, W - 2 * B, H - 2 * B, 3, [246, 238, 222], B, B);
+    const x0 = B + 60, x1 = W - B - 60;
+    g.textBaseline = 'alphabetic'; g.fillStyle = '#221a14'; g.textAlign = 'left';
+    g.font = `800 108px ${FONT.head}`; g.fillText('Score', x0, B + 150);
+    g.fillStyle = '#7a6552'; g.font = `500 36px ${FONT.body}`; g.textAlign = 'right';
+    g.fillText(state.round ? `round ${state.round} of ${state.rounds}` : 'three rounds make a match', x1, B + 140);
+    g.strokeStyle = 'rgba(34,26,20,0.75)'; g.lineWidth = 3; g.beginPath(); g.moveTo(x0, B + 192); g.lineTo(x1, B + 192); g.stroke();
+    const rows = S.scoreboard(state), rowH = 176, y0 = B + 230;
     rows.forEach((r, k) => {
-      const y = y0 + k * rowH, colour = hex(playerColours[r.slot % playerColours.length]);
-      g.globalAlpha = r.present ? 1 : 0.45;
-      g.fillStyle = colour; g.beginPath(); g.arc(120, y + 50, 38, 0, Math.PI * 2); g.fill();
-      g.strokeStyle = '#2a211b'; g.lineWidth = 4; g.stroke();
-      g.fillStyle = '#2a211b'; g.font = `700 56px ${FONT_HEAD}`; g.fillText(r.name, 180, y + 38);
-      g.font = `500 40px ${FONT_BODY}`; g.fillStyle = '#6a5a4b';
-      const cells = r.rounds.map((v) => (v === null ? '-' : v > 0 ? `+${v}` : `${v}`)).join('   ');
-      g.fillText(cells, 182, y + 100);
-      g.textAlign = 'right'; g.fillStyle = r.winner ? '#b8861b' : '#2a211b'; g.font = `800 96px ${FONT_HEAD}`; g.fillText(String(r.total), W - 90, y + 62); g.textAlign = 'left';
-      if (r.turn) { g.fillStyle = '#c0301f'; g.beginPath(); g.arc(W - 250, y + 62, 34, 0, Math.PI * 2); g.fill(); g.fillStyle = '#fff3d6'; g.font = `700 36px ${FONT_BODY}`; g.textAlign = 'center'; g.fillText('turn', W - 250, y + 63); g.textAlign = 'left'; }
-      if (r.winner) { g.fillStyle = '#b8861b'; g.font = `700 36px ${FONT_BODY}`; g.fillText('winner', 182, y + 150); }
+      const y = y0 + k * rowH, colour = hex(colours[r.slot % colours.length]);
+      g.globalAlpha = r.present ? 1 : 0.42;
+      if (r.turn) enso(g, x0 + 34, y + 58, 50, { seed: 3 + k, width: 12, colour: '178,48,28' });
+      g.fillStyle = colour; g.beginPath(); g.arc(x0 + 34, y + 58, 22, 0, Math.PI * 2); g.fill();
+      g.textAlign = 'left'; g.fillStyle = '#221a14'; g.font = `700 58px ${FONT.head}`; g.fillText(r.name, x0 + 100, y + 60);
+      g.font = `500 32px ${FONT.body}`; g.fillStyle = '#7a6552';
+      g.fillText(r.rounds.map((v) => (v === null ? '·' : v > 0 ? `+${v}` : `${v}`)).join('    '), x0 + 102, y + 112);
+      g.textAlign = 'right'; g.fillStyle = r.winner ? '#a87a22' : '#221a14'; g.font = `800 104px ${FONT.head}`; g.fillText(String(r.total), x1, y + 92);
+      if (r.winner) { g.font = `700 30px ${FONT.body}`; g.fillStyle = '#a87a22'; g.fillText('W I N N E R', x1 - 120, y + 46); }
       g.globalAlpha = 1;
-      g.strokeStyle = 'rgba(42,33,27,0.25)'; g.lineWidth = 2; g.beginPath(); g.moveTo(70, y + rowH - 14); g.lineTo(W - 70, y + rowH - 14); g.stroke();
+      if (k < rows.length - 1) { g.strokeStyle = 'rgba(34,26,20,0.16)'; g.lineWidth = 2; g.beginPath(); g.moveTo(x0, y + rowH - 22); g.lineTo(x1, y + rowH - 22); g.stroke(); }
     });
-    if (!rows.length) { g.textAlign = 'center'; g.fillStyle = '#8a7a6b'; g.font = `500 52px ${FONT_BODY}`; g.fillText('press Start game on the board', W / 2, 520); }
-    // the last words of the referee
-    g.textAlign = 'left'; g.fillStyle = '#4a3b2e'; g.font = `500 38px ${FONT_BODY}`;
-    (state.ticker || []).slice(-3).forEach((t, i, a) => { g.globalAlpha = 0.55 + 0.45 * (i + 1) / a.length; g.fillText(t.length > 38 ? `${t.slice(0, 37)}…` : t, 80, H - 150 + i * 48); });
+    // (fewer than four players leave paper below them: a faint ensō there, as a scroll would have)
+    if (rows.length && rows.length < 4) { const top = y0 + rows.length * rowH, room = H - B - 190 - top, r = Math.min(150, room * 0.36); if (r > 60) enso(g, W / 2, top + room / 2, r, { seed: 9 + rows.length, width: r * 0.2, alpha: 0.16 }); }
+    if (!rows.length) { enso(g, W / 2, y0 + 210, 150, { seed: 9, width: 30 }); g.textAlign = 'center'; g.fillStyle = '#7a6552'; g.font = `500 38px ${FONT.body}`; g.fillText('the names appear when a match starts', W / 2, y0 + 440); }
+    g.textAlign = 'left'; g.font = `500 30px ${FONT.body}`;
+    (state.ticker || []).slice(-3).forEach((t, i, a) => { g.globalAlpha = 0.4 + 0.6 * (i + 1) / a.length; g.fillStyle = '#4a3b2e'; g.fillText(t.length > 46 ? `${t.slice(0, 45)}…` : t, x0, H - B - 150 + i * 46); });
     g.globalAlpha = 1;
-    scoreTex.needsUpdate = true;
+    scroll.tex.needsUpdate = true;
   }
 
-  // ---- every frame
-  const q3 = new THREE.Quaternion();
-  function update({ state, snap, now = performance.now(), camera }) {
+  // ---- the board (stand.js) and the moments (fx.js)
+  const stand = createStand({ THREE, parent: root, mats });
+  const fx = createFx({ THREE, overlay, own, mats });
+  const decor = createDecor({ THREE, parent: root, env, own, relit });
+  const shades = createShades({ THREE, parent: root, env, own });
+
+  // ---- every frame. t: the server's clock in ms (the same on every page), now: this page's
+  let last = null, prevState = null, placeKey = null, arrivedAt = -1e9;
+  // heads: where the players are, [{ slot, x, y }] in the common frame (from everybody's presence: whose turn it is is lit at their feet)
+  // deco: the document's jdeco (the room's garden, deco.js); garden: the Garden setting (0..2); shades: { lights, cursor, dark } (shades.js)
+  function update({ state, snap, now = performance.now(), t, lay, touches = [], heads = [], deco = null, garden = 2, shades: sh = null }) {
     if (!state) return;
-    if (size !== state.size || !blocks.length) buildBodies(state.size);
-    if (furnKey !== state.size) buildFurniture(state.size);
+    const ts = (t === undefined || t === null ? now : t) / 1000, dt = last === null ? 1 / 60 : Math.min(0.1, Math.max(0, (now - last) / 1000)); last = now;
+    if (size !== state.size || !blocks.length) { buildBodies(state.size); seedUsed = null; }      // (new meshes: painted again)
+    if (furnKey !== furnSig(state.size, state.place)) buildFurniture(state.size, state.place);
     if (seedUsed !== state.seed) paintBlocks(state.seed);
-    const pl = state.place || { x: 0, y: 0, yaw: 0 }, L = S.layout(state.size), d = L.d;
+    const pl = state.place || { x: 0, y: 0, yaw: 0 }, L = S.layout(state.size, pl);
     furniture.position.set(pl.x, 0, -pl.y); furniture.rotation.set(0, pl.yaw, 0);
-    // the scoreboard is drawn when the state changes
-    const key = state.rev; if (key !== scoreKey) { scoreKey = key; drawScore(state); }
+    const key = `${state.rev}|${fontsVer}`; if (key !== scroll.key) { scroll.key = key; drawScore(state, playerColours); }
     // blocks and die from the host's bodies
-    const playing = ['roll', 'pull', 'place'].includes(state.phase);
     if (snap) {
       for (const it of snap.items) {
         const m = it.i === S.DIE ? dieMesh : blocks[it.i];
         if (!m) continue;
         const p = toV(it.p); m.position.set(p[0], p[1], p[2]); m.quaternion.set(it.q[0], it.q[2], -it.q[1], it.q[3]); m.visible = true;
+        if (m.userData.inst) { m.updateMatrix(); m.userData.inst.setMatrixAt(m.userData.k, m.matrix); }
       }
-    } else { for (const m of blocks) m.visible = false; if (dieMesh) dieMesh.visible = false; }
-    // markers
-    const mark = (k, it, scale = 1) => {
-      const s = shells[k];
-      if (!it || !snap) { s.visible = false; return; }
-      s.visible = true; s.position.copy(blocks[it.i] ? blocks[it.i].position : dieMesh.position); s.quaternion.copy(blocks[it.i] ? blocks[it.i].quaternion : dieMesh.quaternion);
-      s.scale.set(d.L * 1.08 * scale, d.H * 1.3 * scale, d.W * 1.14 * scale);
-    };
-    let handled = null, culprit = null, held = null;
-    if (snap) for (const it of snap.items) { if (it.i === S.DIE) continue; if (it.flags & S.F.handled) handled = it; if (it.flags & S.F.culprit) culprit = it; if ((it.flags & S.F.held) && !held) held = it; }
-    mark('handled', playing ? handled : null);
-    const pulse = 0.5 + 0.5 * Math.sin(now / 130);
-    mark('culprit', culprit, 1 + 0.12 * pulse); shells.culprit.material.opacity = 0.3 + 0.35 * pulse;
-    mark('held', held && !handled ? held : null); shells.held.material.opacity = 0.18;
-    // the line of the allowed levels
-    const full = state.tower ? state.tower.full : 17, T = L.plinth.top, hx = d.L * 0.62, y = T + (full + 0) * d.H + 0.0015;
-    limit.line.visible = playing && full >= 0 && full < 22;
-    if (limit.line.visible) {
-      limit.g.setFromPoints([[-hx, y, -hx], [hx, y, -hx], [hx, y, hx], [-hx, y, hx]].map((p) => new THREE.Vector3(...p)));
-      limit.line.material.opacity = 0.55 + 0.25 * Math.sin(now / 400);
-    }
-    // the ring on the tray while it is time to roll
-    rolling.visible = state.phase === 'roll';
-    if (rolling.visible) { rolling.position.set(...at(L.tray.c[0], L.tray.c[1], L.console.top + 0.004)); rolling.scale.setScalar(0.85 + 0.12 * Math.sin(now / 260)); rolling.material.opacity = 0.35 + 0.3 * (0.5 + 0.5 * Math.sin(now / 260)); }
-    if (lanternGlow) lanternGlow.material.opacity = 0.8 + 0.12 * Math.sin(now / 700) + 0.05 * Math.sin(now / 130);
-    // the fall: a ring spreads out from the tower, the banner says what is going on, the trail of the block that did it
-    const towerAt = (() => { const c = S.toCommon(pl, [0, 0, 0]); return toV([c[0], c[1], T]); })();
-    if (state.phase !== lastPhase) { if (state.phase === 'fall') waveAt = now; lastPhase = state.phase; }
-    const wa = (now - waveAt) / 1100;
-    wave.visible = wa >= 0 && wa < 1;
-    if (wave.visible) { wave.position.set(towerAt[0], towerAt[1] + 0.004, towerAt[2]); wave.scale.setScalar(L.plinth.half * (0.3 + 1.7 * wa)); wave.material.opacity = 0.7 * (1 - wa) * (1 - wa); }
-    const mode = snap ? snap.mode : 0, fall = ['fall', 'replay'].includes(state.phase);
-    let text = null;
-    if (state.phase === 'fall') text = 'fall';
-    else if (state.phase === 'replay') text = mode === 2 ? 'rewind' : 'slow';
-    else if (state.phase === 'aftermath') text = 'aftermath';
-    banner.visible = !!text;
-    if (text) {
-      const who = state.fall ? (state.players.find((p) => p.slot === state.fall.by) || {}).name || '' : '';
-      const tk = `${text}|${who}|${Math.round((snap ? snap.progress : 0) * 20)}`;
-      if (tk !== bannerText) {
-        bannerText = tk;
-        if (text === 'fall') drawBanner([{ text: 'TIMBER!', size: 190, y: 120, colour: '#ffcf8a' }, { text: who ? `${who} toppled it` : '', size: 60, y: 215, weight: 600, font: FONT_BODY }]);
-        else if (text === 'aftermath') drawBanner([{ text: who ? `${who} toppled it` : 'The tower fell', size: 84, y: 128, colour: '#ffe2b0' }, { text: `${state.fall ? state.fall.level >= 0 ? 'level ' + (state.fall.level + 1) : '' : ''}`, size: 50, y: 214, weight: 500, font: FONT_BODY }]);
-        else drawBanner([{ text: text === 'rewind' ? 'REWIND' : 'REPLAY', size: 120, y: 105, colour: text === 'rewind' ? '#9fd0ff' : '#ffcf8a' }, { text: `${'▮'.repeat(Math.round((snap ? snap.progress : 0) * 12)).padEnd(12, '▯')}   ${text === 'rewind' ? '◂◂' : '0.3x'}`, size: 54, y: 205, weight: 600, font: FONT_BODY }]);
-      }
-      const h = d.height + 0.35 * Math.max(0.6, d.k * 0.6), s = 0.9 * Math.max(0.7, d.k * 0.8);
-      banner.position.set(towerAt[0], towerAt[1] + h, towerAt[2]); banner.scale.set(s, s / 4, 1);
-    }
-    const trail = fall && state.fall && state.fall.trail;
-    trailLine.visible = !!trail && trail.length > 1;
-    if (trailLine.visible) {
-      const tk = `${state.rev}|${trail.length}`;
-      if (tk !== trailKey) { trailKey = tk; trailLine.geometry.dispose(); trailLine.geometry = new THREE.BufferGeometry().setFromPoints(trail.map((p) => new THREE.Vector3(...toV(p)))); }       // (a new one each time: setFromPoints of a shorter trail into an old geometry throws)
-    }
+      for (const im of inst) { im.instanceMatrix.needsUpdate = true; im.visible = true; }
+    } else { for (const m of blocks) m.visible = false; for (const im of inst) im.visible = false; if (dieMesh) dieMesh.visible = false; }
+    // the light
+    // the game put down somewhere new: the lantern swells a little as it arrives (fx.js: rings of light on the floor and the sand)
+    const pk = `${pl.x}|${pl.y}|${pl.yaw}|${state.size}`, arrived = placeKey !== null && pk !== placeKey;
+    if (arrived) arrivedAt = ts;
+    placeKey = pk;
+    const swell = 1 + 0.45 * Math.max(0, 1 - (ts - arrivedAt) / 1.8) * Math.min(1, (ts - arrivedAt) / 0.25);
+    const flick = rig.update(ts, rig.lampAt) * swell;
+    lightFlick = flick; lightK += ((['fall', 'replay'].includes(state.phase) ? 0.3 : 1) - lightK) * Math.min(1, dt * 3);
+    rig.lamp.intensity *= swell;
+    if (lanternMat) lanternMat.emissiveIntensity = 0.78 * flick;
+    if (lanternGlow) lanternGlow.material.opacity = 0.42 * flick;
+    // the board, the moments
+    stand.update({ state, lay: lay || S.board(state, {}), touches, t: ts, dt, colours: playerColours, fonts: fontsVer });
+    const moments = prevState && prevState.rev !== state.rev && S.momentsBetween ? S.momentsBetween(prevState, state) : [];
+    if (arrived) moments.push('arrived');
+    prevState = state;
+    fx.update({ state, snap, t: ts, dt, blocks, dieMesh, L, place: pl, moments, fonts: fontsVer, lampAt: rig.lampAt, heads, colours: playerColours });
+    decor.update({ plan: deco, level: garden, t: ts, wc: fx.clock(), lightK });
+    shades.update({ lights: sh ? sh.lights : [], cursor: sh ? sh.cursor : null, dark: sh ? sh.dark : 0, t: ts, lightK });
   }
-
-  // where the board and the scoreboard are (common frame): for createApp's boards and for the PC view's panel
-  function boardPose(state) {
-    if (!state || !state.place) return null;
-    const L = S.layout(state.size), B = L.board, bh = B.w * boardAspect, c = S.toCommon(state.place, [B.c[0] + Math.cos(B.yaw) * 0.012, B.c[1] + Math.sin(B.yaw) * 0.012, 0]);
-    return { x: c[0], y: c[1], h: B.bottom + bh / 2, yaw: state.place.yaw + B.yaw, pitch: B.pitch };
+  function dispose() { stand.dispose(); fx.dispose(); decor.dispose(); shades.dispose(); for (const o of disposables) if (o && o.dispose) o.dispose(); parent.remove(root); }
+  // The lights of this world that light the real room (the engine's relight: app.relight): the lantern, and a little the board's lit paper. At the
+  // fall they nearly go out with the room (the focus is the tower). In world coordinates.
+  const lightsOut = [{ at: new THREE.Vector3(), colour: 0xffa45a, range: 2.6, power: 0 }, { at: new THREE.Vector3(), colour: 0xffe2b8, range: 1.1, power: 0 }];
+  let lightK = 1, lightFlick = 1;
+  function relights() {
+    if (!furnKey) return [];
+    rig.lamp.getWorldPosition(lightsOut[0].at); stand.glowAt.getWorldPosition(lightsOut[1].at);
+    lightsOut[0].power = 0.9 * lightFlick * lightK; lightsOut[1].power = 0.35 * lightK;
+    return lightsOut.concat(decor.relights(), shades.relights());
   }
-  function dispose() { for (const o of disposables) if (o && o.dispose) o.dispose(); parent.remove(root); }
-  return { root, update, boardPose, dispose, group: { furniture, bodies, overlay } };
+  return { root, update, relights, boardPose: stand.pose, boardAspect: stand.aspect, boardWidth: stand.width, dispose, group: { furniture, bodies, overlay } };
 }

@@ -69,17 +69,32 @@
 
   // ---- where things stand (game frame: the tower at the origin, x from the player who put the game here towards the tower)
   // P is where that player stands; the console is to the side of the plinth, and the board and the scoreboard face P (everybody else walks round).
-  function layout(size) {
-    const d = dims(size), half = Math.max(0.16, 2 * d.L), top = d.plinth, tableH = 0.78;
-    const P = [-(half + 0.8), 0], C = [-0.15, half + 0.62], face = (p) => Math.atan2(P[1] - p[1], P[0] - p[0]);
-    const bc = [C[0] + 0.12, C[1] + 0.22], sc = [C[0] + 0.95, C[1] + 0.15], tray = [C[0] - 0.3, C[1] - 0.06];
+  // The ARRANGEMENT says where the furniture stands: the host works it out from the real room when the game is put down (arrange.js: the console
+  // on whichever side has room, the scroll and the lantern where they fit, nothing on a wall, a sofa or a table) and keeps it in the place
+  // (`place.arr`, game frame), so every page and the host's physics have the same one. An arrangement made for another size is not used.
+  //   arr: { size, p (how far P is in front of the tower), q (how far P is to its side), c (the console's middle), u (along the console, away from P), v (across it, away from the
+  //          tower: its back, where the board stands), s (the scroll's stand), l (the lantern) }
+  const TABLE = { half: [0.55, 0.3], top: 0.78 };
+  function defaultArr(size) {
+    const d = dims(size), half = Math.max(0.16, 2 * d.L), C = [-0.15, half + 0.62];
+    return { size: dims(size).size, p: half + 0.8, c: C, u: [1, 0], v: [0, 1], s: [C[0] + 0.95, C[1] + 0.15], l: [C[0] - 0.8, C[1] + 0.05] };
+  }
+  const wrap = (a) => Math.atan2(Math.sin(a), Math.cos(a));
+  function layout(size, place) {
+    const d = dims(size), half = Math.max(0.16, 2 * d.L), top = d.plinth, tableH = TABLE.top;
+    const A = place && place.arr && place.arr.size === d.size ? place.arr : defaultArr(size);
+    const P = [-A.p, A.q || 0], C = A.c, U = A.u, V = A.v, face = (p) => Math.atan2(P[1] - p[1], P[0] - p[0]);
+    const at = (du, dv) => [C[0] + U[0] * du + V[0] * dv, C[1] + U[1] * du + V[1] * dv];          // (a point on the console: along it, across it)
+    const bc = at(0.1, 0.14), sc = A.s, tray = at(-0.3, -0.06);
+    // the board faces the front of the table, turned towards P by about half the way (at most a third of a right angle either way)
+    const front = Math.atan2(-V[1], -V[0]), boardYaw = front + Math.max(-0.6, Math.min(0.6, 0.45 * wrap(face(bc) - front)));
     return {
       d, P, plinth: { half, top },
-      console: { c: C, half: [0.55, 0.3], top: tableH },                                            // a low table: 1.1 m wide (x), 0.6 m deep
-      tray: { c: tray, half: 0.17, rim: 0.045, wall: 0.02 },                                        // the die rolls here
-      board: { c: bc, w: 0.64, bottom: tableH + 0.06, pitch: 0.2, yaw: face(bc) },                  // the shared menu stands at the back of the table
-      score: { c: sc, w: 0.62, h: 0.86, bottom: tableH + 0.02, yaw: face(sc) },                     // the scoreboard hangs beside it
-      lantern: [C[0] - 0.45, C[1] + 0.2],
+      console: { c: C, u: U, v: V, at, yaw: Math.atan2(U[1], U[0]), half: TABLE.half, top: tableH },  // a table: 1.1 m along u, 0.6 m across
+      tray: { c: tray, half: 0.17, rim: 0.045, wall: 0.02 },                                        // the die rolls here (square to the table)
+      board: { c: bc, w: 0.72, bottom: tableH + 0.05, pitch: 0, yaw: boardYaw },                     // the shared menu: a stand along the back of the table
+      score: { c: sc, w: 0.62, h: 0.86, bottom: tableH + 0.02, yaw: face(sc) },                     // the scroll hangs on its own stand, facing P
+      lantern: A.l,                                                                                  // a paper lantern standing on the floor
       die: { size: Math.max(0.04, Math.min(0.06, 0.04 * Math.sqrt(d.k))), at: [tray[0], tray[1], tableH + 0.025] },
     };
   }
@@ -94,18 +109,19 @@
   // the furniture as room planes (common frame), to be added to the real room's: engine room.js turns a 'solid' into a block from the floor
   // up and a 'table' into a slab, and the physics builds them (Jolt: a convex hull each)
   function furniture(size, place) {
-    const L = layout(size), at = (p) => toCommon(place, p), rect = (cx, cy, hx, hy, z) => [[cx - hx, cy - hy], [cx + hx, cy - hy], [cx + hx, cy + hy], [cx - hx, cy + hy]].map((q) => at([q[0], q[1], z]));
-    const planes = [{ l: 'plinth', v: false, p: rect(0, 0, L.plinth.half, L.plinth.half, L.plinth.top) }];
-    const c = L.console, t = L.tray;
-    planes.push({ l: 'table', v: false, p: rect(c.c[0], c.c[1], c.half[0], c.half[1], c.top) });
-    const w = t.wall / 2, h = c.top + t.rim, T = t.half;
-    for (const [cx, cy, hx, hy] of [[t.c[0] - T, t.c[1], w, T + w], [t.c[0] + T, t.c[1], w, T + w], [t.c[0], t.c[1] - T, T + w, w], [t.c[0], t.c[1] + T, T + w, w]]) planes.push({ l: 'tray', v: false, p: rect(cx, cy, hx, hy, h) });
+    const L = layout(size, place), at = (p) => toCommon(place, p), c = L.console, U = c.u, V = c.v, t = L.tray;
+    // a rectangle in the game frame, its sides along u and v (half sizes hu, hv), at height z, as a room plane's outline (common frame)
+    const rect = (q, hu, hv, z) => [[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([a, b]) => at([q[0] + U[0] * hu * a + V[0] * hv * b, q[1] + U[1] * hu * a + V[1] * hv * b, z]));
+    const planes = [{ l: 'plinth', v: false, p: [[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([a, b]) => at([a * L.plinth.half, b * L.plinth.half, L.plinth.top])) }];
+    planes.push({ l: 'table', v: false, p: rect(c.c, c.half[0], c.half[1], c.top) });
+    const w = t.wall / 2, h = c.top + t.rim, T = t.half, on = (du, dv) => [t.c[0] + U[0] * du + V[0] * dv, t.c[1] + U[1] * du + V[1] * dv];
+    for (const [q, hu, hv] of [[on(-T, 0), w, T + w], [on(T, 0), w, T + w], [on(0, -T), T + w, w], [on(0, T), T + w, w]]) planes.push({ l: 'tray', v: false, p: rect(q, hu, hv, h) });
     return planes;
   }
   // the real room with the furniture added (one object per room, so that the physics sees "the same room" and rebuilds nothing)
   const merged = new WeakMap();
   function withFurniture(room, size, place) {
-    const key = `${size}|${place.x}|${place.y}|${place.yaw}`, base = room || EMPTY;
+    const key = `${size}|${place.x}|${place.y}|${place.yaw}|${place.arr ? JSON.stringify(place.arr) : ''}`, base = room || EMPTY;
     let m = merged.get(base);
     if (m && m.key === key) return m.room;
     const out = { planes: (room && room.planes ? room.planes : []).concat(furniture(size, place)) };
@@ -125,5 +141,5 @@
     return { face: best, colour: DIE_COLOURS[best], tilt: Math.acos(Math.max(-1, Math.min(1, bz))) * 180 / Math.PI };
   }
 
-  Object.assign(J, { LEVELS, PER, BLOCKS, DIE, BASE, SIZES, SIZE_KEYS, COLOURS, WOOD, dims, tuning, rng, colourOrder, blockSpec, blockHome, slotHome, layout, toCommon, fromCommon, qYaw, qMul, qCommon, qRot, furniture, withFurniture, DIE_FACES, DIE_COLOURS, dieUp });
+  Object.assign(J, { LEVELS, PER, BLOCKS, DIE, BASE, SIZES, SIZE_KEYS, COLOURS, WOOD, dims, tuning, rng, colourOrder, blockSpec, blockHome, slotHome, layout, defaultArr, TABLE, toCommon, fromCommon, qYaw, qMul, qCommon, qRot, furniture, withFurniture, DIE_FACES, DIE_COLOURS, dieUp });
 })(typeof module !== 'undefined' ? module.exports : (globalThis.JENGA = globalThis.JENGA || {}));
