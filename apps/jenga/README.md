@@ -119,12 +119,13 @@ anything moves); the state (phase, turn, roll, scores, the pulled block, the all
 the console, plinth, tray, board and scoreboard are worked out on every page from that state (`spec.js layout`), and every glow, ring and swing from that state, the bodies,
 everybody's fingertips at the board and the server's clock; the furniture is also in the host's physics
 (`spec.js furniture` adds it to the room's planes), so the die rolls on the same tray everybody sees. No page simulates anything. The one thing that is not a thing in
-the room is the sound: each headset plays the music itself, from the same shared state (the same scene, the same track), and the volume is a shared setting.
+the room is the sound: each headset plays the music itself, but the host decides it (the document's `jmusic`: the scene, the track and where in it, on the server's
+clock), so every headset plays the same track at the same place; the volume is a shared setting.
 
 ## The soundtrack
 
-You supply the tracks (ambient). Put them in `music/<scene>/`, run `node apps/jenga/music/build-manifest.js`, and the pages crossfade between them over 30 s, with swells
-at tense moments. What belongs in which scene: [music/README.md](music/README.md).
+You supply the tracks (ambient). Put them in `music/<scene>/`, run `node apps/jenga/music/build-manifest.js`, and the pages crossfade between them (9 s into a tenser scene,
+30 s into a calmer one), in step on every headset, with swells at tense moments. What belongs in which scene: [music/README.md](music/README.md).
 
 ## The room's focus
 
@@ -159,8 +160,8 @@ The board's **Room dim** (off, gentle = half of everything, full) is a shared se
 | `replay.js` | the recorder (30 poses a second, 4 s) and the player (freeze, rewind, slow motion) |
 | `referee.js` | the host's game: tower + rules + replay + the board's commands (`start`, `round`, `lobby`, `size`, `place`, `reroll`, `skip`, `back`) |
 | `net.js` | the wire packet, the page's smoothing buffer (60 ms in the past), the body adapter of a page |
-| `logic.js` | settings (`music`, `dim`, `garden`, `ghost`), the `jstate`, `jdeco` and `jmark` kinds, the board's layout |
-| `host.js` | the host module (engine `host.js` runs it); logs every grab and release, and the step time every 5 s |
+| `logic.js` | settings (`music`, `dim`, `garden`, `ghost`), the `jstate`, `jdeco`, `jmark` and `jmusic` kinds, the board's layout |
+| `host.js` | the host module (engine `host.js` runs it): the referee and the music's director; logs every grab and release, and the step time every 5 s |
 | `textures.js` | the textures, made at start: stained pine with burnt brands, yakisugi, walnut, hinoki, sand raked in rings, felt, washi, seigaiha, the ensō, glows |
 | `look.js` | the fonts (`fonts/`), the reflections (a small warm room as an environment map), the lights: key light with the tower's shadows, sky light, the lantern |
 | `draw.js` | the scene (one module for the page and the PC view): the blocks, the die, the plinth, the console and tray, the lantern, the scroll and its stand |
@@ -173,7 +174,7 @@ The board's **Room dim** (off, gentle = half of everything, full) is a shared se
 | `app.js`, `index.html` | the page on `createApp` |
 | `view.js`, `view.html` | the PC view (a watcher; keys 1 2 3 4 move the camera, M the music) |
 | `focus.js` | the room's dim: the look of each phase, what tension adds, the Room dim setting; asked by the referee through `session.dim` |
-| `music.js`, `music/` | the soundtrack: the director (scene, tension, moments), the crossfades, the swells, the generated bells, boom, riser and block clacks; the folders for your tracks |
+| `music.js`, `music/` | the soundtrack: the director on the host (scene, track, where in it), the page's player (tension, moments, the crossfades, the swells, the limiter, the generated bells, boom, riser and block clacks); the folders for your tracks |
 | `*.test.js` | `rules`, `net` (and replay), `tower`, `referee`, `app` (the whole app with pretend headsets and a pretend host), `music`, `focus`, `arrange`, `deco`, `shades` |
 
 ## How the physics was tuned (so that it feels like a real tower)
