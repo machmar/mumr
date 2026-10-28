@@ -129,7 +129,7 @@ export async function createApp(o) {
   const link = M.link.connect(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws`, { build: info.build, name: NAME });
   link.onNote = (n) => life(`link: ${n}`);
   const sess = o.session || {};
-  const S = new M.session.Session(link, Object.assign({}, sess, { actions: SysMenu.ACTIONS.concat(sess.actions || []), kinds: Object.assign({ wallspot: M.room.SPOT_KIND, winspot: M.room.WIN_KIND }, sess.kinds || {}) }));
+  const S = new M.session.Session(link, Object.assign({}, sess, { actions: SysMenu.ACTIONS.concat(sess.actions || []), kinds: Object.assign({ wallspot: M.room.SPOT_KIND, winspot: M.room.WIN_KIND, rlight: M.room.LIGHT_KIND }, sess.kinds || {}) }));
   const space = new M.align.Space(null, 0);
   const presence = new M.presence.Presence(S, space);
   const menus = new M.menus.Menus(S, space, { known: (id) => id === 'main' || id === 'wrist' || id === 'model' });

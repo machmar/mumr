@@ -24,6 +24,18 @@
 // For an app's physics: kind(plane), support(room, x, y, top), ceiling(room, x, y, bottom), pushOut(room, x, y, z0, z1, r, from),
 // cast(room, from, dir, max) (what a pointing finger points at),
 // walls(room), surfaces(room), blocks(room); splitRooms(room, here), pickRooms(room, rooms, picked).
+//
+// THE ROOM'S LIGHTS (Marek, 2026-10-28: a room may have a big ceiling light, harsh against a dimmed room): where the real lights on the ceiling
+// are, so that an app can hang something over them (a paper shade) and light the room from there instead. One list for everybody, in the
+// common frame (rule 1): the lamps of the scan (a plane labelled lamp or light up at the ceiling) and the ones a player marked, kept by the
+// document (LIGHT_KIND): { k: 'rlight', id, a: [x, y], b: [x, y], h, w }, a strip from a to b w wide (a fluorescent tube, an LED batten) or,
+// with a = b, a round fitting w across, at height h; { k: 'rlight', id, del: true } takes one away (a scan's too).
+//   ceilingHeight(room) -> h               the ceiling (its plane, else the tops of the walls, else 2.5 m)
+//   lights(room, marked) -> [{ id, a, b, h, w, len, round, from: 'scan' | 'mark' }]   marked: the document's rlights
+//   aimUp(eye, tip, h) -> [x, y] | null    where the line from an eye through a fingertip meets the ceiling (null: not pointing up at it)
+//   new LightMarker(): update(eye, sources, h, list, nowMs) -> { aim, drag, over, done }   marking with a hand: aim where the line from the eye
+//     through the pinch meets the ceiling; a pinch there marks a round fitting, or takes away the light it is on; a pinch held and drawn along
+//     the ceiling marks a strip from where it began to where it was let go (drag: { a, b } meanwhile). done: the event to emit, once.
 (function (M) {
   const PICKS = 8, ACTIONS = ['supplyRoom', 'roomImport', 'roomCancel'].concat(Array.from({ length: PICKS }, (_, i) => `roomPick${i + 1}`));
   const r2 = (v) => Math.round(v * 100) / 100;            // (centimetres are enough for a room)
@@ -336,5 +348,100 @@
   const surfaces = (room) => (room ? prep(room).tops : []);
   const blocks = (room) => (room ? prep(room).blocks : []);
 
-  M.room = { Room, ACTIONS, fromXR, mapRoom, splitRooms, pickRooms, kind, support, ceiling, pushOut, cast, wallSpot, SPOT_KIND, WIN_KIND, walls, surfaces, blocks, TABLE_T, SOLID_MIN };
+  // ---- the room's lights
+  const ROUND_W = 0.4, STRIP_W = 0.12, TAP = 0.25;          // m: a marked round fitting's size, a strip's width; a pinch moved less than TAP is a tap
+  function ceilingHeight(room) {
+    const P = (room && room.planes) || [], c = P.filter((pl) => !pl.v && kind(pl) === 'ceiling');
+    if (c.length) return r2(c.reduce((s, pl) => s + pl.p.reduce((a, q) => a + q[2], 0) / pl.p.length, 0) / c.length);
+    const tops = P.filter((pl) => pl.v).map((pl) => Math.max(...pl.p.map((q) => q[2])));
+    const top = tops.length ? Math.max(...tops) : 0;
+    return top > 1.8 ? r2(top) : 2.5;
+  }
+  const fin = (a) => Array.isArray(a) && a.length === 2 && a.every(Number.isFinite);
+  const LIGHT_KIND = {
+    keep: (e) => ({ key: `rlight:${e.id}` }),
+    apply(S, e) {
+      if (typeof e.id !== 'string' || !e.id) return;
+      let v = null;
+      if (e.del) v = { del: true };
+      else if (fin(e.a) && fin(e.b) && Number.isFinite(e.h) && e.w > 0) v = { a: e.a, b: e.b, h: e.h, w: e.w };
+      if (!v) return;
+      S.doc.rlights = Object.assign({}, S.doc.rlights, { [e.id]: v }); S.notify('rlight', e);
+    },
+  };
+  function lightOf(id, a, b, h, w, from) {
+    const len = Math.hypot(b[0] - a[0], b[1] - a[1]);
+    return { id, a, b, h, w, len, round: len < 1e-6, from };
+  }
+  function lights(room, marked) {
+    const out = [], gone = marked || {}, H = ceilingHeight(room);
+    ((room && room.planes) || []).forEach((pl, i) => {
+      if (pl.v || !/lamp|light/i.test(pl.l || '') || pl.p.length < 3) return;
+      const h = pl.p.reduce((s, q) => s + q[2], 0) / pl.p.length, id = `scan${i}`;
+      if (h < H - 0.5 || (gone[id] && gone[id].del)) return;
+      // (its long way: the longest edge; its size along that and across)
+      let u = [1, 0], best = -1;
+      pl.p.forEach((q, k) => { const r = pl.p[(k + 1) % pl.p.length], d = Math.hypot(r[0] - q[0], r[1] - q[1]); if (d > best) { best = d; u = [(r[0] - q[0]) / d, (r[1] - q[1]) / d]; } });
+      const cx = pl.p.reduce((s, q) => s + q[0], 0) / pl.p.length, cy = pl.p.reduce((s, q) => s + q[1], 0) / pl.p.length;
+      let l0 = Infinity, l1 = -Infinity, w0 = Infinity, w1 = -Infinity;
+      for (const q of pl.p) { const x = q[0] - cx, y = q[1] - cy, s = x * u[0] + y * u[1], t = -x * u[1] + y * u[0]; l0 = Math.min(l0, s); l1 = Math.max(l1, s); w0 = Math.min(w0, t); w1 = Math.max(w1, t); }
+      const L = l1 - l0, W = w1 - w0, m = (l0 + l1) / 2, c = [cx + u[0] * m - u[1] * (w0 + w1) / 2, cy + u[1] * m + u[0] * (w0 + w1) / 2];
+      if (L > 2 * W) out.push(lightOf(id, [r2(c[0] - u[0] * L / 2), r2(c[1] - u[1] * L / 2)], [r2(c[0] + u[0] * L / 2), r2(c[1] + u[1] * L / 2)], r2(h), r2(Math.max(0.05, W)), 'scan'));
+      else out.push(lightOf(id, [r2(c[0]), r2(c[1])], [r2(c[0]), r2(c[1])], r2(h), r2(Math.max(0.1, L, W)), 'scan'));
+    });
+    for (const [id, v] of Object.entries(gone)) if (!v.del && !id.startsWith('scan')) out.push(lightOf(id, v.a, v.b, v.h, v.w, 'mark'));
+    return out;
+  }
+  function aimUp(eye, tip, h) {
+    const d = [tip[0] - eye[0], tip[1] - eye[1], tip[2] - eye[2]], l = Math.hypot(d[0], d[1], d[2]);
+    if (!(l > 0.05) || d[2] / l < 0.25 || eye[2] >= h) return null;              // (not pointing up at the ceiling: at most 75 degrees off straight up)
+    const k = (h - eye[2]) / d[2], p = [eye[0] + d[0] * k, eye[1] + d[1] * k];
+    return Math.hypot(p[0] - eye[0], p[1] - eye[1]) > 8 ? null : p;
+  }
+  // which light a point on the ceiling is on (within margin of its outline), or null
+  function lightAt(list, p, margin = 0.1) {
+    let best = null, bd = Infinity;
+    for (const L of list || []) {
+      const ab = [L.b[0] - L.a[0], L.b[1] - L.a[1]], ll = ab[0] * ab[0] + ab[1] * ab[1], t = ll > 0 ? Math.max(0, Math.min(1, ((p[0] - L.a[0]) * ab[0] + (p[1] - L.a[1]) * ab[1]) / ll)) : 0;
+      const d = Math.hypot(p[0] - L.a[0] - ab[0] * t, p[1] - L.a[1] - ab[1] * t) - L.w / 2;
+      if (d < margin && d < bd) { bd = d; best = L; }
+    }
+    return best;
+  }
+  // the point a hand pinches at (between thumb and index), else its fingertip
+  function pinchPoint(s) {
+    const P = s.points || [], th = P.find((q) => q.name === 'thumb'), ix = P.find((q) => q.name === 'index') || P[0];
+    if (!ix) return null;
+    return th ? [(th.x + ix.x) / 2, (th.y + ix.y) / 2, (th.z + ix.z) / 2] : [ix.x, ix.y, ix.z];
+  }
+  class LightMarker {
+    constructor() { this.aim = null; this.start = null; this.was = false; this.n = 0; }
+    update(eye, sources, h, list, nowMs = 0) {
+      let best = null;
+      for (const s of sources || []) {
+        const tip = pinchPoint(s), p = tip && eye ? aimUp(eye, tip, h) : null;
+        if (!p) continue;
+        const score = (s.pinch ? 10 : 0) + tip[2];                                  // (the hand that pinches, else the one held highest)
+        if (!best || score > best.score) best = { p, score, pinch: !!s.pinch };
+      }
+      if (!best) { this.aim = null; if (!this.start) this.was = false; return { aim: null, drag: null, over: null, done: null }; }
+      // (steadied a little: at the ceiling a hand's tremble is two or three times larger)
+      this.aim = this.aim && Math.hypot(best.p[0] - this.aim[0], best.p[1] - this.aim[1]) < 0.6 ? [this.aim[0] + (best.p[0] - this.aim[0]) * 0.45, this.aim[1] + (best.p[1] - this.aim[1]) * 0.45] : best.p;
+      const over = lightAt(list, this.aim);
+      let done = null;
+      if (best.pinch && !this.was) this.start = { at: this.aim.slice(), over };
+      const moved = this.start ? Math.hypot(this.aim[0] - this.start.at[0], this.aim[1] - this.start.at[1]) : 0;
+      if (!best.pinch && this.was && this.start) {
+        const id = `m${Math.round(nowMs).toString(36)}${(this.n++).toString(36)}`, q = (v) => [r2(v[0]), r2(v[1])];
+        if (moved < TAP) done = this.start.over ? { k: 'rlight', id: this.start.over.id, del: true } : { k: 'rlight', id, a: q(this.start.at), b: q(this.start.at), h: r2(h), w: ROUND_W };
+        else done = { k: 'rlight', id, a: q(this.start.at), b: q(this.aim), h: r2(h), w: STRIP_W };
+        this.start = null;
+      }
+      this.was = best.pinch;
+      return { aim: this.aim, drag: this.start && moved >= TAP ? { a: this.start.at, b: this.aim } : null, over: this.start ? this.start.over : over, done };
+    }
+  }
+
+  M.room = { Room, ACTIONS, fromXR, mapRoom, splitRooms, pickRooms, kind, support, ceiling, pushOut, cast, wallSpot, SPOT_KIND, WIN_KIND, walls, surfaces, blocks, TABLE_T, SOLID_MIN,
+    LIGHT_KIND, ceilingHeight, lights, aimUp, lightAt, pinchPoint, LightMarker, ROUND_W, STRIP_W };
 })(typeof module !== 'undefined' ? (module.exports = require('./ns.js')) : (globalThis.MUMR = globalThis.MUMR || {}));
