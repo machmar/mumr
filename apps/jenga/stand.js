@@ -85,6 +85,8 @@ export function createStand({ THREE, parent, mats }) {
   for (const [x, y, ww, hh] of [[pcx, sy0 + fw / 2, pw + 2 * fw, fw], [pcx, sy1 - fw / 2, pw + 2 * fw, fw], [sx0 - fw / 2, pcy, fw, ph], [sx1 + fw / 2, pcy, fw, ph]]) mesh(uvScale(new THREE.BoxGeometry(ww, hh, 0.034), [Math.max(ww, hh) / 0.3, 0.1]), mats.walnut, x, y, -0.012);
 
   mergeStatic(THREE, mergeGeometries, stand);
+  // where the lit paper's light comes from (it lights the real room a little: engine relight)
+  const glowAt = new THREE.Object3D(); glowAt.position.set(pcx, pcy, 0.12); root.add(glowAt);
 
   // ---- the plaques
   const cordMat = mats.cord, backMat = new THREE.MeshStandardMaterial({ map: back.t, roughness: 0.7, envMap: mats.env, envMapIntensity: 0.4 });
@@ -267,5 +269,5 @@ export function createStand({ THREE, parent, mats }) {
     return { x: c[0], y: c[1], h: Bd.bottom + h / 2, yaw: state.place.yaw + Bd.yaw, pitch: Bd.pitch };
   }
   function dispose() { for (const p of plaques.values()) disposePlaque(p); for (const g of own) g.dispose(); stand.traverse((o) => { if (o.geometry) o.geometry.dispose(); }); front.t.dispose(); back.t.dispose(); paperMat.dispose(); backMat.dispose(); parent.remove(root); }
-  return { root, update, pose, dispose, aspect: H / W, width: w };
+  return { root, update, pose, dispose, aspect: H / W, width: w, glowAt };
 }

@@ -22,7 +22,9 @@ const S = window.JENGA;
 const toV = (p) => [p[0], p[2], -p[1]];
 const hex = (c) => `#${(c >>> 0).toString(16).padStart(6, '0')}`;
 
-export function createScene({ THREE, parent, renderer, playerColours = [0xf2c14e, 0x4ea1ff, 0xff6b6b, 0x7bd88f], fontBase = 'fonts/' }) {
+// relit: the page hands the scene's lights to the engine (app.relight), which lights the real floor and walls with them: the painted pool of light
+// under the lantern is then not drawn (the PC view has no real room and keeps it)
+export function createScene({ THREE, parent, renderer, playerColours = [0xf2c14e, 0x4ea1ff, 0xff6b6b, 0x7bd88f], fontBase = 'fonts/', relit = false }) {
   const root = new THREE.Group(); parent.add(root);
   const furniture = new THREE.Group(); root.add(furniture);               // in the game frame: moved to `place` and turned by its yaw
   const bodies = new THREE.Group(); root.add(bodies);                    // blocks and die: common frame
@@ -205,7 +207,7 @@ export function createScene({ THREE, parent, renderer, playerColours = [0xf2c14e
     paper.material = [lanternMat, lanternMat, own(new THREE.MeshBasicMaterial({ visible: false })), own(new THREE.MeshBasicMaterial({ color: 0x3a2010 })), lanternMat, lanternMat];
     if (!lanternGlow) lanternGlow = new THREE.Sprite(own(new THREE.SpriteMaterial({ map: own(glow(THREE)), color: 0xffa250, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, opacity: 0.5 })));
     lanternGlow.scale.set(0.95, 1.25, 1); lanternGlow.position.set(...at(lx, ly, (p0 + p1) / 2)); furniture.add(lanternGlow);
-    const pool = floorShadow(lx, ly, 1.3, 1.3, false, 0.2); pool.material.color.set(0xffa860); pool.material.blending = THREE.AdditiveBlending; pool.material.map = own(glow(THREE));        // (its light on the floor)
+    if (!relit) { const pool = floorShadow(lx, ly, 1.3, 1.3, false, 0.2); pool.material.color.set(0xffa860); pool.material.blending = THREE.AdditiveBlending; pool.material.map = own(glow(THREE)); }       // (its light on the floor)
     floorShadow(lx, ly, 0.36, 0.36, true, 0.5);
     rig.lampAt = [lx, ly, (p0 + p1) / 2];
     // -- the scroll's stand: two posts on cross feet, a top beam like the board's, the scroll hanging from it on a cord
@@ -314,6 +316,7 @@ export function createScene({ THREE, parent, renderer, playerColours = [0xf2c14e
     placeKey = pk;
     const swell = 1 + 0.45 * Math.max(0, 1 - (ts - arrivedAt) / 1.8) * Math.min(1, (ts - arrivedAt) / 0.25);
     const flick = rig.update(ts, rig.lampAt) * swell;
+    lightFlick = flick; lightK += ((['fall', 'replay'].includes(state.phase) ? 0.3 : 1) - lightK) * Math.min(1, dt * 3);
     rig.lamp.intensity *= swell;
     if (lanternMat) lanternMat.emissiveIntensity = 0.78 * flick;
     if (lanternGlow) lanternGlow.material.opacity = 0.42 * flick;
@@ -325,5 +328,15 @@ export function createScene({ THREE, parent, renderer, playerColours = [0xf2c14e
     fx.update({ state, snap, t: ts, dt, blocks, dieMesh, L, place: pl, moments, fonts: fontsVer, lampAt: rig.lampAt, heads, colours: playerColours });
   }
   function dispose() { stand.dispose(); fx.dispose(); for (const o of disposables) if (o && o.dispose) o.dispose(); parent.remove(root); }
-  return { root, update, boardPose: stand.pose, boardAspect: stand.aspect, boardWidth: stand.width, dispose, group: { furniture, bodies, overlay } };
+  // The lights of this world that light the real room (the engine's relight: app.relight): the lantern, and a little the board's lit paper. At the
+  // fall they nearly go out with the room (the focus is the tower). In world coordinates.
+  const lightsOut = [{ at: new THREE.Vector3(), colour: 0xffa45a, range: 2.6, power: 0 }, { at: new THREE.Vector3(), colour: 0xffe2b8, range: 1.1, power: 0 }];
+  let lightK = 1, lightFlick = 1;
+  function relights() {
+    if (!furnKey) return [];
+    rig.lamp.getWorldPosition(lightsOut[0].at); stand.glowAt.getWorldPosition(lightsOut[1].at);
+    lightsOut[0].power = 0.9 * lightFlick * lightK; lightsOut[1].power = 0.35 * lightK;
+    return lightsOut;
+  }
+  return { root, update, relights, boardPose: stand.pose, boardAspect: stand.aspect, boardWidth: stand.width, dispose, group: { furniture, bodies, overlay } };
 }
