@@ -5,3 +5,4 @@ node_modules/
 .cert/
 .claude/
 /DemoVideos
+apps/jenga/music/tracks.json
