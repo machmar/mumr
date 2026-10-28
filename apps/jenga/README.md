@@ -34,7 +34,7 @@ untouched). It is not a panel of buttons but a thing of the game's own (`stand.j
 small gate at the back of the table, turned a little towards the player who put the game down. Under its beam a **panel of washi lit from behind** says what is going on: whose
 turn (an ensō with the player's colour), the colour the die gave (its sign and its name, Ai · indigo), what to do, and the round as a red seal. Under it **wooden plaques (ema) hang
 on vermilion cords**, and small round tokens on a bamboo rod: Start game / Round 2 / New match, Roll again, Block lost? (puts the pulled block back on the plinth), Skip replay,
-Size, Move here, Music - +, Room dim - +, Garden, Ghost fingers. A fingertip pushes a plaque back on its cord and it swings when let go; everybody's fingertips are seen on every page, so
+Size, Move here, Music - +, Room dim - +, Garden, Lights, Ghosts (your ghost fingers). A fingertip pushes a plaque back on its cord and it swings when let go; everybody's fingertips are seen on every page, so
 everybody sees it swing. A plaque that cannot be pressed now **hangs turned round** (its back is plain wood, the name burnt in faintly), and one whose words change turns once on its
 cord and comes back with the new words. The score is a **hanging scroll** (kakejiku) on a stand like the board's: names, the points of each round, the total, an ensō round whose
 turn it is, the referee's last words.
@@ -78,6 +78,27 @@ the tower falls and run back with the rewind. The board's **Garden** (full, spar
 real floor and walls near a lamp stay brighter and are warmed in its colour, as if the lamp lit them. The engine draws the dim on the scanned surfaces of the
 server's room (floor, walls, tables) and lets each light take some of it away by distance and by how squarely the surface faces it; the same lights and the same
 room on every headset, so the pool of light is in the same real place for everybody. At the fall the lights go down with the room (`lightK`).
+
+## Shades over the ceiling lights
+
+A room with a big ceiling light fights the dim: the dim can only take away a share of the light, so the fitting stays the brightest thing in sight and
+its glare flattens everything. Jenga hangs a shade of its own under each real ceiling light (`shades.js`), so the light seems to shine through it:
+
+| The fitting | The shade |
+|---|---|
+| round (a pendant, a ceiling rose, a square panel) | an **akari**: a washi lantern on a spiral of bamboo, wider than it is tall, on a short cord close under the ceiling (its bottom kept above 2 m where the ceiling allows) |
+| long and narrow (a fluorescent tube, an LED batten) | a **kumiko panel**: a long shallow box of dark wood flat under the ceiling, its underside washi behind an asanoha (hemp-leaf) lattice, a bar across every 60 cm |
+
+It covers the bright fitting, glows the lantern's warm colour, and lights the real room below it (the engine's relight, **shining down**: as the room
+darkens the floor and the walls under it stay lit and warm, the ceiling round it does not); a soft veil on the ceiling round it holds back the glare that
+spills past it, only when the room is darkened, deeper as it darkens. A new shade unfolds down from the ceiling.
+
+**Where the lights are** is the engine's (`room.js lights`): a lamp the headset's room setup found up at the ceiling counts by itself (a long one as a
+tube); any other is marked once. Press **Lights** on the board, point at the light (the line from your eye through your pinching fingers meets the
+ceiling) and pinch: a round fitting. For a tube, pinch at one end, draw along it and let go at the other. Pinch a shade to take it away (it glows red
+when you aim at it). Press **Done** when finished. The marks are kept by the server in the common frame, the same for everybody; while one player marks,
+everybody sees where they point (a thread of light from their hand to a ring on the ceiling, the outline of the panel as they draw it), worked out by
+every page from that player's head and hands.
 
 ## The look
 
@@ -138,13 +159,14 @@ The board's **Room dim** (off, gentle = half of everything, full) is a shared se
 | `replay.js` | the recorder (30 poses a second, 4 s) and the player (freeze, rewind, slow motion) |
 | `referee.js` | the host's game: tower + rules + replay + the board's commands (`start`, `round`, `lobby`, `size`, `place`, `reroll`, `skip`, `back`) |
 | `net.js` | the wire packet, the page's smoothing buffer (60 ms in the past), the body adapter of a page |
-| `logic.js` | settings (`music`, `dim`, `garden`, `ghost`), the `jstate` and `jdeco` kinds, the board's layout |
+| `logic.js` | settings (`music`, `dim`, `garden`, `ghost`), the `jstate`, `jdeco` and `jmark` kinds, the board's layout |
 | `host.js` | the host module (engine `host.js` runs it); logs every grab and release, and the step time every 5 s |
 | `textures.js` | the textures, made at start: stained pine with burnt brands, yakisugi, walnut, hinoki, sand raked in rings, felt, washi, seigaiha, the ensō, glows |
 | `look.js` | the fonts (`fonts/`), the reflections (a small warm room as an environment map), the lights: key light with the tower's shadows, sky light, the lantern |
 | `draw.js` | the scene (one module for the page and the PC view): the blocks, the die, the plinth, the console and tray, the lantern, the scroll and its stand |
 | `arrange.js` | where the furniture stands in the real room: the host's search (the console's side, distance, turn; the scroll; the lantern; the tower's place) |
 | `deco.js` | the room's garden: what goes where (the free stretches at the walls' feet, the corners, the tops), planned by the host, kept as `jdeco` |
+| `shades.js` | the shades over the ceiling lights: the akari, the kumiko panel, the veil on the ceiling, their light down on the real room, the marking cursor |
 | `decor.js` | the garden drawn: sand, stones, moss, lamps, bamboo, the vase and its branch, incense and its smoke, the candle; how it grows in and sways; its lights for the engine's relight |
 | `stand.js` | the board: the stand, the lit paper panel, the hanging plaques (swing, turn round) |
 | `fx.js` | the moments: edge glows, the limit band, rings, sparks, sawdust, the words of the fall, the trail, the turn's ring, the motes on the world's clock |
@@ -152,7 +174,7 @@ The board's **Room dim** (off, gentle = half of everything, full) is a shared se
 | `view.js`, `view.html` | the PC view (a watcher; keys 1 2 3 4 move the camera, M the music) |
 | `focus.js` | the room's dim: the look of each phase, what tension adds, the Room dim setting; asked by the referee through `session.dim` |
 | `music.js`, `music/` | the soundtrack: the director (scene, tension, moments), the crossfades, the swells, the generated bells, boom, riser and block clacks; the folders for your tracks |
-| `*.test.js` | `rules`, `net` (and replay), `tower`, `referee`, `app` (the whole app with pretend headsets and a pretend host), `music`, `focus`, `arrange`, `deco` |
+| `*.test.js` | `rules`, `net` (and replay), `tower`, `referee`, `app` (the whole app with pretend headsets and a pretend host), `music`, `focus`, `arrange`, `deco`, `shades` |
 
 ## How the physics was tuned (so that it feels like a real tower)
 
@@ -177,4 +199,4 @@ Start, the die thrown by a pinch, a block pulled and put on top, scored; the fal
 (huge and giant should be easier), the feel of the lag of a tight block, the board at arm's length, the audio on the Quest browser (it plays after the first tap: the Enter button),
 the soundtrack with real tracks, and a four-player round. The look (2026-10-28) was checked in a desktop browser only: whether the Quest keeps its frame rate with the
 shadows and the reflections (111 draw calls with the shadow pass, the blocks instanced and the furniture merged; one 1024 shadow map), how the shadows on the real floor, the lantern's light and the letters of light read over passthrough,
-and the plaques at arm's length. The garden and the relight over a real passthrough (whether the warm pools sit on the real floor where the lamps are, how much a lamp should lift); the garden's draw calls on a Quest (one mesh a material and a priority). And the room's dim on a real passthrough: the numbers in the table above are a first guess (how dark a living room can get before the hands and the way to the wall are lost, how the grey reads against the lantern).
+and the plaques at arm's length. The shades under real ceiling lights (whether an akari hides a bright pendant from where the players stand, how a kumiko panel reads under a tube, whether the veil is enough against the glare, marking at arm's length). The garden and the relight over a real passthrough (whether the warm pools sit on the real floor where the lamps are, how much a lamp should lift); the garden's draw calls on a Quest (one mesh a material and a priority). And the room's dim on a real passthrough: the numbers in the table above are a first guess (how dark a living room can get before the hands and the way to the wall are lost, how the grey reads against the lantern).

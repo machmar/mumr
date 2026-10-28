@@ -27,6 +27,11 @@
   jdeco: {
     keep: () => ({ key: 'jenga:deco' }),
     apply(sess, e) { if (e.d && typeof e.d === 'object' && Array.isArray(e.d.items)) { sess.doc.jdeco = e.d; sess.notify('jdeco', e.d); } },
+  },
+  // who is marking the room's ceiling lights (the board's Lights; shades.js): one player at a time, everybody sees where they point
+  jmark: {
+    keep: () => ({ key: 'jenga:mark' }),
+    apply(sess, e) { if (e.slot === null || Number.isInteger(e.slot)) { sess.doc.jmark = { slot: e.slot }; sess.notify('jmark', sess.doc.jmark); } },
   } };
 
   const colourLabel = (c) => (c === null || c === undefined ? '?' : S.COLOURS[c].label);
@@ -49,20 +54,23 @@
     else if (ph === 'round_end') main = { id: 'round', label: `Round ${s.round + 1}`, value: `of ${s.rounds}: build it again`, active: true };
     else if (ph === 'match_end') main = { id: 'lobby', label: 'New match', value: 'back to the start', active: true };
     else main = { label: '', value: '', off: true };
+    // (mark: who marks the ceiling lights, { slot, mine, name, n (lights shaded) }; info.mark is worked out by the page)
+    const mk = info.mark || { slot: null, n: 0 }, marking = mk.slot !== null && mk.slot !== undefined;
     const vol = g.music === undefined ? 2 : g.music, dim = g.dim === undefined ? 2 : g.dim, gdn = g.garden === undefined ? 2 : g.garden, R1 = 340, R2 = 612;
     const b = (o, x, y, w, h, kind) => Object.assign({ value: '', active: false, off: false }, o, { x, y, w, h, kind });
     const buttons = [
       b({ id: 'size', label: 'Size', value: `${size.name} · ${size.note.replace(' tower', '')}`, off: ph !== 'lobby' || noHost }, 80, R1 + 14, 260, 196, 'ema'),
       b(main, 400, R1, 400, 224, 'ema'),
       b({ id: 'place', label: 'Move here', value: 'the game, in front of me', off: midRound || noHost }, 860, R1 + 14, 260, 196, 'ema'),
-      b({ id: 'musicDown', label: '-', off: vol <= 0 }, 80, R2 + 20, 76, 76, 'token'),
-      b({ label: 'Music', value: VOL[vol], level: vol / 4 }, 164, R2, 128, 118, 'tag'),
-      b({ id: 'musicUp', label: '+', off: vol >= 4 }, 300, R2 + 20, 76, 76, 'token'),
-      b({ id: 'dimDown', label: '-', off: dim <= 0 }, 425, R2 + 20, 76, 76, 'token'),
-      b({ label: 'Room dim', value: DIM[dim], level: dim / 2 }, 509, R2, 128, 118, 'tag'),
-      b({ id: 'dimUp', label: '+', off: dim >= 2 }, 645, R2 + 20, 76, 76, 'token'),
-      b({ id: 'garden', label: 'Garden', value: GARDEN[gdn], active: gdn > 0 }, 770, R2, 150, 118, 'ema'),
-      b({ id: 'ghost', label: 'Ghost fingers', value: mine.ghost === false ? 'hidden' : 'shown', active: mine.ghost !== false }, 970, R2, 150, 118, 'ema'),
+      b({ id: 'musicDown', label: '-', off: vol <= 0 }, 50, R2 + 20, 76, 76, 'token'),
+      b({ label: 'Music', value: VOL[vol], level: vol / 4 }, 134, R2, 128, 118, 'tag'),
+      b({ id: 'musicUp', label: '+', off: vol >= 4 }, 270, R2 + 20, 76, 76, 'token'),
+      b({ id: 'dimDown', label: '-', off: dim <= 0 }, 380, R2 + 20, 76, 76, 'token'),
+      b({ label: 'Room dim', value: DIM[dim], level: dim / 2 }, 464, R2, 128, 118, 'tag'),
+      b({ id: 'dimUp', label: '+', off: dim >= 2 }, 600, R2 + 20, 76, 76, 'token'),
+      b({ id: 'garden', label: 'Garden', value: GARDEN[gdn], active: gdn > 0 }, 700, R2, 136, 118, 'ema'),
+      b({ id: 'lights', label: mk.mine ? 'Done' : 'Lights', value: mk.mine ? 'marking' : marking ? `${mk.name} marks` : mk.n ? `${mk.n} shaded` : 'shade them', active: !!mk.mine || mk.n > 0, off: midRound && !mk.mine }, 850, R2, 136, 118, 'ema'),
+      b({ id: 'ghost', label: 'Ghosts', value: mine.ghost === false ? 'fingers hidden' : 'fingers shown', active: mine.ghost !== false }, 1000, R2, 136, 118, 'ema'),
     ];
     // the paper panel: a headline, a line under it, the die's colour, the round
     let head = banner(s, colourLabel), sub = '';
@@ -76,6 +84,7 @@
     else if (ph === 'aftermath') sub = 'three points lost';
     else if (ph === 'round_end') sub = s.ticker && s.ticker.length ? s.ticker[s.ticker.length - 1] : '';
     else if (ph === 'match_end') sub = 'the match is over';
+    if (marking && !midRound && !noHost) { head = mk.name; sub = 'point at a ceiling light and pinch · along a tube, pinch and draw'; }
     const status = { head, sub, phase: ph, noHost, roll: ['pull', 'place'].includes(ph) ? s.roll : null, round: s.round, rounds: s.rounds, turn: ph === 'match_end' ? (s.winner && s.winner.length === 1 ? s.winner[0] : null) : turnP ? turnP.slot : null };
     return { w: BOARD.px, h: BOARD.py, title: { text: 'JENGA', note: s.tower ? `take from below level ${tw.full + 1}` : '', h: 0 }, status, buttons };
   }

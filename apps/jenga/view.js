@@ -7,6 +7,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { PLAYER_COLOURS } from '/mumr/xr/players3d.js';
 import { createRoom3d } from '/mumr/xr/room3d.js';
 import { createScene } from './draw.js';
+import { markCursor } from './shades.js';
 
 const M = window.MUMR, J = window.JENGA;
 const DELAY = Math.max(0, Math.min(1000, Number(new URLSearchParams(location.search).get('delay') ?? 70)));
@@ -30,7 +31,7 @@ const scene3d = createScene({ THREE, parent: world, renderer, playerColours: PLA
 const info = await fetch('/info').then((r) => r.json()).catch(() => ({ build: 0 }));
 const life = M.life.make({ name: 'PC view' });
 life(`PC view loaded (${navigator.userAgent.slice(0, 90)})`);
-const OPTS = { game: J.GAME, player: J.PLAYER, kinds: Object.assign({ wallspot: M.room.SPOT_KIND }, J.KINDS) };
+const OPTS = { game: J.GAME, player: J.PLAYER, kinds: Object.assign({ wallspot: M.room.SPOT_KIND, rlight: M.room.LIGHT_KIND }, J.KINDS) };
 const feed = M.worldfeed.WorldFeed.connect(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws`, { build: info.build, name: 'PC view', session: OPTS });
 
 // the players: a cone for the head and a dot for every joint (as the cube's PC view does)
@@ -73,15 +74,22 @@ addEventListener('keydown', (e) => { if (['1', '2', '3', '4'].includes(e.key)) a
 function resize() { const w = canvas.clientWidth, h = canvas.clientHeight; renderer.setSize(w, h, false); camera.aspect = w / Math.max(1, h); camera.updateProjectionMatrix(); }
 addEventListener('resize', resize); resize();
 
-let last = performance.now(), hudAt = 0;
+let last = performance.now(), hudAt = 0, marker = null, markerSlot = null;
 function frame() {
   const now = performance.now(), dt = Math.min(0.1, (now - last) / 1000); last = now;
   const sn = feed.serverNow(), at = sn === null ? undefined : sn - DELAY, S = feed.session, state = S.doc.jenga || J.waiting();
   room3d.set(S.doc.room ? S.doc.room.data : null);
   const smp = feed.sample('jenga', null, at), snap = smp ? smp.data : null;
-  const lay = J.board(state, { here: S.peers.size, game: S.stateOf(null), mine: { ghost: true }, host: S.hostHere && !!S.doc.jenga });
+  // the room's ceiling lights and their shades, and the aim of whoever marks them (from their presence, as every headset works it out)
+  const roomNow = S.doc.room ? S.doc.room.data : null, lights = M.room.lights(roomNow, S.doc.rlights || {});
+  const mslot = S.doc.jmark && Number.isInteger(S.doc.jmark.slot) ? S.doc.jmark.slot : null, mpr = mslot === null ? null : feed.sample('presence', mslot, at);
+  if (!mpr) { marker = null; markerSlot = null; } else if (markerSlot !== mslot) { marker = new M.room.LightMarker(); markerSlot = mslot; }
+  const cursor = mpr ? markCursor(M.room, marker, [mpr.data.head[0], mpr.data.head[1], mpr.data.head[3]], mpr.data.sources, M.room.ceilingHeight(roomNow), lights, now).cursor : null;
+  const lay = J.board(state, { here: S.peers.size, game: S.stateOf(null), mine: { ghost: true }, host: S.hostHere && !!S.doc.jenga,
+    mark: { slot: mpr ? mslot : null, mine: false, name: mpr ? ((state.players || []).find((p) => p.slot === mslot) || {}).name || `Player ${mslot + 1}` : '', n: lights.length } });
   const heads = feed.players().map((p) => { const pr = feed.sample('presence', p.slot, at); return pr ? { slot: p.slot, x: pr.data.head[0], y: pr.data.head[1] } : null; }).filter(Boolean);
-  scene3d.update({ state, snap, now, t: sn === null ? undefined : sn, lay, heads, deco: S.doc.jdeco || null, garden: S.game('garden') });
+  scene3d.update({ state, snap, now, t: sn === null ? undefined : sn, lay, heads, deco: S.doc.jdeco || null, garden: S.game('garden'),
+    shades: { lights, cursor, dark: M.dim.level(S.doc.dim, sn).dark } });
   dir.t += dt; const tn = dir.tension.update(S.doc.jenga || null, snap ? snap.items : null, dt);
   const sc = J.sceneFor(S.doc.jenga || null, tn, dir.scene, dir.t - dir.since, FAST ? 0 : undefined); if (sc !== dir.scene) { dir.scene = sc; dir.since = dir.t; }
   for (const w of J.momentsBetween(dir.prev, S.doc.jenga || null)) dir.moments.push({ text: MOMENT[w] || w, t: now });

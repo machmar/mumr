@@ -291,6 +291,36 @@ export function glow(THREE, n = 128, inner = 0) {
   g.fillStyle = gr; g.fillRect(0, 0, n, n);
   return colourTexture(THREE, c);
 }
+// ---- a kumiko panel's face: warm washi behind an asanoha lattice (hemp leaf: a grid of triangles, each with three spokes to its middle), one tile
+// two triangles wide and two rows high, seamless (RepeatWrapping). Its size in the world: 2 s wide, s sqrt(3) high (s: a triangle's side)
+export function kumiko(THREE, seed = 41) {
+  const s = 128, h = s * Math.sqrt(3) / 2, W = 2 * s, H = Math.round(2 * h), c = canvas(W, H), g = c.getContext('2d');
+  washi(g, W, H, seed, [250, 228, 196]);
+  // (the paper made seamless across: each pixel mixed with the one half a tile along, weighted so that each one's seam counts for nothing)
+  const im = g.getImageData(0, 0, W, H), d = im.data, o2 = new Uint8ClampedArray(d);
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+    const w = 1 - Math.abs((x + 0.5) / W * 2 - 1), a0 = (y * W + x) * 4, a1 = (y * W + ((x + W / 2) % W)) * 4;
+    for (let k = 0; k < 3; k++) o2[a0 + k] = d[a0 + k] * w + d[a1 + k] * (1 - w);
+  }
+  im.data.set(o2); g.putImageData(im, 0, 0);
+  const X = (j, i) => i * s + (((j % 2) + 2) % 2 ? s / 2 : 0), Y = (j) => j * h;
+  const tris = [];
+  for (let j = -2; j <= 2; j++) for (let i = -2; i <= 3; i++) {
+    if (((j % 2) + 2) % 2 === 0) { tris.push([[X(j, i), Y(j)], [X(j, i + 1), Y(j)], [X(j + 1, i), Y(j + 1)]]); tris.push([[X(j + 1, i), Y(j + 1)], [X(j + 1, i + 1), Y(j + 1)], [X(j, i + 1), Y(j)]]); }
+    else { tris.push([[X(j, i), Y(j)], [X(j, i + 1), Y(j)], [X(j + 1, i + 1), Y(j + 1)]]); tris.push([[X(j + 1, i), Y(j + 1)], [X(j + 1, i + 1), Y(j + 1)], [X(j, i), Y(j)]]); }
+  }
+  g.lineCap = 'round';
+  // (the bars a little soft at their edges: seen through, from below, they are a hand's breadth off the paper)
+  for (const [w, a] of [[7, 0.18], [4.2, 0.85]]) {
+    g.strokeStyle = `rgba(48,30,18,${a})`;
+    for (const t of tris) {
+      const m = [(t[0][0] + t[1][0] + t[2][0]) / 3, (t[0][1] + t[1][1] + t[2][1]) / 3];
+      g.lineWidth = w; g.beginPath(); g.moveTo(...t[0]); g.lineTo(...t[1]); g.lineTo(...t[2]); g.closePath(); g.stroke();
+      g.lineWidth = w * 0.62; g.beginPath(); for (const v of t) { g.moveTo(...v); g.lineTo(...m); } g.stroke();
+    }
+  }
+  return colourTexture(THREE, c, true);
+}
 // a soft puff (a gaussian with no bright core): smoke
 export function puff(THREE, n = 64) {
   const c = canvas(n, n), g = c.getContext('2d'), img = g.createImageData(n, n);

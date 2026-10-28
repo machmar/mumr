@@ -5,14 +5,39 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { createApp, PLAYER_COLOURS } from '/mumr/xr/app.js';
 import { createScene } from './draw.js';
+import { markCursor } from './shades.js';
 
-const J = window.JENGA;
+const J = window.JENGA, R = window.MUMR.room;
 const stream = new J.Stream(60);
 const sound = new J.Soundtrack({ base: 'music/' });
 let scene3d = null, common = null, app = null, lastDraw = performance.now(), noHostAt = null, lastClear = -1e9;
 const state = () => (app && app.S.doc.jenga) || J.waiting();
 const hostHere = () => !!app && (app.S.hostHere || app.S.isHost);
-const info = () => ({ here: app.S.connected ? app.S.others + 1 : 1, game: app.S.stateOf(null), mine: app.S.stateOf(null), host: hostHere() && !!app.S.doc.jenga });
+const info = () => ({ here: app.S.connected ? app.S.others + 1 : 1, game: app.S.stateOf(null), mine: app.S.stateOf(null), host: hostHere() && !!app.S.doc.jenga, mark: markInfo() });
+// ---- the room's ceiling lights (engine room.js lights: the scan's lamps and the ones marked; shades.js hangs a paper shade under each), and who marks them
+const serverRoom = () => (app.S.doc.room ? app.S.doc.room.data : null);
+const roomLights = () => R.lights(serverRoom(), app.S.doc.rlights || {});
+// the player marking, if they are here (a player who left marks nothing)
+function markSlot(now = performance.now()) {
+  const m = app.S.doc.jmark, slot = m && Number.isInteger(m.slot) ? m.slot : null;
+  return slot !== null && (slot === app.S.me || app.presence.others(now).some((o) => o.slot === slot)) ? slot : null;
+}
+const nameOf = (slot) => ((state().players || []).find((p) => p.slot === slot) || {}).name || `Player ${slot + 1}`;
+function markInfo() { const slot = markSlot(); return { slot, mine: slot !== null && slot === app.S.me, name: slot === null ? '' : nameOf(slot), n: roomLights().length }; }
+// where the marking player points (every page works it out from that player's head and hands; only their own page sends what they mark)
+let marker = null, markerSlot = null;
+function marking(a, now, lights) {
+  const slot = markSlot(now), sp = a.space;
+  if (slot === null || !sp.ok) { marker = null; markerSlot = null; return null; }
+  if (markerSlot !== slot) { marker = new R.LightMarker(); markerSlot = slot; }
+  const mine = slot === a.S.me, o = mine ? null : a.presence.others(now).find((q) => q.slot === slot), head = mine ? a.head() : o && o.head;
+  if (!head) return null;
+  const srcs = mine ? a.everyone.filter((s) => s.slot === undefined || s.slot === null) : (o.sources || []);
+  const cs = srcs.map((s) => Object.assign({}, s, { points: (s.points || []).map((q) => { const v = sp.toCommon([q.x, q.y, q.z]); return { name: q.name, x: v[0], y: v[1], z: v[2] }; }) }));
+  const r = markCursor(R, marker, sp.toCommon([head[0], head[1], head[3]]), cs, R.ceilingHeight(serverRoom()), lights, now);
+  if (mine && r.done) { a.S.emit(r.done); a.life(`jenga: ${r.done.del ? 'a ceiling light unshaded' : 'a ceiling light marked'} (${r.done.id})`); }
+  return r.cursor;
+}
 const hostBody = () => app.bodies[0];
 // where everybody stands, in the common frame (this player's head and the others' from presence): the scene lights the feet of whoever is on turn
 function heads(a, now) {
@@ -25,6 +50,7 @@ function heads(a, now) {
 // the buttons of the board: the host's commands (the game is the host's), and the settings (acting on the shared settings, or on this player's own)
 function press(id) {
   if (['start', 'round', 'lobby', 'size', 'reroll', 'skip', 'back'].includes(id)) { hostBody().ask(id, {}); return; }
+  if (id === 'lights') { const m = app.S.doc.jmark; app.S.emit({ k: 'jmark', slot: m && m.slot === app.S.me ? null : app.S.me }); return; }
   if (id === 'place') {
     // the tower goes in front of this player (the console is at its side, facing this player), turned the way the player looks
     // (the host arranges the furniture for the real room round where this player stands: arrange.js; it may move the tower to where it fits)
@@ -52,7 +78,9 @@ app = await createApp({
     const sp = a.space;
     if (sp.ok) { common.position.set(sp.frame.x, sp.fz, -sp.frame.y); common.rotation.set(0, sp.frame.yaw, 0); } else { common.position.set(0, 0, 0); common.rotation.set(0, 0, 0); }
     const snap = stream.at(now);
-    scene3d.update({ state: state(), snap, now, t: a.S.serverNow(), lay: J.board(state(), info()), touches: a.boardTouches('main'), heads: heads(a, now), deco: a.S.doc.jdeco || null, garden: a.S.game('garden') });
+    const lights = roomLights();
+    scene3d.update({ state: state(), snap, now, t: a.S.serverNow(), lay: J.board(state(), info()), touches: a.boardTouches('main'), heads: heads(a, now), deco: a.S.doc.jdeco || null, garden: a.S.game('garden'),
+      shades: { lights, cursor: marking(a, now, lights), dark: a.dimLevel().dark } });
     a.relight(scene3d.relights());                       // (the lantern lights the real room: the dim lifts round it, the walls warm)
     // the soundtrack follows the shared state and the bodies (every headset hears the same scene: it is worked out from the same data)
     if (sound.music.ctx) { const h = a.head(), sp = a.space, c = sp.ok ? sp.toCommon([h[0], h[1]]) : [h[0], h[1]]; sound.update(app.S.doc.jenga || null, snap ? snap.items : null, Math.min(0.1, (now - lastDraw) / 1000), app.S.game('music'), { x: c[0], y: c[1], yaw: sp.ok ? sp.yawToCommon(h[2]) : h[2] }); }

@@ -315,3 +315,12 @@ Kept from the first plan's section 6, plus what came after it:
   `decor.js` grows it in on every page from the server's clock (a shader offset on merged meshes: one mesh a material and a priority), petals and smoke on the
   world's clock; the lantern, the lamps and the candles relight the room. `deco.test.js`; rehearsed on the PC view with a living room uploaded from the desktop page.
   Not yet on a headset.
+- **2026-10-28: shades over the ceiling lights** (Marek: "Real world rooms might have a large ceiling light, which might feel too harsh"; of five ways,
+  "2 sounds best ... but account for fluorescent lights which are long and narrow"). Engine (on main): `room.js` knows the real ceiling lights, the
+  scan's lamps up at the ceiling (a long one is a strip) and the marked ones (`rlight`, kept, common frame), and `LightMarker` marks them: the line from
+  the eye through the pinch meets the ceiling; a tap is a round fitting or takes one away, a pinch drawn along is a strip. Relight lights may shine one way
+  (`dir`, `cone`: dim.js `spot`), so a shade lights the floor under it and not the ceiling round it. Jenga (`shades.js`): an akari under a round fitting,
+  a kumiko panel (asanoha) under a strip, a veil on the ceiling round each when the room is darkened; the board's Lights (`jmark`: one player marks,
+  everybody sees the aim, worked out by every page from that player's presence). Learnt: the PC view's orbit stops the camera below its target (a shot
+  from under a ceiling needs `maxPolarAngle = PI`); `half` is a reserved word in GLSL ES. Rehearsed on the PC view and the desktop page (a mouse poke
+  held between the eye and the ceiling); not yet on a headset.
