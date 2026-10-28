@@ -81,7 +81,7 @@ function frame() {
   const smp = feed.sample('jenga', null, at), snap = smp ? smp.data : null;
   const lay = J.board(state, { here: S.peers.size, game: S.stateOf(null), mine: { ghost: true }, host: S.hostHere && !!S.doc.jenga });
   const heads = feed.players().map((p) => { const pr = feed.sample('presence', p.slot, at); return pr ? { slot: p.slot, x: pr.data.head[0], y: pr.data.head[1] } : null; }).filter(Boolean);
-  scene3d.update({ state, snap, now, t: sn === null ? undefined : sn, lay, heads });
+  scene3d.update({ state, snap, now, t: sn === null ? undefined : sn, lay, heads, deco: S.doc.jdeco || null, garden: S.game('garden') });
   dir.t += dt; const tn = dir.tension.update(S.doc.jenga || null, snap ? snap.items : null, dt);
   const sc = J.sceneFor(S.doc.jenga || null, tn, dir.scene, dir.t - dir.since, FAST ? 0 : undefined); if (sc !== dir.scene) { dir.scene = sc; dir.since = dir.t; }
   for (const w of J.momentsBetween(dir.prev, S.doc.jenga || null)) dir.moments.push({ text: MOMENT[w] || w, t: now });

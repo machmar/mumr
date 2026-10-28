@@ -265,5 +265,5 @@ export function createFx({ THREE, overlay, own }) {
     mGeo.attributes.position.needsUpdate = true; mGeo.attributes.color.needsUpdate = true;
   }
   function dispose() { trail.geometry.dispose(); overlay.remove(game); for (const s of Object.values(shells)) overlay.remove(s); overlay.remove(trail, turnRing, turnPool); }
-  return { update, dispose };
+  return { update, dispose, clock: () => worldPrev };
 }

@@ -5,7 +5,7 @@
 // hands and a pretend clock.
 (function (J) {
   const need = (n) => (typeof module !== 'undefined' ? require(`./${n}.js`) : J);
-  const S = need('spec'), { arrange } = need('arrange'), { Tower } = need('tower'), { Rules } = need('rules'), N = need('net'), R = need('replay'), Mu = need('music'), F = need('focus');
+  const S = need('spec'), { arrange } = need('arrange'), { decoPlan } = need('deco'), { Tower } = need('tower'), { Rules } = need('rules'), N = need('net'), R = need('replay'), Mu = need('music'), F = need('focus');
   const T = { dieStill: 0.7, cocked: 12, aftermath: 4500, backAfter: 3, putBack: 1.2, restWait: 0.3 };      // seconds, degrees, ms
   const DEFAULT_PLACE = { x: 1.6, y: 0.6, yaw: 0 };
   const DEBUG = () => typeof process !== 'undefined' && !!process.env && !!process.env.JENGA_DEBUG;
@@ -48,7 +48,19 @@
       return Object.assign(r.place, { hyaw: +yaw.toFixed(4) });
     }
     // the same player, another size or another room
-    rearrange() { const pl = this.rules.s.place; this.rules.setPlace(this.arranged(this.headOf(pl), Number.isFinite(pl.hyaw) ? pl.hyaw : pl.yaw)); }
+    rearrange() { const pl = this.rules.s.place; this.rules.setPlace(this.arranged(this.headOf(pl), Number.isFinite(pl.hyaw) ? pl.hyaw : pl.yaw)); this.planDeco(); }
+    // ---- the room's garden (deco.js): planned for the room round the game's arrangement, kept in the document. A plan that is the same as the one
+    // the document has is not sent again (the garden would grow in again for nothing)
+    planDeco() {
+      const room = this.realRoom(), plan = decoPlan({ room, size: this.rules.s.size, place: this.rules.s.place });
+      const have = this.session && this.session.doc && this.session.doc.jdeco, same = have && JSON.stringify(have.items) === JSON.stringify(plan.items);
+      if (same) return false;
+      const t = this.session && typeof this.session.serverNow === 'function' ? this.session.serverNow() : Date.now();
+      this.deco = { at: Math.round(t), items: plan.items };
+      if (this.session && this.session.emit) this.session.emit({ k: 'jdeco', d: this.deco });
+      if (plan.items.length) this.life(`jenga: the room's garden: ${plan.items.map((i) => i.kind).join(', ')}`);
+      return true;
+    }
     // the state goes into the document when it has changed (every page and PC view reads it from there)
     publish() {
       const s = this.rules.s;
@@ -69,7 +81,7 @@
       this.publish();
     }
     // the link came up: the first one here publishes this state, anybody after takes the server's
-    joined(first) { const d = this.session.doc && this.session.doc.jenga; if (!first && d) this.adopt(d); else { this.lastRev = -1; this.publish(); } }
+    joined(first) { const d = this.session.doc && this.session.doc.jenga; if (!first && d) this.adopt(d); else { this.lastRev = -1; this.publish(); } this.planDeco(); }
     peerChanged() { if (this.rules.playerLeft()) this.tower.resetDie(); this.publish(); }
 
     // ---- the board's commands (anybody may press anything): -> true if it did something
@@ -87,7 +99,7 @@
           if (!['lobby', 'round_end', 'match_end'].includes(ph) || ![a.x, a.y, a.yaw].every(Number.isFinite)) return false;
           // (a page sends where its player stands, hx, hy, and the tower's place in front of them; the arrangement may move the tower to where it fits)
           const head = Number.isFinite(a.hx) && Number.isFinite(a.hy) ? [a.hx, a.hy] : this.headOf(a);
-          r.setPlace(this.arranged(head, a.yaw)); this.makeTower(); return true;
+          r.setPlace(this.arranged(head, a.yaw)); this.planDeco(); this.makeTower(); return true;
         },
         reroll: () => { if (!['roll', 'pull'].includes(ph) || s.handled) return false; r.reroll('The die is rolled again'); this.tower.resetDie(); return true; },
         skip: () => { if (!this.replay) return false; this.replay.skip(); return true; },

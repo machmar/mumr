@@ -214,3 +214,18 @@ t('the furniture is arranged for the real room: put down by a wall, the console 
   assert.strictEqual(ref.rules.s.place.arr.size, 'huge', 'a new size: arranged again');
   assert.ok(Math.abs(ref.rules.s.place.hx - 0.5) < 1e-9, 'for the same player');
 });
+
+t('the room\'s garden is planned by the host for the room round the game, kept in the document, and sent again only when it changes', () => {
+  const box = (l, x0, y0, x1, y1, h) => ({ l, v: false, p: [[x0, y0, h], [x1, y0, h], [x1, y1, h], [x0, y1, h]] });
+  const wall = (x0, y0, x1, y1) => ({ l: 'wall', v: true, p: [[x0, y0, 0], [x1, y1, 0], [x1, y1, 2.4], [x0, y0, 2.4]] });
+  const room = { planes: [box('floor', 0, 0, 5.5, 4.2, 0), wall(0, 0, 5.5, 0), wall(5.5, 0, 5.5, 4.2), wall(5.5, 4.2, 0, 4.2), wall(0, 4.2, 0, 0), box('table', 4.4, 0.2, 5.3, 1.0, 0.75)] };
+  const sess = session(), ref = referee({ session: sess, room: { local: () => room } });
+  assert.strictEqual(ref.command('place', { x: 2.6, y: 2.4, yaw: 1.2, hx: 2.6, hy: 1.6 }), true);
+  const sent = sess.events.filter((e) => e.k === 'jdeco');
+  assert.ok(sent.length >= 1 && sent.at(-1).d.items.length > 0, 'a plan for the room went to the document');
+  assert.ok(sent.at(-1).d.items.some((i) => i.kind === 'garden') && sent.at(-1).d.items.some((i) => i.kind === 'vase'), 'a garden at a wall, a vase on the table');
+  sess.doc.jdeco = sent.at(-1).d;
+  assert.strictEqual(ref.planDeco(), false, 'the same plan is not sent again (the garden would grow in again for nothing)');
+  assert.strictEqual(ref.command('size', { size: 'huge' }), true);
+  assert.ok(sess.events.filter((e) => e.k === 'jdeco').length > sent.length, 'another size, another arrangement: planned again');
+});

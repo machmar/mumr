@@ -4,10 +4,10 @@
   const need = (n) => (typeof module !== 'undefined' ? require(`./${n}.js`) : J);
   const S = need('spec'), { scoreboard, banner } = need('rules');
 
-  const GAME = { music: 2, dim: 2 };            // the music's volume, 0..4, and how far the game dims the real room, 0..2 (focus.js): one setting for everybody (it is the room's)
+  const GAME = { music: 2, dim: 2, garden: 2 };  // the music's volume, 0..4, how far the game dims the real room, 0..2 (focus.js), the room's garden, 0..2 (deco.js): one setting for everybody (it is the room's)
   const PLAYER = { ghost: true };               // whether this player's ghost fingers are shown (what a player carries)
   const ACTIONS = [];
-  const VOL = ['off', 'low', 'medium', 'high', 'full'], DIM = ['off', 'gentle', 'full'];
+  const VOL = ['off', 'low', 'medium', 'high', 'full'], DIM = ['off', 'gentle', 'full'], GARDEN = ['none', 'sparse', 'full'];
   // the settings buttons of the board
   function press(id, st) {
     if (id === 'musicUp') return Object.assign({}, st, { music: Math.min(4, (st.music === undefined ? 2 : st.music) + 1) });
@@ -15,12 +15,18 @@
     if (id === 'dimUp') return Object.assign({}, st, { dim: Math.min(2, (st.dim === undefined ? 2 : st.dim) + 1) });
     if (id === 'dimDown') return Object.assign({}, st, { dim: Math.max(0, (st.dim === undefined ? 2 : st.dim) - 1) });
     if (id === 'ghost') return Object.assign({}, st, { ghost: !st.ghost });
+    if (id === 'garden') return Object.assign({}, st, { garden: ((st.garden === undefined ? 2 : st.garden) + 2) % 3 });       // (full, sparse, none, full ...)
     return null;
   }
   // the one event: the whole game state, kept by the server under one key (a newcomer has it at once)
   const KINDS = { jstate: {
     keep: () => ({ key: 'jenga:state' }),
     apply(sess, e) { if (e.s && typeof e.s === 'object' && Array.isArray(e.s.players) && typeof e.s.phase === 'string') { sess.doc.jenga = e.s; sess.notify('jenga', e.s); } },
+  },
+  // the room's garden (deco.js): what the host placed in the real room, kept like the state (a newcomer grows the same garden)
+  jdeco: {
+    keep: () => ({ key: 'jenga:deco' }),
+    apply(sess, e) { if (e.d && typeof e.d === 'object' && Array.isArray(e.d.items)) { sess.doc.jdeco = e.d; sess.notify('jdeco', e.d); } },
   } };
 
   const colourLabel = (c) => (c === null || c === undefined ? '?' : S.COLOURS[c].label);
@@ -43,19 +49,20 @@
     else if (ph === 'round_end') main = { id: 'round', label: `Round ${s.round + 1}`, value: `of ${s.rounds}: build it again`, active: true };
     else if (ph === 'match_end') main = { id: 'lobby', label: 'New match', value: 'back to the start', active: true };
     else main = { label: '', value: '', off: true };
-    const vol = g.music === undefined ? 2 : g.music, dim = g.dim === undefined ? 2 : g.dim, R1 = 340, R2 = 612;
+    const vol = g.music === undefined ? 2 : g.music, dim = g.dim === undefined ? 2 : g.dim, gdn = g.garden === undefined ? 2 : g.garden, R1 = 340, R2 = 612;
     const b = (o, x, y, w, h, kind) => Object.assign({ value: '', active: false, off: false }, o, { x, y, w, h, kind });
     const buttons = [
       b({ id: 'size', label: 'Size', value: `${size.name} · ${size.note.replace(' tower', '')}`, off: ph !== 'lobby' || noHost }, 80, R1 + 14, 260, 196, 'ema'),
       b(main, 400, R1, 400, 224, 'ema'),
       b({ id: 'place', label: 'Move here', value: 'the game, in front of me', off: midRound || noHost }, 860, R1 + 14, 260, 196, 'ema'),
-      b({ id: 'musicDown', label: '-', off: vol <= 0 }, 80, R2 + 14, 88, 88, 'token'),
-      b({ label: 'Music', value: VOL[vol], level: vol / 4 }, 178, R2, 150, 118, 'tag'),
-      b({ id: 'musicUp', label: '+', off: vol >= 4 }, 338, R2 + 14, 88, 88, 'token'),
-      b({ id: 'dimDown', label: '-', off: dim <= 0 }, 466, R2 + 14, 88, 88, 'token'),
-      b({ label: 'Room dim', value: DIM[dim], level: dim / 2 }, 564, R2, 150, 118, 'tag'),
-      b({ id: 'dimUp', label: '+', off: dim >= 2 }, 724, R2 + 14, 88, 88, 'token'),
-      b({ id: 'ghost', label: 'Ghost fingers', value: mine.ghost === false ? 'hidden' : 'shown', active: mine.ghost !== false }, 870, R2, 250, 118, 'ema'),
+      b({ id: 'musicDown', label: '-', off: vol <= 0 }, 80, R2 + 20, 76, 76, 'token'),
+      b({ label: 'Music', value: VOL[vol], level: vol / 4 }, 164, R2, 128, 118, 'tag'),
+      b({ id: 'musicUp', label: '+', off: vol >= 4 }, 300, R2 + 20, 76, 76, 'token'),
+      b({ id: 'dimDown', label: '-', off: dim <= 0 }, 425, R2 + 20, 76, 76, 'token'),
+      b({ label: 'Room dim', value: DIM[dim], level: dim / 2 }, 509, R2, 128, 118, 'tag'),
+      b({ id: 'dimUp', label: '+', off: dim >= 2 }, 645, R2 + 20, 76, 76, 'token'),
+      b({ id: 'garden', label: 'Garden', value: GARDEN[gdn], active: gdn > 0 }, 770, R2, 150, 118, 'ema'),
+      b({ id: 'ghost', label: 'Ghost fingers', value: mine.ghost === false ? 'hidden' : 'shown', active: mine.ghost !== false }, 970, R2, 150, 118, 'ema'),
     ];
     // the paper panel: a headline, a line under it, the die's colour, the round
     let head = banner(s, colourLabel), sub = '';
@@ -76,5 +83,5 @@
   // what a page shows before the host has said anything: the lobby, in the default place
   const waiting = () => ({ v: 1, rev: 0, size: 'normal', seed: 1, place: { x: 1.6, y: 0.6, yaw: 0 }, phase: 'lobby', round: 0, rounds: 3, players: [], turn: 0, roll: null, moves: 0, scores: {}, ticker: [], handled: null, fall: null, winner: null, last: null, tower: { full: 17, top: 17, topCount: 3 } });
 
-  Object.assign(J, { GAME, PLAYER, ACTIONS, VOL, DIM, press, KINDS, BOARD, board, colourLabel, scoreboard, banner, waiting });
+  Object.assign(J, { GAME, PLAYER, ACTIONS, VOL, DIM, GARDEN, press, KINDS, BOARD, board, colourLabel, scoreboard, banner, waiting });
 })(typeof module !== 'undefined' ? module.exports : (globalThis.JENGA = globalThis.JENGA || {}));

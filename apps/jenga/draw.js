@@ -17,6 +17,7 @@ import { ATLAS, blockAtlas, dieFace, yakisugi, walnut, hinoki, sand, felt, washi
 import { FONT, loadFonts, environment, createRig, mergeStatic } from './look.js';
 import { createStand } from './stand.js';
 import { createFx } from './fx.js';
+import { createDecor } from './decor.js';
 
 const S = window.JENGA;
 const toV = (p) => [p[0], p[2], -p[1]];
@@ -286,11 +287,13 @@ export function createScene({ THREE, parent, renderer, playerColours = [0xf2c14e
   // ---- the board (stand.js) and the moments (fx.js)
   const stand = createStand({ THREE, parent: root, mats });
   const fx = createFx({ THREE, overlay, own, mats });
+  const decor = createDecor({ THREE, parent: root, env, own, relit });
 
   // ---- every frame. t: the server's clock in ms (the same on every page), now: this page's
   let last = null, prevState = null, placeKey = null, arrivedAt = -1e9;
   // heads: where the players are, [{ slot, x, y }] in the common frame (from everybody's presence: whose turn it is is lit at their feet)
-  function update({ state, snap, now = performance.now(), t, lay, touches = [], heads = [] }) {
+  // deco: the document's jdeco (the room's garden, deco.js); garden: the Garden setting (0..2)
+  function update({ state, snap, now = performance.now(), t, lay, touches = [], heads = [], deco = null, garden = 2 }) {
     if (!state) return;
     const ts = (t === undefined || t === null ? now : t) / 1000, dt = last === null ? 1 / 60 : Math.min(0.1, Math.max(0, (now - last) / 1000)); last = now;
     if (size !== state.size || !blocks.length) { buildBodies(state.size); seedUsed = null; }      // (new meshes: painted again)
@@ -326,8 +329,9 @@ export function createScene({ THREE, parent, renderer, playerColours = [0xf2c14e
     if (arrived) moments.push('arrived');
     prevState = state;
     fx.update({ state, snap, t: ts, dt, blocks, dieMesh, L, place: pl, moments, fonts: fontsVer, lampAt: rig.lampAt, heads, colours: playerColours });
+    decor.update({ plan: deco, level: garden, t: ts, wc: fx.clock(), lightK });
   }
-  function dispose() { stand.dispose(); fx.dispose(); for (const o of disposables) if (o && o.dispose) o.dispose(); parent.remove(root); }
+  function dispose() { stand.dispose(); fx.dispose(); decor.dispose(); for (const o of disposables) if (o && o.dispose) o.dispose(); parent.remove(root); }
   // The lights of this world that light the real room (the engine's relight: app.relight): the lantern, and a little the board's lit paper. At the
   // fall they nearly go out with the room (the focus is the tower). In world coordinates.
   const lightsOut = [{ at: new THREE.Vector3(), colour: 0xffa45a, range: 2.6, power: 0 }, { at: new THREE.Vector3(), colour: 0xffe2b8, range: 1.1, power: 0 }];
@@ -336,7 +340,7 @@ export function createScene({ THREE, parent, renderer, playerColours = [0xf2c14e
     if (!furnKey) return [];
     rig.lamp.getWorldPosition(lightsOut[0].at); stand.glowAt.getWorldPosition(lightsOut[1].at);
     lightsOut[0].power = 0.9 * lightFlick * lightK; lightsOut[1].power = 0.35 * lightK;
-    return lightsOut;
+    return lightsOut.concat(decor.relights());
   }
   return { root, update, relights, boardPose: stand.pose, boardAspect: stand.aspect, boardWidth: stand.width, dispose, group: { furniture, bodies, overlay } };
 }

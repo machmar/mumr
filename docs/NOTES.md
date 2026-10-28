@@ -305,3 +305,13 @@ Kept from the first plan's section 6, plus what came after it:
   whole width. 100 to 400 ms on the host, once per Move here. The layout (`spec.js`) takes the place: the console has two axes (along it, towards its back),
   so a mirrored arrangement is the same code; an arrangement made for another size is not used. Rehearsed with `?room=demo` (the tower steps off the pretend
   table) and in `arrange.test.js` (corridors, a short room, a sofa and a table, the giant tower in 4 x 3 m). Not yet in a real room.
+- **2026-10-28: the room's garden, and lights that relight the room** (Marek: "automatic room decorations for more immersion and calmness ... placed on objects or
+  at the bottoms of walls (never under tables)"; then "a light that's on a wall would kind of go against the darkening of the entire room ... allow for objects to alter
+  the dimming"). Engine (on main): `dim.js reach / relit`, and the dim layer draws itself on the scanned surfaces of the server's room (floor, walls, tables) a hair
+  in front of the full-screen quad, which then skips them by depth; each surface fragment takes some of the dim away for each light near it (distance, facing) and
+  is warmed in its colour; `app.relight(list)` hands the lights over each frame, the webcam page asks the app's view for its `relights()`. Learnt: a material with
+  `depthTest: false` writes no depth either, so the quad skipping the lit surfaces needed `depthTest: true` with `depthFunc: Always` on them. Jenga: `deco.js` plans
+  on the host (free stretches at the walls' feet, corners, tops; never under or behind furniture, in a doorway or in the game's way) and keeps it as `jdeco`;
+  `decor.js` grows it in on every page from the server's clock (a shader offset on merged meshes: one mesh a material and a priority), petals and smoke on the
+  world's clock; the lantern, the lamps and the candles relight the room. `deco.test.js`; rehearsed on the PC view with a living room uploaded from the desktop page.
+  Not yet on a headset.

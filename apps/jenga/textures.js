@@ -291,6 +291,16 @@ export function glow(THREE, n = 128, inner = 0) {
   g.fillStyle = gr; g.fillRect(0, 0, n, n);
   return colourTexture(THREE, c);
 }
+// a soft puff (a gaussian with no bright core): smoke
+export function puff(THREE, n = 64) {
+  const c = canvas(n, n), g = c.getContext('2d'), img = g.createImageData(n, n);
+  for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) {
+    const d = Math.hypot(x + 0.5 - n / 2, y + 0.5 - n / 2) / (n / 2), o = (y * n + x) * 4;
+    img.data[o] = img.data[o + 1] = img.data[o + 2] = 255; img.data[o + 3] = d < 1 ? Math.exp(-d * d * 4.5) * (1 - d * d) * 255 : 0;
+  }
+  g.putImageData(img, 0, 0);
+  return colourTexture(THREE, c);
+}
 export function softRing(THREE, n = 256, at = 0.82, width = 0.08) {
   const c = canvas(n, n), g = c.getContext('2d'), img = g.createImageData(n, n);
   for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) {
@@ -311,3 +321,18 @@ export function blobShadow(THREE, n = 128, square = false) {
   g.putImageData(img, 0, 0);
   return colourTexture(THREE, c);
 }
+
+// ---- a strip of sand raked along its length (the garden at a wall's foot), as a tile repeating along u
+export function rakedStrip(THREE, seed = 31) {
+  const w = 512, h = 128, c = canvas(w, h), g = c.getContext('2d'), img = g.createImageData(w, h), hgt = new Float32Array(w * h);
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    const v = y / h, edge = sstep(0, 0.08, v) * sstep(0, 0.08, 1 - v), wob = (tfbm(x / 64, y / 64, seed, 8, 3) - 0.5) * 0.06;
+    const ridge = 0.5 + 0.5 * Math.cos((v + wob) * Math.PI * 2 * 6), grainN = hash(x, y, seed + 1);
+    const hh = (ridge * 0.75 + (grainN - 0.5) * 0.15) * edge, tone = 0.86 + 0.14 * hh + (grainN > 0.985 ? -0.12 : 0), o = (y * w + x) * 4;
+    put(img, o, 224 * tone, 216 * tone, 200 * tone); hgt[y * w + x] = hh;
+  }
+  g.putImageData(img, 0, 0);
+  const map = colourTexture(THREE, c, true), normal = normalFrom(THREE, hgt, w, h, 3, true);
+  return { map, normal };
+}
+
