@@ -120,10 +120,10 @@ piece, for an app that needs something else:
 - **An app with its own light**: `app.lights` is the engine's two lights (`{ hemi, sun }`); an app that lights its scene itself hides them (`visible = false`:
   a light at intensity 0 still costs every pixel).
 - **Lights that light the real room** (`app.relight`; apps/jenga's lantern): give the engine this frame's lights of your world, `app.relight([{ at:
-  THREE.Vector3 (world), colour, range (m), power (0..1) }])` (at most 8, the strongest), every frame or when they change. Round each one the room's
+  THREE.Vector3 (world), colour, range (m), power (0..1), size (m, the light's radius: how soft its shadows are; 0.05) }])` (at most 8, the strongest), every frame or when they change. Round each one the room's
   dim lifts off the real walls, floor and table tops of the room scan and they take a little of its colour, so a lantern by a wall seems to throw its
   light on the real wall, the same on every headset (the room is the server's, the lights come from your shared state) and on a webcam page whose
-  view hands them over as `window.view.relights()`. With no scan only a floor round the player is lit; with no dim only the warm colour is laid on.
+  view hands them over as `window.view.relights()`. The room's walls, table tops and furniture throw shadows (the floor under a table stays dark). With no scan only a floor round the player is lit; with no dim only the warm colour is laid on.
   A light may shine one way only: `dir` (THREE.Vector3, world) and `cone` (a cosine), e.g. down from a shade under the ceiling, so the floor
   under it is lit and the ceiling round it stays dark.
 - **The room's real ceiling lights** (`M.room.lights(room, S.doc.rlights)`; apps/jenga hangs paper shades over them): the lamps of the scan up at the

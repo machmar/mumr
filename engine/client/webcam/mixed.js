@@ -105,7 +105,7 @@ export async function startMixedView(V) {
     for (const m of occ.children.slice()) occ.remove(m);
     for (const b of M.occluders.list(feed.doc.room && feed.doc.room.data)) {
       const m = new THREE.Mesh(occGeo, occMat);
-      m.scale.set(b.hx * 2, b.z1 - b.z0, b.hy * 2); m.position.set(b.cx, (b.z0 + b.z1) / 2, -b.cy); m.rotation.y = b.ang; m.renderOrder = -100;      // (drawn first: the rest tests against it)
+      m.scale.set(b.hx * 2, b.z1 - b.z0, b.hy * 2); m.position.set(b.cx, (b.z0 + b.z1) / 2, -b.cy); m.rotation.y = b.ang; m.renderOrder = -98;      // (drawn first, after the room's dim (dim3d.js: it must not keep the dim off the walls): the rest tests against it)
       m.updateMatrix(); m.matrixAutoUpdate = false; occ.add(m);
     }
   }

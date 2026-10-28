@@ -261,3 +261,17 @@ test('marking a light with a hand: the line from the eye through the pinch; a ta
   run(at([1.5, 1.04]), list); assert.strictEqual(out.over.id, 'm9', 'aimed at it');
   run(pinchAt([1.5, 1.04]), list); run(at([1.5, 1.04]), list); assert.deepStrictEqual(out.done, { k: 'rlight', id: 'm9', del: true });
 });
+
+test('boxes: the solid things as turned boxes (what hides the virtual world and throws the shadows)', () => {
+  const rect = (x0, y0, x1, y1, h) => [[x0, y0, h], [x1, y0, h], [x1, y1, h], [x0, y1, h]];
+  const b = M.room.boxes({ planes: [
+    { l: 'floor', v: false, p: rect(-2, -3, 2, 3, 0) }, { l: 'ceiling', v: false, p: rect(-2, -3, 2, 3, 2.4) },
+    { l: 'wall', v: true, p: [[-2, -3, 0], [2, -3, 0], [2, -3, 2.4], [-2, -3, 2.4]] },
+    { l: 'door frame', v: true, p: [[3, -1, 0], [3, 0, 0], [3, 0, 2], [3, -1, 2]] },
+    { l: 'table', v: false, p: rect(0, 0, 1, 0.6, 0.74) },
+  ] });
+  assert.deepStrictEqual(b.map((q) => q.kind), ['wall', 'top']);
+  assert.ok(Math.abs(b[0].hy - M.room.WALL_T / 2) < 1e-9 && Math.abs(b[0].hx - 2) < 1e-9);
+  assert.ok(Math.abs(b[1].z1 - 0.74) < 1e-9 && Math.abs(b[1].z1 - b[1].z0 - M.room.TABLE_T) < 1e-9);
+  assert.deepStrictEqual(M.room.boxes(null), []);
+});

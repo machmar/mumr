@@ -23,6 +23,12 @@
 //   relit(layer, s, tint) -> { a, c }     the layer there: a' = a (1 - s), c' = c (1 - s) + tint (tint: the light's colour laid on, premultiplied)
 //   spot(cosA, cone) -> 0..1              a light that shines one way (a shade under a ceiling light shines down, not on the ceiling round it): cosA
 //                                         the cosine between its way and the way to the point; full inside, none outside cone (a cosine), soft between
+// SHADOWS (Marek, 2026-10-28): the room's solid things (room.js boxes: walls, table tops, furniture) stand in a light's way, so the floor under a
+// table stays dark and a light on the far side of a wall does not reach through it. A light is a small ball (size: its radius), so a shadow's
+// edge is soft, wider the further the shadow falls from what throws it. In the floor plan, points [x, y, h]:
+//   block(p, light, box, size) -> 0..1    how much of the light at `light` that box keeps from the point p (0: none, 1: all); a box that holds
+//                                         p or the light keeps nothing from it (a wall does not shadow itself, a lamp against a wall is not walled in)
+//   seen(p, light, boxes, size) -> 0..1   how much of the light reaches p past all of them
 (function (M) {
   const GREY = 0.4;            // what mute 1 mixes the room towards (the screen's number, 0..1): a little below the middle, so muted is also a little darker
   const OFF = { dark: 0, mute: 0, over: true };
@@ -73,5 +79,32 @@
     return { a: l.a * k, c: l.c * k + tint };
   }
 
-  M.dim = { clean, level, event, layer, reach, relit, spot, GREY, RELIT_MAX };
+  // (xr/dim3d.js does the same in its shader, in THREE's axes: change both together)
+  const THIN = 0.06, INSIDE = 0.01, SIZE = 0.05;
+  const smooth = (a, b, x) => { const t = Math.max(0, Math.min(1, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
+  function block(p, light, b, size = SIZE) {
+    const c = Math.cos(b.ang), s = Math.sin(b.ang), zc = (b.z0 + b.z1) / 2, h = [b.hx, b.hy, (b.z1 - b.z0) / 2];
+    const local = (q) => { const x = q[0] - b.cx, y = q[1] - b.cy; return [x * c + y * s, -x * s + y * c, q[2] - zc]; };
+    const P = local(p), L = local(light);
+    const holds = (q) => q.every((v, i) => Math.abs(v) < h[i] + INSIDE);
+    if (holds(P) || holds(L)) return 0;
+    const d = [L[0] - P[0], L[1] - P[1], L[2] - P[2]], dd = d[0] * d[0] + d[1] * d[1] + d[2] * d[2], len = Math.sqrt(dd);
+    // how soft: the light's size, times how far from where it passes the box the shadow falls, over how far that is from the light
+    const t0 = Math.max(0, Math.min(1, -(P[0] * d[0] + P[1] * d[1] + P[2] * d[2]) / Math.max(dd, 1e-12)));
+    const w = Math.max(0.003, Math.min(0.3, (size * t0 * len) / Math.max((1 - t0) * len, 0.05)));
+    const thin = h.map((v) => v < THIN), e = h.map((v, i) => (thin[i] ? v : v + w));
+    let t1 = 0, t2 = 1;
+    for (let i = 0; i < 3; i++) {
+      if (Math.abs(d[i]) < 1e-9) { if (Math.abs(P[i]) > e[i]) return 0; continue; }
+      let a = (-e[i] - P[i]) / d[i], z = (e[i] - P[i]) / d[i];
+      if (a > z) [a, z] = [z, a];
+      t1 = Math.max(t1, a); t2 = Math.min(t2, z);
+    }
+    if (t2 <= t1) return 0;
+    const m = (t1 + t2) / 2, deep = Math.min(...[0, 1, 2].map((i) => (thin[i] ? Infinity : e[i] - Math.abs(P[i] + d[i] * m))));
+    return smooth(0, 2 * w, deep);
+  }
+  const seen = (p, light, boxes, size = SIZE) => (boxes || []).reduce((v, b) => v * (1 - block(p, light, b, size)), 1);
+
+  M.dim = { clean, level, event, layer, reach, relit, spot, block, seen, GREY, RELIT_MAX, SHADE: { THIN, INSIDE, SIZE } };
 })(typeof module !== 'undefined' ? (module.exports = require('./ns.js')) : (globalThis.MUMR = globalThis.MUMR || {}));

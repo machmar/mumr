@@ -94,3 +94,37 @@ test('a light that shines one way: full inside its cone, none outside, soft betw
   assert.strictEqual(D.reach(1, 3, 0.5, 1, 0), 0);
   assert.strictEqual(D.reach(1, 3, 0.5, 1, 1), D.reach(1, 3, 0.5, 1));
 });
+
+// a room in the floor plan: a wall along y = -3 (4 m, 2.4 m high), a table top at 0.74 m (1 x 0.6 m), a bed (0.5 m high)
+const rect = (x0, y0, x1, y1, h) => [[x0, y0, h], [x1, y0, h], [x1, y1, h], [x0, y1, h]];
+const ROOM = { planes: [
+  { l: 'floor', v: false, p: rect(-2, -3, 2, 3, 0) },
+  { l: 'wall', v: true, p: [[-2, -3, 0], [2, -3, 0], [2, -3, 2.4], [-2, -3, 2.4]] },
+  { l: 'table', v: false, p: rect(0, 0, 1, 0.6, 0.74) },
+  { l: 'bed', v: false, p: rect(-2, 1, -0.6, 3, 0.5) },
+] };
+const BOXES = M.room.boxes(ROOM), LAMP = [0.5, 0.3, 1.4];           // (a lamp 66 cm over the middle of the table)
+
+test('shadows: the floor under a table stays dark, the floor beside it is lit, the table top itself is lit', () => {
+  near(D.seen([0.5, 0.3, 0], LAMP, BOXES), 0, 'under the table');
+  near(D.seen([0.5, 0.3, 0.74], LAMP, BOXES), 1, 'on the table: its own box does not shadow it');
+  near(D.seen([2, 2, 0], LAMP, BOXES), 1, 'out in the room');
+  near(D.seen([0.5, -3, 1], LAMP, BOXES), 1, 'on the wall: its own box does not shadow it');
+});
+
+test('shadows: a soft edge, where the table\'s edge throws it, wider the further it falls', () => {
+  // the table's edge at x = 1 throws the shadow's edge on the floor at x = 0.5 + 0.5 * 1.4 / 0.66
+  const edge = 0.5 + 0.5 * 1.4 / 0.66, at = (x) => D.seen([x, 0.3, 0], LAMP, BOXES);
+  assert.ok(at(edge - 0.3) < 0.01 && at(edge + 0.3) > 0.99, 'dark inside, lit outside');
+  assert.ok(Math.abs(at(edge) - 0.5) < 0.15, `half at the edge: ${at(edge)}`);
+  assert.ok(at(edge - 0.03) < at(edge) && at(edge) < at(edge + 0.03), 'brighter outwards');
+  // a bigger light: a wider edge (more light just inside the shadow)
+  assert.ok(D.seen([edge - 0.06, 0.3, 0], LAMP, BOXES, 0.15) > at(edge - 0.06), 'a bigger light, a softer edge');
+});
+
+test('shadows: a light behind a wall does not reach through it; a lamp against a wall is not walled in', () => {
+  near(D.seen([0, -2, 1], [0, -4, 1], BOXES), 0, 'through the wall');
+  near(D.seen([1, -1, 0], [0, -2.97, 0.3], BOXES), 1, 'a lamp 3 cm from the wall');
+  near(D.seen([-0.4, 2, 0], [-1.3, 2, 1.2], BOXES), 0, 'the floor beside the bed, the lamp over it: the bed is in the way');
+  near(D.seen([1, 1, 0], LAMP, []), 1, 'no boxes: nothing in the way');
+});
