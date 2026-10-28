@@ -264,6 +264,8 @@ export function createScene({ THREE, parent, renderer, playerColours = [0xf2c14e
       g.globalAlpha = 1;
       if (k < rows.length - 1) { g.strokeStyle = 'rgba(34,26,20,0.16)'; g.lineWidth = 2; g.beginPath(); g.moveTo(x0, y + rowH - 22); g.lineTo(x1, y + rowH - 22); g.stroke(); }
     });
+    // (fewer than four players leave paper below them: a faint ensō there, as a scroll would have)
+    if (rows.length && rows.length < 4) { const top = y0 + rows.length * rowH, room = H - B - 190 - top, r = Math.min(150, room * 0.36); if (r > 60) enso(g, W / 2, top + room / 2, r, { seed: 9 + rows.length, width: r * 0.2, alpha: 0.16 }); }
     if (!rows.length) { enso(g, W / 2, y0 + 210, 150, { seed: 9, width: 30 }); g.textAlign = 'center'; g.fillStyle = '#7a6552'; g.font = `500 38px ${FONT.body}`; g.fillText('the names appear when a match starts', W / 2, y0 + 440); }
     g.textAlign = 'left'; g.font = `500 30px ${FONT.body}`;
     (state.ticker || []).slice(-3).forEach((t, i, a) => { g.globalAlpha = 0.4 + 0.6 * (i + 1) / a.length; g.fillStyle = '#4a3b2e'; g.fillText(t.length > 46 ? `${t.slice(0, 45)}…` : t, x0, H - B - 150 + i * 46); });
