@@ -163,8 +163,9 @@
       const mine = S.me === null ? 0 : S.me, own = A.checkOwn();
       if (f && sp.ok) for (const [slot, c] of Object.entries(S.doc.checks)) { if (slot === 'me' || +slot === S.me) continue; const p = sp.fromCommon([c[0], c[1], c[2] || 0]); checks.push({ slot: +slot, x: p[0], y: p[1], z: p[2] }); }
       if (own) checks.push({ slot: mine, x: own[0], y: own[1], z: own[2] });
-      return { show: this.active || checks.length > 0, slot: mine, points: this.active ? A.points.concat([own]) : [null, null], knobs: this.active ? A.knobs() : [],
-        held: A.held, progress: A.progress, at: A.at, checks };
+      // (the check marks too only while lining up, like spots 1 and 2: Marek, 2026-10-29, spot 3 stayed on the floor after the line-up)
+      return { show: this.active, slot: mine, points: this.active ? A.points.concat([own]) : [null, null], knobs: this.active ? A.knobs() : [],
+        held: A.held, progress: A.progress, at: A.at, checks: this.active ? checks : [] };
     }
   }
 

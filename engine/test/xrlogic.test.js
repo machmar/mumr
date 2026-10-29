@@ -219,7 +219,7 @@ test('lining up through the server: two spots by resting a fingertip, the check 
   a.L.press('lineUp');
   assert.strictEqual(a.L.note(), 'lined up, 300 cm');
   const m = a.L.marks();
-  assert.deepStrictEqual([m.show, m.checks.length], [true, 1]);
+  assert.deepStrictEqual([m.show, m.checks.length], [false, 0], 'out of the line-up the check mark goes with the spots');
 });
 
 test('a given frame (a PC rehearsal) lines up without spots', () => {
