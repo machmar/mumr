@@ -22,9 +22,10 @@ const drive = (ref, secs, hands = () => []) => { for (let i = 0; i < secs / DT; 
 const hand = (id, at, pinch, v) => ({ id, pinch, points: [{ name: 'thumb', x: at[0] - 0.004, y: at[1], z: at[2], v }, { name: 'index', x: at[0] + 0.004, y: at[1], z: at[2], v }, { name: 'palm', x: at[0], y: at[1], z: at[2] + 0.05 }] });
 const lerp = (a, b, f) => a.map((v, i) => v + (b[i] - v) * f);
 
-// pull block i out along its length, carry it over the tower and put it on top; the hand holds it by its end
+// pull an outer block i out sideways (it may be taken by its outer side: spec.js grabRule), carry it over the tower and put it on top
 function pullAndPlace(ref, i) {
-  const tw = ref.tower, b = tw.blocks[i].body, p0 = b.p.slice(), h = S.qRot(b.q, [1, 0, 0]), beyond = tw.d.L / 2 + 0.012, k = tw.d.k;
+  const tw = ref.tower, b = tw.blocks[i].body, p0 = b.p.slice(), ac = S.qRot(b.q, [0, 1, 0]), c = S.toCommon(tw.place, [0, 0, 0]), sg = (p0[0] - c[0]) * ac[0] + (p0[1] - c[1]) * ac[1] < 0 ? -1 : 1;
+  const h = ac.map((v) => v * sg), beyond = tw.d.W / 2 + 0.008, k = tw.d.k;
   const at = (d) => [p0[0] + h[0] * (d + beyond), p0[1] + h[1] * (d + beyond), p0[2]], sh = (p) => [p[0] + h[0] * beyond, p[1] + h[1] * beyond, p[2]];
   const level = tw.levels().top + 1, top = sh(S.toCommon(tw.place, [0, 0, tw.top() + (level + 0.5) * tw.d.H + 0.006 * k])), out = at(0.12 * k);
   const hi = [out[0], out[1], top[2] + 0.06 * k], over = [top[0], top[1], top[2] + 0.06 * k];

@@ -137,6 +137,8 @@
 
     // ---- one host tick: dt seconds, nowMs, everybody's hands (common frame)
     step(dt, nowMs, hands) {
+      // (a host that cannot keep up runs a little slow rather than taking longer steps, which cost more and fall further behind)
+      dt = Math.min(dt, 0.025);
       const t0 = typeof performance !== 'undefined' ? performance.now() : 0, r = this.rules, ph = r.phase;
       this.t += dt; this.nowMs = nowMs;
       const room = this.realRoom();
@@ -197,7 +199,9 @@
         r.pulled({ i, colour: tw.colourOf(i), level, legal: tw.legalLevel(level) });
       } else if (ph === 'place' && tw.handled !== null) {
         const i = tw.handled, held = tw.heldBy(i) !== null, pl = tw.placed();
-        if (pl) { r.placed(); tw.captureRest(); r.setTower(this.towerInfo()); tw.resetDie(); this.putBackAt = null; this.offAt = null; }
+        // (a block that lies still and is not counted: why, once, in the log)
+        if (!pl && !held && tw.stillFor > 2 && this.whyLogged !== i) { this.whyLogged = i; this.life(`jenga: block ${i} lies still and is not on top: ${tw.placedCheck().why}`); }
+        if (pl) { this.whyLogged = null; r.placed(); tw.captureRest(); r.setTower(this.towerInfo()); tw.resetDie(); this.putBackAt = null; this.offAt = null; }
         else if (!held && tw.away(i).dist < 0.12 * tw.d.L && tw.away(i).dz < 0.3 * tw.d.H) {           // put back where it came from: the move is undone
           this.putBackAt = this.putBackAt === null || this.putBackAt === undefined ? this.t : this.putBackAt;
           if (this.t - this.putBackAt > T.putBack) { tw.handled = null; this.putBackAt = null; r.s.handled = null; r.s.phase = r.s.roll === null ? 'roll' : 'pull'; r.say('The block is back: pull again'); r._touch(); }

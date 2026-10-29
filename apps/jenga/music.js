@@ -18,7 +18,7 @@
   const S = need('spec');
   const SCENES = ['calm', 'build', 'tense', 'danger', 'finale', 'win'];
   const CFG = { crossfade: 30, rise: 9, fades: { finale: 6, win: 12 }, volumes: [0, 0.22, 0.45, 0.72, 1], swellMax: 0.32, minScene: 22, sustain: 1.5,     // seconds, gain per volume step, how much louder a tense moment is, s before the scene may drop, s a tenser one must last
-    enter: { tense: 0.32, danger: 0.62 }, leave: { tense: 0.22, danger: 0.45 }, anywhere: ['calm', 'build', 'tense', 'danger'], drift: 2, giveUp: 15 };          // tension thresholds; the scenes whose tracks may be entered half way (or where they were left); s a page may drift; s a track has to start playing
+    enter: { tense: 0.36, danger: 0.72 }, leave: { tense: 0.26, danger: 0.55 }, anywhere: ['calm', 'build', 'tense', 'danger'], drift: 2, giveUp: 15 };          // tension thresholds; the scenes whose tracks may be entered half way (or where they were left); s a page may drift; s a track has to start playing
 
   const clamp01 = (v) => Math.max(0, Math.min(1, v));
   const hash = (s) => { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return h >>> 0; };
@@ -36,7 +36,9 @@
       let holes = 0, agit = 0, lean = 0;
       if (items && items.length) {
         const d = S.dims(state.size), L = S.layout(state.size), place = state.place || { x: 0, y: 0, yaw: 0 }, handled = state.handled ? state.handled.i : -1;
-        if (this.prev && dt > 0) for (const it of items) { if (it.i >= S.BLOCKS || it.i === handled) continue; const p = this.prev.get(it.i); if (p) agit += Math.hypot(it.p[0] - p[0], it.p[1] - p[1], it.p[2] - p[2]) / dt; }
+        // (only real motion: a tower kept awake trembles by fractions of a millimetre, and 54 such trembles added up read as danger: Marek, 2026-10-29)
+        const still = 0.02 * Math.sqrt(d.k);
+        if (this.prev && dt > 0) for (const it of items) { if (it.i >= S.BLOCKS || it.i === handled) continue; const p = this.prev.get(it.i); if (p) agit += Math.max(0, Math.hypot(it.p[0] - p[0], it.p[1] - p[1], it.p[2] - p[2]) / dt - still); }
         this.prev = new Map(items.map((it) => [it.i, it.p.slice()]));
         agit = clamp01(agit / (0.35 * Math.sqrt(d.k)));
         // the blocks in the tower's column, level by level (in the tower's own frame): how many are missing below the top, and where the top is

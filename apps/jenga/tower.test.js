@@ -35,8 +35,9 @@ t('the tower stands: 54 blocks in 18 levels of three, asleep, the right heights 
 t('a pinch pulls a block out from under the weight above it, the tower stands, and the block put on top is read as placed', () => {
   const w = tower(), lay = w.lay, i = 3 * 4 + 0;              // level 4 (along x), its first slot
   const b = w.blocks[i].body, p0 = b.p.slice();
-  const heading = S.toCommon({ x: 0, y: 0, yaw: w.place.yaw }, [1, 0, 0]);       // the block lies along the tower's x, turned by the place's yaw
-  const beyond = w.d.L / 2 + 0.012, out = (d) => [p0[0] + heading[0] * (d + beyond), p0[1] + heading[1] * (d + beyond), p0[2]];       // (the pinch is just outside the block's end: a hand comes from outside the tower)
+  // (an outer block, taken by its outer side and pulled out sideways: its end does not stick out, so it may not be taken by its end: spec.js grabRule)
+  const heading = S.toCommon({ x: 0, y: 0, yaw: w.place.yaw }, [0, -1, 0]);      // the block lies along the tower's x at its -y side: out is -y, turned by the place's yaw
+  const beyond = w.d.W / 2 + 0.008, out = (d) => [p0[0] + heading[0] * (d + beyond), p0[1] + heading[1] * (d + beyond), p0[2]];       // (the pinch is just outside the block's end: a hand comes from outside the tower)
   assert.strictEqual(w.handled, null);
   // the pinch closes on the block, pulls it 12 cm out in 3 s, and holds it there
   const pull = (s) => [hand('r', out(Math.min(0.12, 0.04 * s)), s > 0.2)];
@@ -48,7 +49,7 @@ t('a pinch pulls a block out from under the weight above it, the tower stands, a
   assert.ok(Math.max(...others) < 0.02, `the rest hardly moved (${Math.max(...others)} m)`);
   assert.strictEqual(w.placed(), null, 'held: not placed');
   // carried to the top (level 18, over the middle of the tower): up beside the tower, over it, down, and let go
-  const sh = (p) => [p[0] + heading[0] * beyond, p[1] + heading[1] * beyond, p[2]];         // (the hand holds the block by its end: the hand is a little beyond the block's middle)
+  const sh = (p) => [p[0] + heading[0] * beyond, p[1] + heading[1] * beyond, p[2]];         // (the hand holds the block by its side)
   const topAt = sh(S.toCommon(w.place, [0, 0, w.lay.plinth.top + 18 * w.d.H + 0.012])), from = out(0.12);
   const high = [from[0], from[1], topAt[2] + 0.06], above = [topAt[0], topAt[1], topAt[2] + 0.06];
   const path = (s) => (s < 1.5 ? lerp(from, high, s / 1.5) : s < 3 ? lerp(high, above, (s - 1.5) / 1.5) : lerp(above, topAt, Math.min(1, (s - 3) / 1)));
@@ -153,7 +154,7 @@ t('a block on the top level slid by a finger is not a pulled block; one pushed o
 
 t('a pinch that drops for a moment keeps its block; one that opens lets go', () => {
   const w = tower(); w.awake = true; run(w, 0.5);
-  const i = 3 * 4 + 0, b = w.blocks[i].body, p0 = b.p.slice(), hd = S.toCommon({ x: 0, y: 0, yaw: w.place.yaw }, [1, 0, 0]), beyond = w.d.L / 2 + 0.012;
+  const i = 3 * 4 + 0, b = w.blocks[i].body, p0 = b.p.slice(), hd = S.toCommon({ x: 0, y: 0, yaw: w.place.yaw }, [0, -1, 0]), beyond = w.d.W / 2 + 0.008;
   const out = (d) => [p0[0] + hd[0] * (d + beyond), p0[1] + hd[1] * (d + beyond), p0[2]];
   run(w, 3, (s) => [hand('r', out(Math.min(0.08, 0.04 * s)), s > 0.2 && !(s > 1.5 && s < 1.7))]);
   assert.strictEqual(w.heldBy(i), 'r', 'still held after the pinch dropped for 0.2 s');
@@ -163,7 +164,7 @@ t('a pinch that drops for a moment keeps its block; one that opens lets go', () 
 
 t('a held block keeps its turn while it comes out of the tower and turns with the hand once it is clear; the die always turns with the hand', () => {
   const w = tower(); w.awake = true; run(w, 0.5);
-  const i = 3 * 4 + 0, b = w.blocks[i].body, p0 = b.p.slice(), q0 = b.q.slice(), hd = S.toCommon({ x: 0, y: 0, yaw: w.place.yaw }, [1, 0, 0]), beyond = w.d.L / 2 + 0.012;
+  const i = 3 * 4 + 0, b = w.blocks[i].body, p0 = b.p.slice(), q0 = b.q.slice(), hd = S.toCommon({ x: 0, y: 0, yaw: w.place.yaw }, [0, -1, 0]), beyond = w.d.W / 2 + 0.008;
   const out = (d) => [p0[0] + hd[0] * (d + beyond), p0[1] + hd[1] * (d + beyond), p0[2]];
   const yawQ = (a) => { const y = w.place.yaw + Math.PI + a; return [0, 0, Math.sin(y / 2), Math.cos(y / 2)]; };      // (the hand's fingers point away from the tower)
   // the hand twists by 30 degrees while the block is still in the tower: the block does not
@@ -205,4 +206,40 @@ t('the dice tower: a die let go over its mouth falls down its planks and comes o
     assert.ok(ups.size >= 4, `${size}: the tower mixes it (${ups.size} faces up in 12 drops)`);
     assert.strictEqual(w.fell(), null);
   }
+});
+
+t('what a hand may hold in the tower: a centre block only once it is poked out, an outer block by its outer side, a block from above only with nothing on it (Marek, 2026-10-29)', () => {
+  const w = tower(); run(w, 0.5);
+  const bodies = () => w.all().map((b, i) => ({ i, p: b.p, q: b.q })), rule = (i, local) => { const b = w.blocks[i].body; return S.grabRule(bodies(), { i, p: b.p, q: b.q }, M.physics.quat.rotate(b.q, local).map((v, k) => v + b.p[k]), w.size, w.place); };
+  const L = w.d.L, W = w.d.W, H = w.d.H;
+  const mid = 3 * 6 + 1, side = 3 * 6 + 0;                          // level 6: its centre block and an outer one (slot 0 lies at -y in the tower)
+  assert.strictEqual(rule(mid, [L / 2 + 0.008, 0, 0]).ok, false, 'a centre block by its end: no');
+  assert.strictEqual(rule(mid, [0, W / 2 + 0.008, 0]).ok, false, 'a centre block by its side: no (blocks lie against it)');
+  assert.strictEqual(rule(side, [L / 2 + 0.008, 0, 0]).ok, false, 'an outer block by its end: no');
+  const outer = S.qRot(w.blocks[side].body.q, [0, 1, 0]), c = S.toCommon(w.place, [0, 0, 0]), b = w.blocks[side].body, sg = (b.p[0] - c[0]) * outer[0] + (b.p[1] - c[1]) * outer[1] < 0 ? -1 : 1;
+  const r = rule(side, [0, sg * (W / 2 + 0.008), 0]);
+  assert.ok(r.ok && r.face === 'side', 'an outer block by its outer side: yes');
+  assert.strictEqual(rule(side, [0, -sg * (W / 2 + 0.008), 0]).ok, false, 'by its inner side: no');
+  assert.strictEqual(rule(mid, [0, 0, H / 2 + 0.008]).ok, false, 'from above with a block on it: no');
+  assert.ok(rule(3 * 17 + 1, [0, 0, H / 2 + 0.008]).ok, 'the top level from above: yes');
+  // poked out (a finger pushes it from the other end), it may be held by the end that sticks out
+  const m = w.blocks[mid].body, ax = S.qRot(m.q, [1, 0, 0]); m.p = m.p.map((v, k) => v + ax[k] * 0.015); w.world.wake(m); run(w, 0.3);
+  assert.ok(rule(mid, [L / 2 + 0.008, 0, 0]).ok, 'poked out 1.5 cm: by its end, yes');
+  assert.strictEqual(rule(mid, [-L / 2 - 0.008, 0, 0]).ok, false, 'not by the end that went in');
+});
+
+t('a hand whose packets stop (bad Wi-Fi) keeps its block, held still, for a few seconds; longer, and it lets go (Marek, 2026-10-29)', () => {
+  const w = tower(); w.awake = true; run(w, 0.5);
+  const i = 3 * 4 + 0, b = w.blocks[i].body, p0 = b.p.slice(), hd = S.toCommon({ x: 0, y: 0, yaw: w.place.yaw }, [0, -1, 0]), beyond = w.d.W / 2 + 0.008;
+  const out = (d) => [p0[0] + hd[0] * (d + beyond), p0[1] + hd[1] * (d + beyond), p0[2]];
+  run(w, 3, (s) => [hand('r', out(Math.min(0.1, 0.05 * s)), s > 0.2)]);
+  assert.strictEqual(w.heldBy(i), 'r');
+  const at = b.p.slice();
+  run(w, 2, () => []);                                                // (no packets: the hand is gone from the sources)
+  assert.strictEqual(w.heldBy(i), 'r', 'still held after 2 s without the hand');
+  assert.ok(Math.hypot(...b.p.map((v, k) => v - at[k])) < 0.01, 'held where it was');
+  run(w, 2, (s) => [hand('r', out(0.1), true)]);                        // (it comes back, pinching)
+  assert.strictEqual(w.heldBy(i), 'r', 'and goes on');
+  run(w, 3.5, () => []);
+  assert.strictEqual(w.heldBy(i), null, 'gone for more than 3 s: let go');
 });

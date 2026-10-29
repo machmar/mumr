@@ -34,7 +34,9 @@
   const tuning = (size) => {
     const d = dims(size), k = d.k, r = Math.sqrt(k);
     return {
-      world: { substep: 1 / 240, slop: 0.0005 * k, maxMove: 0.004 * k, sleepAfter: 0.4, sleepV: 0.02 * r, velocitySteps: 20, positionSteps: 6, baumgarte: 0.05 },      // (a gentle position correction: a stronger one has no friction in it and walks a stack
+      world: { substep: 1 / 240, slop: 0.0005 * k, maxMove: 0.004 * k, sleepAfter: 0.4, sleepV: 0.02 * r, velocitySteps: 20, positionSteps: 6, baumgarte: 0.05, speculative: 0.002 * k },
+      // (substep and speculative: a tower kept awake costs the host about half as much, 2 to 3 ms a tick; at 1/240 and Jolt's 2 cm it cost 5, and three
+      //  times that on a busy PC, and the host fell behind: Marek's run, 2026-10-29)      // (a gentle position correction: a stronger one has no friction in it and walks a stack
                                                                                                                                     //  that leans on one side off it, block by block, when the tower is kept awake)
       hold: { force: 4 * k * k * k, omega: 80 / r, spring: 20, speed: 5, breakAway: 1.5 * d.L },      // a grip's strength (N), how stiff its spring is (rad/s), when it lets go (m behind the hand)
       hand: { force: 3 * k * k * k, omega: 120, mass: 0.02 * k * k * k },                               // a fingertip pushes with at most this (N): it stops at a block that will not give
@@ -87,7 +89,7 @@
     const A = place && place.arr && place.arr.size === d.size ? place.arr : defaultArr(size);
     const P = [-A.p, A.q || 0], C = A.c, U = A.u, V = A.v, face = (p) => Math.atan2(P[1] - p[1], P[0] - p[0]);
     const at = (du, dv) => [C[0] + U[0] * du + V[0] * dv, C[1] + U[1] * du + V[1] * dv];          // (a point on the console: along it, across it)
-    const bc = at(0.1, 0.14), sc = A.s, tray = at(-0.3, -0.06), D = Math.max(0.04, Math.min(0.06, 0.04 * Math.sqrt(d.k)));
+    const bc = at(0.1, 0.14), sc = A.s, tray = at(-0.3, -0.06), D = 0.04;           // (the die and its tower are the same at every size: they stand on the same table)
     // the dice tower stands in the tray at its end away from the table's middle, its mouth up and its way out along the table, into the tray
     // (Marek, 2026-10-28: "a dice tower to guarantee a couple of rolls"); the die lies in the tray's free part
     const TH = Math.max(0.17, 0.08 + 2.5 * D), dA = 1.9 * D, dT = 0.012, dtc = [tray[0] - U[0] * (TH - dA - dT), tray[1] - U[1] * (TH - dA - dT)], dieAt = [tray[0] + U[0] * (dA + dT), tray[1] + U[1] * (dA + dT)];
@@ -187,18 +189,43 @@
     return { d: Math.hypot(l[0] - c[0], l[1] - c[1], l[2] - c[2]), near: [p[0] + n[0], p[1] + n[1], p[2] + n[2]] };
   }
   const DIE_REACH = 0.03;
-  // the body a pinch at `at` (common frame) takes: the nearest block within reach, or the die if it is nearer still and within its own reach.
-  // bodies: [{ i, p, q }] (a snapshot's items, or the host's bodies); free(i) false for one somebody holds -> { i, d, near } or null
-  function aim(at, bodies, size, free = () => true) {
+  // How a block in the tower may be held (Marek, 2026-10-29): fingers can only close on what sticks out. By an END only if the block sticks out of the
+  // tower by POKE (a centre block is poked out first); by a SIDE only if nothing lies against that side (an outer block's outer side; it then comes out
+  // sideways); from ABOVE only if nothing lies on it. A block out of the tower may be held anyhow. -> { ok, face ('end' | 'side' | 'top' | 'free'), dir (side:
+  // the way it may move, common frame) }
+  const POKE = 0.01;
+  function grabRule(bodies, b, at, size, place) {
+    if (b.i === DIE || !place) return { ok: true, face: 'free' };
+    const d = dims(size), L = d.L, W = d.W, H = d.H, iq = [-b.q[0], -b.q[1], -b.q[2], b.q[3]];
+    const l = qRot(iq, [at[0] - b.p[0], at[1] - b.p[1], at[2] - b.p[2]]), axis = qRot(b.q, [1, 0, 0]), across = qRot(b.q, [0, 1, 0]), up = qRot(b.q, [0, 0, 1]);
+    const tc = toCommon(place, [0, 0, 0]), rx = b.p[0] - tc[0], ry = b.p[1] - tc[1], off = rx * axis[0] + ry * axis[1], acr = rx * across[0] + ry * across[1];
+    if (!(Math.abs(off) < 0.6 * L && Math.abs(acr) < 1.6 * W && Math.abs(up[2]) > 0.9)) return { ok: true, face: 'free' };       // (out of the tower, or lying on its side)
+    const gaps = [Math.abs(l[0]) - L / 2, Math.abs(l[1]) - W / 2, Math.abs(l[2]) - H / 2], face = gaps.indexOf(Math.max(...gaps)), sg = l[face] < 0 ? -1 : 1;
+    const rel = (o) => [o.p[0] - b.p[0], o.p[1] - b.p[1], o.p[2] - b.p[2]], dot = (a, c) => a[0] * c[0] + a[1] * c[1] + a[2] * c[2], blocks = bodies.filter((o) => o.i !== b.i && o.i < BLOCKS);
+    if (face === 0) return off * sg >= POKE * d.k ? { ok: true, face: 'end' } : { ok: false, face: 'end' };
+    if (face === 1) {
+      const covered = blocks.some((o) => { const r = rel(o); return Math.abs(r[2]) < 0.5 * H && Math.abs(dot(r, across) - sg * W) < 0.5 * W && Math.abs(dot(r, axis)) < 0.8 * L; });
+      return covered ? { ok: false, face: 'side' } : { ok: true, face: 'side', dir: across.map((v) => v * sg) };
+    }
+    if (sg < 0) return { ok: false, face: 'bottom' };
+    const onTop = blocks.some((o) => { const r = rel(o); return r[2] > 0.5 * H && r[2] < 1.5 * H && Math.hypot(r[0], r[1]) < 0.75 * L; });
+    return onTop ? { ok: false, face: 'top' } : { ok: true, face: 'top' };
+  }
+  // the body a pinch at `at` (common frame) takes: the nearest block within reach that may be held there (grabRule), or the die if it is nearer still
+  // and within its own reach. bodies: [{ i, p, q }] (a snapshot's items, or the host's bodies); free(i) false for one somebody holds; place: the game's.
+  // -> { i, d, near, rule } or null; with no block that may be held, the nearest that may not, marked ok: false (the aim shows it as such)
+  function aim(at, bodies, size, free = () => true, place = null) {
     const d = dims(size), reach = tuning(size).grab, blockSize = [d.L, d.W, d.H], die = layout(size).die.size;
-    let best = null;
+    let best = null, no = null;
     for (const b of bodies) {
       if (!free(b.i)) continue;
       const isDie = b.i === DIE, g = boxGap(b.p, b.q, isDie ? [die, die, die] : blockSize, at);
-      if (g.d <= (isDie ? DIE_REACH : reach) && (!best || g.d < best.d)) best = { i: b.i, d: g.d, near: g.near };
+      if (g.d > (isDie ? DIE_REACH : reach)) continue;
+      const rule = grabRule(bodies, b, at, size, place);
+      if (rule.ok) { if (!best || g.d < best.d) best = { i: b.i, d: g.d, near: g.near, rule, ok: true }; } else if (!no || g.d < no.d) no = { i: b.i, d: g.d, near: g.near, rule, ok: false };
     }
-    return best;
+    return best || no;
   }
 
-  Object.assign(J, { dtowerParts, inDtower, fixtures, boxGap, aim, DIE_REACH, LEVELS, PER, BLOCKS, DIE, BASE, SIZES, SIZE_KEYS, COLOURS, WOOD, dims, tuning, rng, colourOrder, blockSpec, blockHome, slotHome, layout, defaultArr, TABLE, toCommon, fromCommon, qYaw, qMul, qCommon, qRot, furniture, withFurniture, DIE_FACES, DIE_COLOURS, dieUp });
+  Object.assign(J, { dtowerParts, inDtower, fixtures, boxGap, aim, grabRule, POKE, DIE_REACH, LEVELS, PER, BLOCKS, DIE, BASE, SIZES, SIZE_KEYS, COLOURS, WOOD, dims, tuning, rng, colourOrder, blockSpec, blockHome, slotHome, layout, defaultArr, TABLE, toCommon, fromCommon, qYaw, qMul, qCommon, qRot, furniture, withFurniture, DIE_FACES, DIE_COLOURS, dieUp });
 })(typeof module !== 'undefined' ? module.exports : (globalThis.JENGA = globalThis.JENGA || {}));

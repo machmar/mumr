@@ -60,8 +60,11 @@ export function createFx({ THREE, overlay, own }) {
       vA.set(...toV(h.at)); vB.set(...toV(h.near));
       const len = Math.max(1e-4, vA.distanceTo(vB)), r = 0.0009 * Math.sqrt(k);
       a.thread.position.copy(vA).add(vB).multiplyScalar(0.5); a.thread.scale.set(r, len, r); a.thread.quaternion.setFromUnitVectors(up, vB.clone().sub(vA).normalize());
-      a.thread.material.opacity = 0.55 * h.s; a.bead.position.copy(vB); a.bead.scale.setScalar(0.0035 * Math.sqrt(k) * (0.7 + 0.3 * h.s)); a.bead.material.opacity = 0.9 * h.s;
-      a.sh.geometry = m.geometry; a.sh.position.copy(m.position); a.sh.quaternion.copy(m.quaternion); a.sh.scale.setScalar(1.06); a.sh.material.uniforms.strength.value = 0.25 + 0.6 * h.s;
+      // (warm white: it may be taken there; a dull red: it may not, there: a centre block not poked out, a side another block lies against)
+      const col = h.ok === false ? 0xc0503a : 0xfff1d6;
+      a.thread.material.color.set(col); a.bead.material.color.set(h.ok === false ? 0xd06048 : 0xffe0a8); a.sh.material.uniforms.colour.value.set(col);
+      a.thread.material.opacity = (h.ok === false ? 0.35 : 0.55) * h.s; a.bead.position.copy(vB); a.bead.scale.setScalar(0.0035 * Math.sqrt(k) * (0.7 + 0.3 * h.s)); a.bead.material.opacity = (h.ok === false ? 0.5 : 0.9) * h.s;
+      a.sh.geometry = m.geometry; a.sh.position.copy(m.position); a.sh.quaternion.copy(m.quaternion); a.sh.scale.setScalar(1.06); a.sh.material.uniforms.strength.value = (h.ok === false ? 0.15 : 0.25) + (h.ok === false ? 0.3 : 0.6) * h.s;
     });
   }
 
@@ -192,8 +195,14 @@ export function createFx({ THREE, overlay, own }) {
     if (snap && ['lobby', 'roll', 'pull', 'place', 'round_end', 'match_end'].includes(ph)) {
       const items = snap.items, free = (i) => { const it = items.find((q) => q.i === i); return !(it && it.flags & S.F.held); };
       for (const h of hands) {
-        if (h.pinch || !(h.gap < 0.07)) continue;
-        const a = S.aim(h.at, items, state.size, free);
+        if (h.pinch) {                               // (holding: the thread stays, to the block it holds: the nearest held one within reach of the hand)
+          let held = null, hd = Infinity;
+          for (const it of items) { if (!(it.flags & S.F.held)) continue; const dd = Math.hypot(it.p[0] - h.at[0], it.p[1] - h.at[1], it.p[2] - h.at[2]); if (dd < hd && dd < 0.35 * Math.sqrt(k)) { hd = dd; held = it; } }
+          if (held) { const sz = held.i === S.DIE ? [L.die.size, L.die.size, L.die.size] : [d.L, d.W, d.H], g = S.boxGap(held.p, held.q, sz, h.at); aimList.push({ i: held.i, near: g.near, at: h.at, s: 1, ok: true, held: true }); }
+          continue;
+        }
+        if (!(h.gap < 0.07)) continue;
+        const a = S.aim(h.at, items, state.size, free, place);
         if (a) aimList.push(Object.assign(a, { at: h.at, s: Math.max(0, Math.min(1, (0.07 - h.gap) / 0.045)) }));
       }
     }
