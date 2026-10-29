@@ -89,10 +89,11 @@
     const A = place && place.arr && place.arr.size === d.size ? place.arr : defaultArr(size);
     const P = [-A.p, A.q || 0], C = A.c, U = A.u, V = A.v, face = (p) => Math.atan2(P[1] - p[1], P[0] - p[0]);
     const at = (du, dv) => [C[0] + U[0] * du + V[0] * dv, C[1] + U[1] * du + V[1] * dv];          // (a point on the console: along it, across it)
-    const bc = at(0.1, 0.14), sc = A.s, tray = at(-0.3, -0.06), D = 0.04;           // (the die and its tower are the same at every size: they stand on the same table)
+    const bc = at(0.1, 0.14), sc = A.s, tray = at(-0.22, -0.06), D = 0.04;           // (the die and its tower are the same at every size: they stand on the same table)
     // the dice tower stands in the tray at its end away from the table's middle, its mouth up and its way out along the table, into the tray
     // (Marek, 2026-10-28: "a dice tower to guarantee a couple of rolls"); the die lies in the tray's free part
-    const TH = Math.max(0.17, 0.08 + 2.5 * D), dA = 1.9 * D, dT = 0.012, dtc = [tray[0] - U[0] * (TH - dA - dT), tray[1] - U[1] * (TH - dA - dT)], dieAt = [tray[0] + U[0] * (dA + dT), tray[1] + U[1] * (dA + dT)];
+    // (it stands astride the tray's far wall, half in the tray and half out of it, so that the tray is free for the die: Marek, 2026-10-29, "it feels cramped")
+    const TH = Math.max(0.17, 0.08 + 2.5 * D), dA = 1.9 * D, dT = 0.012, dtc = [tray[0] - U[0] * TH, tray[1] - U[1] * TH], dieAt = [tray[0] + U[0] * 0.03, tray[1] + U[1] * 0.03];
     // the board faces the front of the table, turned towards P by about half the way (at most a third of a right angle either way)
     const front = Math.atan2(-V[1], -V[0]), boardYaw = front + Math.max(-0.6, Math.min(0.6, 0.45 * wrap(face(bc) - front)));
     return {
@@ -126,6 +127,10 @@
     plank(-A - t / 2, 8.215 * D, 0, 6.625 * D);
     plank(A + t / 2, 5.315 * D, 0, 3.725 * D);
     plank(-A - t / 2, 2.2 * D, A + t, 0.05 * D);
+    // a little roof on two posts over the front half of the mouth (the die goes in at the back half, onto the first plank)
+    const RH = H + 1.6 * D, ro = 0.018;
+    for (const v of [-(A + t / 2), A + t / 2]) out.push({ size: [t, t, RH - H], p: P(A + t / 2, v, (H + RH) / 2), q: qy, part: 'post' });
+    out.push({ size: [A + t + 2 * ro, 2 * (A + t) + 2 * ro, 0.012], p: P(A / 2 + t / 2, 0, RH + 0.006), q: qy, part: 'roof' });
     return out;
   }
   // is a point (game frame) inside the dice tower (its inside, mouth to table)?
@@ -155,7 +160,9 @@
     const w = t.wall / 2, h = c.top + t.rim, T = t.half, on = (du, dv) => [t.c[0] + U[0] * du + V[0] * dv, t.c[1] + U[1] * du + V[1] * dv];
     // (the tray's walls stand on the table: slabs from its top up, not solids from the floor, which made an edge under the table that a falling block
     //  caught on: Marek's run, 2026-10-28)
-    for (const [q, hu, hv] of [[on(-T, 0), w, T + w], [on(T, 0), w, T + w], [on(0, -T), T + w, w], [on(0, T), T + w, w]]) planes.push({ l: 'tray table', v: false, p: rect(q, hu, hv, h), thick: t.rim });
+    // (the far wall has a gap where the dice tower stands astride it: its way out is in the tray)
+    const g = L.dtower.A + L.dtower.t, half = (T + w - g) / 2;
+    for (const [q, hu, hv] of [[on(-T, -(g + half)), w, half], [on(-T, g + half), w, half], [on(T, 0), w, T + w], [on(0, -T), T + w, w], [on(0, T), T + w, w]]) planes.push({ l: 'tray table', v: false, p: rect(q, hu, hv, h), thick: t.rim });
     return planes;
   }
   // the real room with the furniture added (one object per room, so that the physics sees "the same room" and rebuilds nothing)

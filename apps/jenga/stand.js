@@ -91,6 +91,7 @@ export function createStand({ THREE, parent, mats }) {
   // ---- the plaques
   const cordMat = mats.cord, backMat = new THREE.MeshStandardMaterial({ map: back.t, roughness: 0.7, envMap: mats.env, envMapIntensity: 0.4 });
   const plaques = new Map();            // id (or label for a tag) -> { node, pivot, spinG, rect, kind, front, back, mat, swing, swingV, spin, spinV, target, shown, want }
+  const props = new Set([backMat]);     // (the plaques' wood and faces: they darken with the room; the lit paper does not, it is a light)
   // an ema's outline: a rectangle with a low pitched roof; a token's: a circle (in metres, round its middle)
   function outline(kind, bw, bh) {
     const s = new THREE.Shape();
@@ -127,8 +128,11 @@ export function createStand({ THREE, parent, mats }) {
     }
     parts.push(new THREE.SphereGeometry(0.0028, 8, 6).translate(0, top, 0.002));
     const cordGeo = mergeGeometries(parts.map((g) => g.toNonIndexed()), false); for (const g of parts) g.dispose();
-    const cord = new THREE.Mesh(cordGeo, cordMat); pivot.add(cord);
-    const p = { key, node, pivot, spinG, body, fM, bM, mat, cord, rect: b, kind: b.kind, i, swing: 0, swingV: 0, spin: 0, spinV: 0, target: 0, shown: null, sig: null, glow: 0 };
+    // (the cord turns with the plaque when its words change: Marek, 2026-10-29, the strings stayed as they were)
+    const cordG = new THREE.Group(); pivot.add(cordG);
+    const cord = new THREE.Mesh(cordGeo, cordMat); cordG.add(cord);
+    props.add(mat);
+    const p = { key, node, pivot, spinG, cordG, body, fM, bM, mat, cord, rect: b, kind: b.kind, i, swing: 0, swingV: 0, spin: 0, spinV: 0, target: 0, shown: null, sig: null, glow: 0 };
     plaques.set(key, p);
     return p;
   }
@@ -250,7 +254,7 @@ export function createStand({ THREE, parent, mats }) {
       p.swing += p.swingV * dt;
       p.spinV += (-SPIN_W * SPIN_W * (p.spin - p.target) - 2 * 0.42 * SPIN_W * p.spinV) * dt;
       p.spin += p.spinV * dt;
-      p.pivot.rotation.x = p.swing; p.spinG.rotation.y = p.spin;
+      p.pivot.rotation.x = p.swing; p.spinG.rotation.y = p.spin; p.cordG.rotation.y = p.spin;
       p.glow += ((tc ? (tc.held ? 0.55 : 0.3) : b.active && !off ? 0.06 + 0.04 * Math.sin(t * 2) : 0) - p.glow) * Math.min(1, dt * 10);
       p.mat.emissiveIntensity = p.glow;
     }
@@ -275,5 +279,5 @@ export function createStand({ THREE, parent, mats }) {
     return { x: c[0], y: c[1], h: Bd.bottom + h / 2, yaw: state.place.yaw + Bd.yaw, pitch: Bd.pitch };
   }
   function dispose() { for (const p of plaques.values()) disposePlaque(p); for (const g of own) g.dispose(); stand.traverse((o) => { if (o.geometry) o.geometry.dispose(); }); front.t.dispose(); back.t.dispose(); paperMat.dispose(); backMat.dispose(); parent.remove(root); }
-  return { root, update, pose, dispose, aspect: H / W, width: w, glowAt };
+  return { root, update, pose, dispose, aspect: H / W, width: w, glowAt , props: () => [...props] };
 }

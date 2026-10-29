@@ -13,7 +13,7 @@
 //   the moments  in fx.js
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { ATLAS, blockAtlas, dieFace, yakisugi, walnut, hinoki, sand, felt, washi, seigaiha, enso, glow, blobShadow } from './textures.js';
+import { ATLAS, blockAtlas, dieFace, yakisugi, walnut, hinoki, sand, felt, washi, seigaiha, enso, glow, blobShadow, drawShape } from './textures.js';
 import { FONT, loadFonts, environment, createRig, mergeStatic } from './look.js';
 import { createStand } from './stand.js';
 import { createFx } from './fx.js';
@@ -184,19 +184,40 @@ export function createScene({ THREE, parent, renderer, playerColours = [0xf2c14e
     for (const sx of [-1, 1]) box(0.018, 0.055, 2 * (hy - legIn), mats.walnut, ...at(sx * (hx - legIn), 0, c.top - tt - 0.0275), cg);
     floorShadow(0, 0, 2 * hx + 0.25, 2 * hy + 0.25, true, 0.32, 0, cg);
     // -- the die's tray: black lacquer walls lined with vermilion, a vermilion lip, indigo felt (square to the table)
-    const Tr = L.tray, tw = Tr.wall, th = Tr.rim, tz = c.top, tc = [-0.3, vs * -0.06];
+    const Tr = L.tray, tw = Tr.wall, th = Tr.rim, tz = c.top, tc = [-0.22, vs * -0.06];          // (spec.js layout: in a little from the end, so that the dice tower astride its far wall stands on the table)
     const felt3 = add(new THREE.PlaneGeometry(2 * Tr.half, 2 * Tr.half), mats.felt, ...at(tc[0], tc[1], tz + 0.0008), cg, false); felt3.rotation.x = -Math.PI / 2;
-    for (const [x, y, w, dp, ix, iy] of [[tc[0] - Tr.half, tc[1], tw, 2 * Tr.half + tw, 1, 0], [tc[0] + Tr.half, tc[1], tw, 2 * Tr.half + tw, -1, 0], [tc[0], tc[1] - Tr.half, 2 * Tr.half + tw, tw, 0, 1], [tc[0], tc[1] + Tr.half, 2 * Tr.half + tw, tw, 0, -1]]) {
+    // (the far wall in two, with the dice tower standing astride the gap between them: spec.js furniture)
+    const dg = L.dtower.A + L.dtower.t, dh = (Tr.half + tw / 2 - dg) / 2;
+    for (const [x, y, w, dp, ix, iy] of [[tc[0] - Tr.half, tc[1] - (dg + dh), tw, 2 * dh, 1, 0], [tc[0] - Tr.half, tc[1] + (dg + dh), tw, 2 * dh, 1, 0], [tc[0] + Tr.half, tc[1], tw, 2 * Tr.half + tw, -1, 0], [tc[0], tc[1] - Tr.half, 2 * Tr.half + tw, tw, 0, 1], [tc[0], tc[1] + Tr.half, 2 * Tr.half + tw, tw, 0, -1]]) {
       // (w is along the table, dp across it: in THREE, x and z)
       box(w, th, dp, mats.lacquer, ...at(x, y, tz + th / 2), cg, 0.004);
       const lw = ix ? 0.002 : w - 2 * tw, ld = iy ? 0.002 : dp - 2 * tw;
       box(lw, th - 0.006, ld, mats.shu, ...at(x + ix * (tw / 2 + 0.001), y + iy * (tw / 2 + 0.001), tz + (th - 0.006) / 2 + 0.001), cg);
     }
     // -- the dice tower (spec.js dtowerParts: the host's physics has the same boxes): walnut walls with a vermilion lip round the mouth, black lacquer planks
+    //    and its dress: a black lacquer skirt at its foot, a vermilion band, a roof of black lacquer edged in vermilion, the six signs of the die down its front
+    const DT = L.dtower, dq = new THREE.Quaternion();
     for (const b of S.dtowerParts(L)) {
-      const m = box(b.size[0], b.size[2], b.size[1], b.part === 'wall' ? mats.walnut : mats.lacquer, ...at(b.p[0], b.p[1], b.p[2]), furniture, b.part === 'wall' ? 0.002 : 0);
-      m.quaternion.set(b.q[0], b.q[2], -b.q[1], b.q[3]);
-      if (b.part === 'wall') { const lip = box(b.size[0] + 0.004, 0.008, b.size[1] + 0.004, mats.shu, ...at(b.p[0], b.p[1], b.p[2] + b.size[2] / 2 + 0.004), furniture, 0.002); lip.quaternion.copy(m.quaternion); }
+      const mat = b.part === 'wall' || b.part === 'post' ? mats.walnut : mats.lacquer;
+      const m = box(b.size[0], b.size[2], b.size[1], mat, ...at(b.p[0], b.p[1], b.p[2]), furniture, b.part === 'plank' ? 0 : 0.002);
+      m.quaternion.set(b.q[0], b.q[2], -b.q[1], b.q[3]); dq.copy(m.quaternion);
+      if (b.part === 'wall') {
+        for (const [z, hh, mt, grow] of [[b.p[2] + b.size[2] / 2 + 0.004, 0.008, mats.shu, 0.004], [DT.base + 0.009, 0.018, mats.lacquer, 0.008], [DT.base + DT.H * 0.62, 0.01, mats.shu, 0.003]]) {
+          if (z - hh / 2 < b.p[2] - b.size[2] / 2 - 0.001) continue;                       // (the front wall stops short of the table: no skirt there)
+          const band = box(b.size[0] + grow, hh, b.size[1] + grow, mt, ...at(b.p[0], b.p[1], z), furniture, 0.002); band.quaternion.copy(dq);
+        }
+      }
+      if (b.part === 'roof') { const edge = box(b.size[0] + 0.006, 0.006, b.size[1] + 0.006, mats.shu, ...at(b.p[0], b.p[1], b.p[2] - 0.009), furniture, 0.002); edge.quaternion.copy(dq); }
+    }
+    {
+      // the six signs, inlaid down the front wall over the door
+      const cv = document.createElement('canvas'); cv.width = 96; cv.height = 576; const g = cv.getContext('2d');
+      g.fillStyle = '#2a1a10'; g.fillRect(0, 0, 96, 576);
+      S.COLOURS.forEach((col, k) => { const y = 48 + k * 96; g.fillStyle = `#${col.hex.toString(16).padStart(6, '0')}`; g.beginPath(); g.arc(48, y, 36, 0, Math.PI * 2); g.fill(); g.fillStyle = 'rgba(255,246,228,0.95)'; g.strokeStyle = g.fillStyle; drawShape(g, col.shape, 48, y, 19); });
+      const tex = own(new THREE.CanvasTexture(cv)); tex.colorSpace = THREE.SRGBColorSpace;
+      const sw = DT.D * 0.62, sh = sw * 6, cy = Math.cos(DT.yaw), sy = Math.sin(DT.yaw), fu = DT.A + DT.t + 0.0012, z = DT.base + DT.door + 0.012 + sh / 2;
+      const strip = add(new THREE.PlaneGeometry(sw, sh), own(new THREE.MeshStandardMaterial({ map: tex, roughness: 0.45, envMap: env, envMapIntensity: 0.5 })), ...at(DT.c[0] + cy * fu, DT.c[1] + sy * fu, z), furniture, false);
+      strip.rotation.y = DT.yaw + Math.PI / 2;
     }
     // -- the lantern: a paper andon on the floor; walnut posts, a black cap, washi with a lattice, lit from inside
     const lx = L.lantern[0], ly = L.lantern[1], LH = 0.74, pw = 0.2, p0 = 0.17, p1 = 0.64;
@@ -231,8 +252,49 @@ export function createScene({ THREE, parent, renderer, playerColours = [0xf2c14e
     box(2 * postX, 0.02, 0.026, mats.walnut, 0, postH - 0.12, 0, sg);
     floorShadow(SC.c[0], SC.c[1], 2 * postX + 0.3, 0.5, true, 0.4, SC.yaw + Math.PI / 2);
     buildScroll(sg, SC, postH);
+    buildHowto(sg, postX, postH);
     mergeStatic(THREE, mergeGeometries, furniture);
     furnKey = furnSig(sz, place);
+  }
+
+  // ---- how to take a block (Marek, 2026-10-29): a sign of wood with a washi face, hanging on two cords from an arm out of the scroll stand's post
+  let howto = null;
+  function buildHowto(sg, postX, postH) {
+    // (on the stand's -x side: arrange.js keeps that much more room there)
+    const armY = postH - 0.2, armL = 0.3, W = 0.27, H = 0.4, cx = -(postX + armL - 0.15), top = armY - 0.07;
+    if (!howto) {
+      const cv = document.createElement('canvas'); cv.width = 680; cv.height = 920;
+      const tex = own(new THREE.CanvasTexture(cv)); tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 8;
+      howto = { cv, tex, mat: own(new THREE.MeshStandardMaterial({ map: tex, roughness: 0.9, emissive: 0xffffff, emissiveMap: tex, emissiveIntensity: 0.14, envMap: env, envMapIntensity: 0.2 })), key: null };
+    }
+    box(armL, 0.022, 0.03, mats.walnut, -(postX + armL / 2), armY, 0, sg, 0.004);
+    box(0.03, 0.03, 0.036, mats.lacquer, -(postX + armL - 0.012), armY, 0, sg, 0.004);
+    for (const dx of [-0.09, 0.09]) add(new THREE.CylinderGeometry(0.0013, 0.0013, armY - top, 5), mats.cord, cx + dx, (armY + top) / 2, 0.004, sg, false);
+    box(W + 0.02, H + 0.02, 0.012, mats.walnut, cx, top - H / 2, 0, sg, 0.004);
+    add(new THREE.PlaneGeometry(W, H), howto.mat, cx, top - H / 2, 0.0065, sg, false);
+    howto.key = null;
+  }
+  function drawHowto() {
+    const g = howto.cv.getContext('2d'), W = howto.cv.width, H = howto.cv.height;
+    washi(g, W, H, 17, [248, 240, 224]);
+    g.fillStyle = 'rgba(178,48,28,0.9)'; g.fillRect(36, 36, 8, H - 72);
+    let y = 96; const x = 72, wrap = (text, font, colour, lh, maxW = W - x - 50) => {
+      g.font = font; g.fillStyle = colour; const words = text.split(' '); let line = '';
+      for (const w of words) { const t = line ? `${line} ${w}` : w; if (g.measureText(t).width > maxW && line) { g.fillText(line, x, y); y += lh; line = w; } else line = t; }
+      if (line) { g.fillText(line, x, y); y += lh; }
+    };
+    g.textBaseline = 'alphabetic'; g.textAlign = 'left';
+    wrap('Taking a block', `800 54px ${FONT.head}`, '#221a14', 64);
+    y += 10;
+    for (const [head, body] of [
+      ['Poke it', 'push a block with a fingertip and it slides out at the other side'],
+      ['Pinch from a little way off', 'bring thumb and finger together near a block: a thread of light shows what the pinch will take; close it to take it'],
+      ['The middle block', 'poke it out first, then take it by the end that sticks out'],
+      ['An outer block', 'take it by its outer side and draw it out sideways'],
+      ['A red thread', 'it cannot be held there'],
+      ['The die', 'let it go over the mouth of the little tower'],
+    ]) { wrap(head, `700 34px ${FONT.head}`, '#a8301c', 40); wrap(body, `500 28px ${FONT.body}`, '#3a2e24', 36); y += 16; }
+    howto.tex.needsUpdate = true;
   }
 
   // ---- the scroll (kakejiku): brocade of waves round a washi heart; a thin rod at the top, a roller with black ends at the bottom; ink and a red seal
@@ -319,6 +381,7 @@ export function createScene({ THREE, parent, renderer, playerColours = [0xf2c14e
     const pl = state.place || { x: 0, y: 0, yaw: 0 }, L = S.layout(state.size, pl);
     furniture.position.set(pl.x, 0, -pl.y); furniture.rotation.set(0, pl.yaw, 0);
     const T0 = performance.now(); timing.score = 0; timing.stand = 0; timing.fx = 0;
+    if (howto && howto.key !== fontsVer) { howto.key = fontsVer; drawHowto(); }
     const key = `${fontsVer}|${state.round}|${state.rounds}|${state.phase === 'match_end'}|${JSON.stringify(S.scoreboard(state))}|${(state.ticker || []).slice(-3).join('|')}`; if (key !== scroll.key) { scroll.key = key; drawScore(state, playerColours); timing.score = performance.now() - T0; }
     // blocks and die from the host's bodies
     if (snap) {
@@ -361,6 +424,7 @@ export function createScene({ THREE, parent, renderer, playerColours = [0xf2c14e
     decor.update({ plan: deco, level: garden, t: ts, wc: fx.clock(), lightK });
     warmStep();
     shades.update({ lights: sh ? sh.lights : [], cursor: sh ? sh.cursor : null, dark: sh ? sh.dark : 0, t: ts, lightK });
+    propLight(sh ? sh.dark : 0);
   }
   function dispose() { stand.dispose(); fx.dispose(); decor.dispose(); shades.dispose(); for (const o of disposables) if (o && o.dispose) o.dispose(); parent.remove(root); }
   // The lights of this world that light the real room (the engine's relight: app.relight): the lantern, and a little the board's lit paper. At the
@@ -374,6 +438,24 @@ export function createScene({ THREE, parent, renderer, playerColours = [0xf2c14e
     return lightsOut.concat(decor.relights(), shades.relights());
   }
   // how dear this page's drawing is (its player's Quality: 2 high, 1 medium, 0 low): shadows, the motes, the garden's smoke and petals
+  // ---- the props darken with the room (Marek, 2026-10-29: "props don't dim, they stick out like a sore thumb"; "the table round the tower is uncomfortably
+  //      bright when it dims"): every material of the furniture, the garden and the board's plaques takes k = 1 - 0.8 dark of its colour, its reflections
+  //      and its own faint glow; the lights (the lantern, the lamps and candles, the shades, the board's lit paper) and the tower and the die do not.
+  const propBase = new Map();
+  const propList = () => [...Object.entries(mats).filter(([k]) => !['env', 'lampBack'].includes(k)).map(([, m]) => m), scroll && scroll.mat, howto && howto.mat, ...sandCache.values(), ...decor.props(), ...stand.props()].filter(Boolean);
+  let propK = 1, propN = 0;
+  function propLight(dark) {
+    const k = 1 - 0.8 * Math.max(0, Math.min(1, dark || 0)), list = propList();
+    if (Math.abs(k - propK) < 0.01 && list.length === propN) return;
+    propK = k; propN = list.length;
+    for (const m of list) {
+      if (!propBase.has(m)) propBase.set(m, { c: m.color ? m.color.clone() : null, e: m.envMapIntensity, ei: m.emissiveIntensity });
+      const b = propBase.get(m);
+      if (b.c) m.color.copy(b.c).multiplyScalar(k);
+      if (b.e !== undefined) m.envMapIntensity = b.e * k;
+      if (b.ei !== undefined) m.emissiveIntensity = b.ei * k;
+    }
+  }
   let qual = 2;
   const timing = { score: 0, stand: 0, fx: 0 };
   // Warming up: a headset makes a shader the first time a thing is drawn, and that stops it for a good part of a second; the moments (the glows, the

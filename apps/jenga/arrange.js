@@ -66,7 +66,8 @@
   // the console with the board's stand, whose beam reaches past the table's back when the board is turned)
   // Against the room (walls are full height) the whole width counts; between the game's own things only the feet (the scroll's beam passes over the
   // end of the table)
-  const SCROLL = { hu: 0.56, feet: 0.43, hv: 0.19 }, LANTERN = 0.15, PLAYER = 0.32, ACCESS = 0.42, CONSOLE_BACK = 0.08;
+  const SCROLL = { hu: 0.56, feet: 0.43, hv: 0.19, side: -0.14 },          // (hu: the beam; side: the arm with the how-to sign reaches this much further on one side, -u)
+  LANTERN = 0.15, PLAYER = 0.32, ACCESS = 0.42, CONSOLE_BACK = 0.08;
 
   // cost of one outline (game frame) against the room (common frame): { hard, soft }
   function against(obs, place, poly, clear, opts = {}) {
@@ -139,7 +140,7 @@
           return b;
         };
         // the scroll: at the console's far end, its near end, behind it, across the tower, behind the tower; it faces the player
-        const scrollAt = (q) => { const f = Math.atan2(P[1] - q[1], P[0] - q[0]), u = [-Math.sin(f), Math.cos(f)]; return { feet: rectPoly(q, u, SCROLL.feet, SCROLL.hv), whole: rectPoly(q, u, SCROLL.hu, SCROLL.hv) }; };
+        const scrollAt = (q) => { const f = Math.atan2(P[1] - q[1], P[0] - q[0]), u = [-Math.sin(f), Math.cos(f)]; const sd = SCROLL.side / 2; return { feet: rectPoly(q, u, SCROLL.feet, SCROLL.hv), whole: rectPoly([q[0] + u[0] * sd, q[1] + u[1] * sd], u, SCROLL.hu + Math.abs(sd), SCROLL.hv) }; };
         const sc = pick([{ at: at(0.95, 0.15), pref: 0 }, { at: at(1.05, -0.2), pref: 0.15 }, { at: at(-0.95, 0.15), pref: 0.3 }, { at: at(0.2, 0.75), pref: 0.5 },
           { at: [-0.15, -Math.sign(c.v[1] || 1) * (half + 0.75)], pref: 0.6 }, { at: [half + 0.65, 0], pref: 0.8 }, { at: [half + 0.6, Math.sign(c.v[1] || 1) * (half + 0.5)], pref: 0.7 }], scrollAt, 0.02);
         taken.push(sc.poly);

@@ -351,7 +351,7 @@ export function createDecor({ THREE, parent, env, own, relit = false }) {
           pos.setXYZ(k, sm.at[0] + cx + Math.sin(h * 60 + wt * 2) * 0.0008, sm.at[1] + h, sm.at[2] + cz);
           sz.setX(k, 0.016 + 0.1 * Math.pow(ph, 1.3));
           const a = vis * Math.min(1, ph * 30) * Math.pow(1 - ph, 2.2) * (0.09 - 0.06 * Math.min(1, ph * 2));
-          col.setXYZW(k, 0.86, 0.85, 0.82, Math.min(1, a * 4) * lightK);
+          col.setXYZW(k, 0.9, 0.88, 0.85, Math.min(0.85, a * 9) * lightK);          // (a * 4 was too faint to see over the passthrough: Marek, 2026-10-29)
         }
       });
       pos.needsUpdate = true; col.needsUpdate = true; sz.needsUpdate = true;
@@ -371,5 +371,7 @@ export function createDecor({ THREE, parent, env, own, relit = false }) {
   // a page's quality (2 high, 1 medium, 0 low): no smoke and no petals at low
   let qual = 2;
   const quality = (q) => { qual = q; };
-  return { root, update, relights, dispose, quality };
+  // the things of the garden that are not lights (they darken with the room: draw.js propLight)
+  const props = () => [M.sand, M.stone, M.moss, M.wood, M.black, M.bamboo, M.leaf, M.glaze, M.bark, M.blossom, M.stick, M.wax];
+  return { root, update, relights, dispose, quality, props };
 }

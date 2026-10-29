@@ -47,6 +47,13 @@ turn it is, the referee's last words.
 - **The aim.** A hand whose thumb and index come within 7 cm of each other shows what a pinch there would take: a thread of light from between the fingers to the
   block, a bead where it would be held, the block's edges lit, brighter as the fingers close. Every page draws everybody's aim from everybody's hands; the host
   takes with the same rule (`spec.js aim`: the nearest block within reach, 3 cm at the normal size, or the die if it is nearer).
+- **What may be held** in the tower (`spec.js grabRule`, the host and the aim alike), as fingers could: a block **by an end** only once it sticks out 1 cm (so a
+  centre block is poked out first), **by a side** only a side nothing lies against (an outer block's outer side: it then comes out sideways, never along its
+  length, until it is clear), **from above** only with nothing on it. The aim shows a block that may not be held where the fingers are with a dull red thread,
+  and keeps its thread to the block while it is held. A sign hangs from an arm of the scroll's stand and says all this.
+- **A bad network.** A hand whose packets stop keeps its block (held still) for 3 s. A hand that jumps (a late packet) does not throw its fingers or its block:
+  a fingertip that would jump more than 4 cm passes through until its place is free, fingertips go at most 2 m/s, and a hold pulls no harder than 3 cm of
+  error would.
 - **Holding.** A pinch that drops for less than 0.3 s (a hand reaching into the tower loses its tracking now and then) keeps its block; fingers that open let go
   at once. A block keeps its turn while it comes out of the tower (the hand's own little turns would wrench it in its slot) and turns with the hand once it is
   clear of the tower (out of the column by its own length, or lifted over the top). The die turns with the hand from the start.
@@ -106,9 +113,15 @@ the branch blossoms, the flames light). The sway and the growing follow the serv
 the tower falls and run back with the rewind. The board's **Garden** (full, sparse, none) is a shared setting: sparse keeps the first garden, lamp, stones, corner and top, full adds the rest.
 
 **Lights that light the real room.** The lantern, the lamps and the candles lift the room's dim round them (engine `app.relight`): where the room is darkened, the
-real floor and walls near a lamp stay brighter and are warmed in its colour, as if the lamp lit them. The engine draws the dim on the scanned surfaces of the
+real floor and walls near a lamp stay brighter and are warmed in its colour, as if the lamp lit them; near a light a veil of its colour lies over the real
+surface too (engine dim3d `warmth`, 0.35), so a white real room turns amber round a lamp instead of only having a little warm light laid on it. The engine draws the dim on the scanned surfaces of the
 server's room (floor, walls, tables) and lets each light take some of it away by distance and by how squarely the surface faces it; the same lights and the same
 room on every headset, so the pool of light is in the same real place for everybody. At the fall the lights go down with the room (`lightK`).
+
+**The props darken with the room.** Every material of the furniture, the plinth and its sand, the garden, the scroll, the how-to sign and the board's plaques
+takes 1 - 0.8 x the room's dim of its colour, its reflections and its own faint glow (`draw.js propLight`); the lights (the lantern, the lamps and candles, the
+shades, the board's lit paper) and the tower and the die do not. **The real walls hide what is behind them** (`occlude.js`): in the headset each wall of the
+server's room is drawn into the depth buffer only, 4 cm behind the real wall, so the garden of the next room does not show through the wall.
 
 ## Shades over the ceiling lights
 
@@ -172,7 +185,7 @@ step of 0.05, so the document is not a stream.
 |---|---|---|---|
 | lobby, end of the match | 0 | 0 | 2.5 s / 5 s |
 | die | 0.40 | 0.25 | 2.5 s |
-| pull / put on top | 0.55 to 0.90, more with the tension (a hand holding a half pulled block a little more) | 0.35 to 0.80 | 1.5 s |
+| pull / put on top (tension counts only real motion: a tower kept awake trembles) | 0.55 to 0.90, more with the tension (a hand holding a half pulled block a little more) | 0.35 to 0.80 | 1.5 s |
 | a block comes out | a quick extra +0.12 for 1.2 s | +0.10 | 0.15 s in, 2.5 s out |
 | the fall | 0.90 | 1 | 0.15 s |
 | the replay | 0.85 | 1 | 0.7 s |
@@ -206,6 +219,7 @@ The board's **Room dim** (off, gentle = half of everything, full) is a shared se
 | `fx.js` | the moments: edge glows, the limit band, rings, sparks, sawdust, the words of the fall, the trail, the turn's ring, the motes on the world's clock |
 | `app.js`, `index.html` | the page on `createApp` |
 | `view.js`, `view.html` | the PC view (a watcher; keys 1 2 3 4 move the camera, M the music) |
+| `occlude.js` | the real room's walls in the depth buffer only: what of the game is behind a real wall is hidden (in the headset) |
 | `focus.js` | the room's dim: the look of each phase, what tension adds, the Room dim setting; asked by the referee through `session.dim` |
 | `music.js`, `music/` | the soundtrack: the director on the host (scene, track, where in it), the page's player (tension, moments, the crossfades, the swells, the limiter, the generated bells, boom, riser and block clacks); the folders for your tracks |
 | `*.test.js` | `rules`, `net` (and replay), `tower`, `referee`, `app` (the whole app with pretend headsets and a pretend host), `music`, `focus`, `arrange`, `deco`, `shades` |
@@ -214,6 +228,9 @@ The board's **Room dim** (off, gentle = half of everything, full) is a shared se
 
 Found with a pretend hand that pulls blocks out of a tower under its own weight (`tower.test.js`, and a soak that pulled each of the 51 pullable blocks of a fresh tower):
 
+- **What it costs the host.** An awake tower is about 3.5 ms a step on the PC (Jolt's speculative contact distance down to 2 mm from 2 cm: a third less; a
+  substep of 1/180 would halve it but lets a stack lean off), up to three times that on a busy PC; a step covers at most 25 ms, so a host that cannot keep up
+  runs a little slow rather than falling further behind (Marek's run, 2026-10-29: 45 ms a step, the host fell behind, holds broke).
 - **In play the tower never sleeps** (engine `JoltWorld.keepAwake`). A sleeping stack that is woken settles a little (Jolt starts its contacts afresh): about
   0.8 mm down and up to a millimetre sideways at the top each time, and a hand near the tower woke it a hundred times a round; it crept until it fell by
   itself (Marek's run, 2026-10-28). Awake, it settles once and stands still (a minute: under 0.01 mm). The position correction is gentle (baumgarte 0.05):
@@ -232,7 +249,9 @@ Found with a pretend hand that pulls blocks out of a tower under its own weight 
 
 ## The dice tower
 
-A walnut box in the tray, its mouth up and its way out into the tray (`spec.js dtowerParts`: the host's physics has the same boxes as fixtures, every page draws
+A walnut box astride the tray's far wall, half in the tray and half out of it (the wall has a gap where it stands), its mouth up and its way out into the
+tray; a black lacquer skirt, vermilion bands, the six signs of the die inlaid down its front over the door, and a little roof on two posts over the front
+half of the mouth (the roof and the posts are in the physics too). It is the same size at every size of the game (the die is 4 cm) (`spec.js dtowerParts`: the host's physics has the same boxes as fixtures, every page draws
 them). Inside, two planks at 40 degrees reach half way across from opposite walls and a ramp at 30 degrees (steeper than the die's friction) brings the die out
 through a door in the front wall. The gaps are wider than a die turned on its corner (1.73 dice): 1.9 dice from a plank's end to the wall, more than 2.1 dice
 square to the next plank, a door 2.4 dice high; the die is 4 to 6 cm, so the tower is 39 to 59 cm high and the tray grows with the die. `tower.test.js` lets a die

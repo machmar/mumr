@@ -65,7 +65,7 @@
       // giant tower, and the garden went: Marek's run, 2026-10-28; a falling block seldom lands further out than six tenths of the tower's height)
       Array.from({ length: 20 }, (_, i) => { const a = (i / 20) * Math.PI * 2, r = L.plinth.half + 0.6 * d.height + 0.3; return toC([Math.cos(a) * r, Math.sin(a) * r]); }),
       [[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([a, b]) => c.at(a * (c.half[0] + 0.15), b * (c.half[1] + 0.15) - (b < 0 ? 0.55 : 0))).map(toC),   // the console and the room in front of the board
-      geo.rectPoly(L.score.c, [-Math.sin(L.score.yaw), Math.cos(L.score.yaw)], 0.65, 0.35).map(toC),
+      geo.rectPoly(L.score.c, [-Math.sin(L.score.yaw), Math.cos(L.score.yaw)], 0.75, 0.35).map(toC),                       // (the scroll and the how-to sign on its arm)
       geo.rectPoly(L.lantern, [1, 0], 0.3, 0.3).map(toC),
       geo.rectPoly(L.P, [1, 0], 0.7, 0.7).map(toC),                                                                         // where the player stands
     ];

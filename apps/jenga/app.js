@@ -6,11 +6,12 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { createApp, PLAYER_COLOURS } from '/mumr/xr/app.js';
 import { createScene } from './draw.js';
 import { markCursor } from './shades.js';
+import { createOccluder } from './occlude.js';
 
 const J = window.JENGA, R = window.MUMR.room;
 const stream = new J.Stream(60);
 const sound = new J.Soundtrack({ base: 'music/', now: () => (app ? app.S.serverNow() : Date.now()) });
-let scene3d = null, common = null, app = null, lastDraw = performance.now(), noHostAt = null, lastClear = -1e9;
+let scene3d = null, common = null, occluder = null, app = null, lastDraw = performance.now(), noHostAt = null, lastClear = -1e9;
 const state = () => (app && app.S.doc.jenga) || J.waiting();
 const hostHere = () => !!app && (app.S.hostHere || app.S.isHost);
 const info = () => ({ here: app.S.connected ? app.S.others + 1 : 1, game: app.S.stateOf(null), mine: app.S.stateOf(null), host: hostHere() && !!app.S.doc.jenga, mark: markInfo(), autoQuality: AUTO_Q });
@@ -111,6 +112,7 @@ app = await createApp({
   setup: ({ world, renderer, lights }) => {
     common = new THREE.Group(); world.add(common);          // the common frame: moved by this page's line-up every frame
     scene3d = createScene({ THREE, parent: common, renderer, playerColours: PLAYER_COLOURS, relit: true });
+    occluder = createOccluder({ THREE, parent: common });               // (the real walls hide what is behind them: in the headset)
     lights.hemi.visible = false; lights.sun.visible = false;              // (the scene has its own light: look.js)
   },
   draw: (a, now) => {
@@ -123,6 +125,7 @@ app = await createApp({
     if (sp.ok) { common.position.set(sp.frame.x, sp.fz, -sp.frame.y); common.rotation.set(0, sp.frame.yaw, 0); } else { common.position.set(0, 0, 0); common.rotation.set(0, 0, 0); }
     const snap = stream.at(now);
     turnBell(state());
+    occluder.update(serverRoom(), !!(a.xr && a.xr()));
     const lights = roomLights();
     scene3d.update({ state: state(), snap, now, t: a.S.serverNow(), lay: J.board(state(), info()), touches: a.boardTouches('main'), heads: heads(a, now), hands: pinchHands(a), deco: a.S.doc.jdeco || null, garden: a.S.game('garden'),
       shades: { lights, cursor: marking(a, now, lights), dark: a.dimLevel().dark } });
