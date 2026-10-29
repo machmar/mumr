@@ -30,12 +30,18 @@ module.exports = {
       reach: () => false, touching: () => false, pack: () => ref.pack(), apply: () => false, settle: () => {},
       do: (what, args) => ref.command(what, args), moving: () => ref.moving(),
     } });
-    let at = Date.now(), maxHands = 0, pinches = 0, lastPinch = false;
+    let at = Date.now(), maxHands = 0, pinches = 0, lastPinch = false, lastPhase = null;
     return {
       bodies: [body],
       step(dt, t, hands) {
         ref.step(dt, t * 1000, hands);
         dj.step(ref.rules.s, N.snapshot(ref.tower), dt);
+        // a game that starts ends whoever's marking of the room's lights (the board's Lights button), so it is not left on by accident (Marek, 2026-10-29)
+        const ph = ref.rules.phase;
+        if (ph !== lastPhase) {
+          if (lastPhase === 'lobby' && session.connected && session.doc.jmark && Number.isInteger(session.doc.jmark.slot)) { session.emit({ k: 'jmark', slot: null }); life('jenga host: the game started: light marking off'); }
+          lastPhase = ph;
+        }
         if (session.connected && dj.cur && dj.cur.n !== sentN) { sentN = dj.cur.n; session.emit({ k: 'jmusic', m: Object.assign({}, dj.cur) }); }
         { const pv = hands.some((h) => h.pinch); if (pv !== lastPinch) { lastPinch = pv; life(`jenga host: pinch ${pv} at ${hands.map((h) => h.points[0].z.toFixed(3))} t=${(t % 1000).toFixed(2)}`); } }
         maxHands = Math.max(maxHands, hands.length); if (hands.some((h) => h.pinch)) { pinches++; if (false) life(`jenga host: first pinch ${JSON.stringify(hands.map((h) => ({ id: h.id, pinch: h.pinch, p: h.points.map((q) => [q.name, +q.x.toFixed(3), +q.y.toFixed(3), +q.z.toFixed(3)]) })))}; die at ${ref.tower.die.body.p.map((v) => v.toFixed(3))}`); }
