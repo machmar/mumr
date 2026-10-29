@@ -117,6 +117,8 @@ function alignMarks() {
   alignBtn.style.display = mx ? '' : 'none';
   if (mx) mx.show.marks = aligning;
 }
+// (pressing Spot 1, Spot 2 or Check spot on the webcam panel is aligning: Align turns on, so the click and its rings can be seen)
+addEventListener('click', (e) => { if (e.target && /^wcSpot[0-2]$/.test(e.target.id) && !aligning) alignBtn.click(); }, true);
 // F: the picture alone, full screen (every panel and text hidden); F or Escape again brings them back
 addEventListener('keydown', (e) => {
   if ((e.key !== 'f' && e.key !== 'F') || e.ctrlKey || e.metaKey || e.altKey || /^(INPUT|SELECT|TEXTAREA)$/.test((e.target && e.target.tagName) || '')) return;
