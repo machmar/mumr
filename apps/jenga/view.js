@@ -103,6 +103,17 @@ function autoQuality(now) {
   applyQuality();
 }
 applyQuality();
+// ---- Align (the webcam page only): the rings and crosses of the three floor spots over the picture are shown only while aligning (Marek, 2026-10-29:
+//      they could not be hidden); the button turns it on and off, and clicking a spot in the picture shows them while it is waited for (webcamview.js)
+let aligning = false;
+const alignBtn = document.createElement('button'); alignBtn.id = 'align'; alignBtn.textContent = 'Align'; alignBtn.title = 'Show the floor spots over the picture, to align the camera';
+alignBtn.addEventListener('click', () => { aligning = !aligning; alignBtn.classList.toggle('on', aligning); alignBtn.blur(); });
+document.body.appendChild(alignBtn);
+function alignMarks() {
+  const mx = window.mixed;
+  alignBtn.style.display = mx ? '' : 'none';
+  if (mx) mx.show.marks = aligning;
+}
 // F: the picture alone, full screen (every panel and text hidden); F or Escape again brings them back
 addEventListener('keydown', (e) => {
   if ((e.key !== 'f' && e.key !== 'F') || e.ctrlKey || e.metaKey || e.altKey || /^(INPUT|SELECT|TEXTAREA)$/.test((e.target && e.target.tagName) || '')) return;
@@ -116,6 +127,7 @@ let last = performance.now(), hudAt = 0, marker = null, markerSlot = null;
 function frame() {
   const now = performance.now(), dt = Math.min(0.1, (now - last) / 1000); last = now;
   autoQuality(now);
+  alignMarks();
   const sn = feed.serverNow(), at = sn === null ? undefined : sn - DELAY, S = feed.session, state = S.doc.jenga || J.waiting();
   room3d.set(S.doc.room ? S.doc.room.data : null);
   camMarks.update(Object.values(S.doc.cameras || {}));

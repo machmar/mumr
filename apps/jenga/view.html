@@ -17,8 +17,10 @@
   .dir .bar i { display: block; height: 100%; background: linear-gradient(90deg, #8fb79a, #f0c98a, #e0623a); }
   .dir .m { color: #f0d6aa; margin-top: 3px; }
   #quality { position: fixed; right: 18px; bottom: 40px; z-index: 5; font: 12px "Zen Kaku Gothic New", system-ui, sans-serif; color: #efe4d2; background: rgba(20, 15, 12, 0.7); border: 1px solid rgba(201, 162, 90, 0.3); border-radius: 8px; padding: 3px 6px; }
+  #align { position: fixed; right: 112px; bottom: 16px; z-index: 5; font: 12px "Zen Kaku Gothic New", system-ui, sans-serif; color: #efe4d2; background: rgba(20, 15, 12, 0.7); border: 1px solid rgba(201, 162, 90, 0.3); border-radius: 8px; padding: 4px 10px; cursor: pointer; }
+  #align.on { background: #c9a25a; color: #14100c; }
   /* F: the picture alone */
-  body.bare #hud, body.bare #help, body.bare .dir, body.bare #quality, body.bare #left, body.bare #wcPanel, body.bare #wcPick, body.bare #wcLoupe, body.bare #wcLoupeBar { display: none !important; }
+  body.bare #hud, body.bare #help, body.bare .dir, body.bare #quality, body.bare #align, body.bare #left, body.bare #wcPanel, body.bare #wcPick, body.bare #wcLoupe, body.bare #wcLoupeBar { display: none !important; }
 </style>
 <script type="importmap">
 { "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js", "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/" } }
