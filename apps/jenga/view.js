@@ -77,9 +77,45 @@ addEventListener('keydown', (e) => { if (['1', '2', '3', '4'].includes(e.key)) a
 function resize() { const w = canvas.clientWidth, h = canvas.clientHeight; renderer.setSize(w, h, false); camera.aspect = w / Math.max(1, h); camera.updateProjectionMatrix(); }
 addEventListener('resize', resize); resize();
 
+// ---- how dear this page's drawing is (as a player's Quality on the headset, logic.js QUALITY: 2 high, 1 medium, 0 low): the scene's shadows, motes, smoke
+//      and petals (draw.js quality) and the picture's resolution. Auto starts high and steps down while the page draws under 45 frames a second (Marek,
+//      2026-10-29: the webcam page was not smooth). This browser's own choice (kept in it): nothing in the world changes.
+const QKEY = 'jenga.view.quality', PIX = [0.75, 1, Math.min(2, devicePixelRatio)];
+let qWant = 'auto'; try { qWant = localStorage.getItem(QKEY) || 'auto'; } catch (e) { /* private window */ }
+let qNow = -1, qAuto = 2;
+function applyQuality() {
+  const q = qWant === 'auto' ? qAuto : J.QUALITY.indexOf(qWant);
+  if (q === qNow) return;
+  qNow = q; scene3d.quality(q); renderer.setPixelRatio(PIX[q]); resize();
+  qSel.options[0].text = `auto · ${J.QUALITY[qAuto]}`;
+  life(`PC view: quality ${J.QUALITY[q]}${qWant === 'auto' ? ' (auto)' : ''}, pixel ratio ${PIX[q]}`);
+}
+const qSel = document.createElement('select'); qSel.id = 'quality'; qSel.title = 'How much this page draws (only this browser)';
+for (const v of ['auto', ...J.QUALITY]) qSel.add(new Option(v === 'auto' ? 'auto' : v, v));
+qSel.value = qWant; document.body.appendChild(qSel);
+qSel.addEventListener('change', () => { qWant = qSel.value; try { localStorage.setItem(QKEY, qWant); } catch (e) { /* not kept */ } qSel.blur(); applyQuality(); });
+const fps = { n: 0, t0: performance.now() };
+function autoQuality(now) {
+  fps.n++;
+  if (now - fps.t0 < 2000) return;
+  const f = fps.n * 1000 / (now - fps.t0); fps.n = 0; fps.t0 = now;
+  if (document.visibilityState === 'visible' && f < 45 && qAuto > 0) { qAuto--; life(`PC view: ${f.toFixed(0)} fps, auto quality down to ${J.QUALITY[qAuto]}`); }
+  applyQuality();
+}
+applyQuality();
+// F: the picture alone, full screen (every panel and text hidden); F or Escape again brings them back
+addEventListener('keydown', (e) => {
+  if ((e.key !== 'f' && e.key !== 'F') || e.ctrlKey || e.metaKey || e.altKey || /^(INPUT|SELECT|TEXTAREA)$/.test((e.target && e.target.tagName) || '')) return;
+  const bare = document.body.classList.toggle('bare');
+  if (bare && !document.fullscreenElement) document.documentElement.requestFullscreen().catch(() => {});
+  if (!bare && document.fullscreenElement) document.exitFullscreen().catch(() => {});
+});
+document.addEventListener('fullscreenchange', () => { if (!document.fullscreenElement) document.body.classList.remove('bare'); });
+
 let last = performance.now(), hudAt = 0, marker = null, markerSlot = null;
 function frame() {
   const now = performance.now(), dt = Math.min(0.1, (now - last) / 1000); last = now;
+  autoQuality(now);
   const sn = feed.serverNow(), at = sn === null ? undefined : sn - DELAY, S = feed.session, state = S.doc.jenga || J.waiting();
   room3d.set(S.doc.room ? S.doc.room.data : null);
   camMarks.update(Object.values(S.doc.cameras || {}));

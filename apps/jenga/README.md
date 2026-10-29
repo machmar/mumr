@@ -220,7 +220,7 @@ The board's **Room dim** (off, gentle = half of everything, full) is a shared se
 | `fx.js` | the moments: edge glows, the limit band, rings, sparks, sawdust, the words of the fall, the trail, the turn's ring, the motes on the world's clock |
 | `app.js`, `index.html` | the page on `createApp` |
 | `view.js`, `view.html` | the PC view (a watcher; keys 1 2 3 4 move the camera, M the music) |
-| `webcam.html` | the PC view over a webcam's picture (the engine's webcam page: Start camera, click the three line-up spots; the view hides its own floor and haze then, and hands the page its lights for the room's relight) |
+| `webcam.html` | the PC view over a webcam's picture (a Quality choice bottom right, as on the headset: auto steps down below 45 fps; F shows the picture alone, full screen; the engine's webcam page: Start camera, click the three line-up spots; the view hides its own floor and haze then, and hands the page its lights for the room's relight) |
 | `occlude.js` | the real room's walls in the depth buffer only: what of the game is behind a real wall is hidden (in the headset) |
 | `focus.js` | the room's dim: the look of each phase, what tension adds, the Room dim setting; asked by the referee through `session.dim` |
 | `music.js`, `music/` | the soundtrack: the director on the host (scene, track, where in it), the page's player (tension, moments, the crossfades, the swells, the limiter, the generated bells, boom, riser and block clacks); the folders for your tracks |

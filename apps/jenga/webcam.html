@@ -17,8 +17,12 @@
   .dir .bar i { display: block; height: 100%; background: linear-gradient(90deg, #8fb79a, #f0c98a, #e0623a); }
   .dir .m { color: #f0d6aa; margin-top: 3px; }
   /* (the webcam page's panels are along the top: the music box goes to the bottom left, and the keys of the PC view's camera do nothing through a webcam) */
-  .dir { top: auto; bottom: 16px; }
+  .dir { top: auto; bottom: 16px; backdrop-filter: none; background: rgba(20, 15, 12, 0.7); }   /* (a blur over a moving picture costs every frame) */
   #help { display: none; }
+  #quality { position: fixed; right: 18px; bottom: 40px; z-index: 5; font: 12px "Zen Kaku Gothic New", system-ui, sans-serif; color: #efe4d2; background: rgba(20, 15, 12, 0.7); border: 1px solid rgba(201, 162, 90, 0.3); border-radius: 8px; padding: 3px 6px; }
+  /* F: the picture alone */
+  body.bare #hud, body.bare #help, body.bare .dir, body.bare #quality, body.bare #left, body.bare #wcPanel, body.bare #wcPick, body.bare #wcLoupe, body.bare #wcLoupeBar { display: none !important; }
+  #quality { bottom: 16px; }
 </style>
 <script type="importmap">
 { "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js", "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/" } }
