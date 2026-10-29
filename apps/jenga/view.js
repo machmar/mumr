@@ -8,6 +8,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { PLAYER_COLOURS } from '/mumr/xr/players3d.js';
 import { createRoom3d } from '/mumr/xr/room3d.js';
 import { createCameraMarks } from '/mumr/xr/cammark3d.js';
+import { makeGhost } from '/mumr/xr/ghost.js';
 import { createScene } from './draw.js';
 import { markCursor } from './shades.js';
 
@@ -38,7 +39,9 @@ life(`PC view loaded (${navigator.userAgent.slice(0, 90)})`);
 const OPTS = { game: J.GAME, player: J.PLAYER, kinds: Object.assign({ wallspot: M.room.SPOT_KIND, rlight: M.room.LIGHT_KIND }, J.KINDS) };
 const feed = M.worldfeed.WorldFeed.connect(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws`, { build: info.build, name: 'PC view', session: OPTS });
 
-// the players: a cone for the head and a dot for every joint (as the cube's PC view does)
+// the players: a cone for the head, a tracked hand as ghost fingers in the player's colour (as every headset draws the other players' hands:
+// xr/players3d.js), anything else (a controller, a mouse) as dots
+const GhostHand = makeGhost(THREE), JR = new Float32Array(25).fill(0.009);
 const drawn = new Map(), toV = (x, y, z) => new THREE.Vector3(x, z, -y), mtx = new THREE.Matrix4();
 function playerObj(slot) {
   let o = drawn.get(slot);
@@ -46,7 +49,7 @@ function playerObj(slot) {
   const col = PLAYER_COLOURS[slot % PLAYER_COLOURS.length];
   const head = new THREE.Mesh(new THREE.ConeGeometry(0.07, 0.16, 20), new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.8 })); head.geometry.rotateZ(-Math.PI / 2);
   const dots = new THREE.InstancedMesh(new THREE.SphereGeometry(0.008, 8, 6), new THREE.MeshBasicMaterial({ color: col }), 160);
-  world.add(head, dots); o = { head, dots }; drawn.set(slot, o); return o;
+  world.add(head, dots); o = { head, dots, col, hands: {} }; drawn.set(slot, o); return o;
 }
 
 // the soundtrack, if asked for with M
@@ -162,13 +165,24 @@ function frame() {
     const o = playerObj(p.slot), pr = feed.sample('presence', p.slot, at);
     o.head.visible = !!pr;
     let n = 0;
+    const used = new Set();
     if (pr) {
       const h = pr.data.head; o.head.position.copy(toV(h[0], h[1], h[3])); o.head.rotation.set(0, h[2], 0);
-      for (const s of pr.data.sources) if (!s.foot) for (const q of (s.joints || s.points.map((x) => [x.x, x.y, x.z]))) if (n < 160) { const v = toV(q[0], q[1], q[2]); mtx.makeTranslation(v.x, v.y, v.z); o.dots.setMatrixAt(n++, mtx); }
+      for (const s of pr.data.sources) {
+        if (s.foot) continue;
+        if (Array.isArray(s.joints) && s.joints.length === 25) {
+          used.add(s.id);
+          let g = o.hands[s.id];
+          if (!g) { g = o.hands[s.id] = { ghost: new GhostHand(0.55), jp: new Float32Array(75) }; world.add(g.ghost.mesh); }
+          for (let i = 0; i < 25; i++) { const j = s.joints[i]; g.jp[i * 3] = j[0]; g.jp[i * 3 + 1] = j[2]; g.jp[i * 3 + 2] = -j[1]; }
+          g.ghost.update(g.jp, JR, o.col); g.ghost.mesh.visible = true;
+        } else for (const q of s.points.map((x) => [x.x, x.y, x.z])) if (n < 160) { const v = toV(q[0], q[1], q[2]); mtx.makeTranslation(v.x, v.y, v.z); o.dots.setMatrixAt(n++, mtx); }
+      }
     }
+    for (const [id, g] of Object.entries(o.hands)) if (!used.has(id)) g.ghost.mesh.visible = false;
     o.dots.count = n; o.dots.instanceMatrix.needsUpdate = true;
   }
-  for (const [slot, o] of [...drawn]) if (!here.has(slot)) { world.remove(o.head, o.dots); drawn.delete(slot); }
+  for (const [slot, o] of [...drawn]) if (!here.has(slot)) { world.remove(o.head, o.dots); for (const g of Object.values(o.hands)) { world.remove(g.ghost.mesh); g.ghost.dispose(); } drawn.delete(slot); }
   // the soundtrack plays the host's record and follows the same shared state
   if (sound.music.ctx) { const fw = new THREE.Vector3(); camera.getWorldDirection(fw); sound.update(S.doc.jenga || null, snap ? snap.items : null, dt, S.game('music'), { x: camera.position.x, y: -camera.position.z, yaw: Math.atan2(-fw.z, fw.x) }, S.doc.jmusic || null); }
   if (!controls.autoRotate && now - touchedAt > 30000) controls.autoRotate = true;
@@ -186,7 +200,7 @@ window.__view = { feed, scene3d, camera, controls, sound, aim, renderer, scene }
 const each = (f) => [...drawn.values()].flatMap(f);
 window.view = { feed, scene, camera, renderer, orbit: controls, setDelay: (ms) => { DELAY = ms; }, camMarks, world, relights: () => scene3d.relights(),
   parts: {
-    hands: () => each((o) => [o.dots]),
+    hands: () => each((o) => [o.dots, ...Object.values(o.hands).map((g) => g.ghost.mesh)]),
     head: () => each((o) => [o.head]),
     floor: { objects: () => [room3d.group], static: true },
     cameras: { objects: () => [camMarks.group], static: true },
