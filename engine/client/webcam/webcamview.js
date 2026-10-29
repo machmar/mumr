@@ -610,7 +610,7 @@ export function createWebcamView({ calib, getSpots, say, marksVisible }) {
         if (q[2] > 0) { g.beginPath(); g.moveTo(q[0] - 8 * k, q[1]); g.lineTo(q[0] + 8 * k, q[1]); g.moveTo(q[0], q[1] - 8 * k); g.lineTo(q[0], q[1] + 8 * k); g.stroke(); }
       }
     }
-    if (pend && task && marksOn()) {                                   // the point that is waiting to be accepted (hidden with the marks too)
+    if (pend && task) {                                                // the point that is waiting to be accepted
       g.strokeStyle = '#ffffff'; g.lineWidth = 2 * k; g.beginPath(); g.arc(pend[0], pend[1], 9 * k, 0, 2 * Math.PI); g.moveTo(pend[0] - 14 * k, pend[1]); g.lineTo(pend[0] + 14 * k, pend[1]); g.moveTo(pend[0], pend[1] - 14 * k); g.lineTo(pend[0], pend[1] + 14 * k); g.stroke();
     }
     if (auto && !auto.finished) drawGuide(k);
