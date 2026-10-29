@@ -154,3 +154,5 @@ for (const ev of ['pointerdown', 'keydown', 'touchstart']) addEventListener(ev, 
 document.getElementById('enter')?.addEventListener('click', wake);
 setInterval(() => sound.music.tick(), 1000);
 window.__jenga = Object.assign(app, { stream, scene3d, sound });
+// the page's header (the engine's): a link to the webcam page, for the PC the webcam is plugged into
+document.querySelector('header')?.insertAdjacentHTML('beforeend', '<a href="webcam.html" style="margin-left:auto;color:#c9d4ea;font:inherit">Webcam view</a>');
