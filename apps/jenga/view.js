@@ -2,20 +2,22 @@
 // tower and the die from the host's bodies, the furniture, the scoreboard, the shared board (as the engine draws a menu), everybody's hands and
 // heads as ghosts. It can also play the soundtrack (press M once: a page may make no sound before a key).
 //   http://<PC>:8766/view.html          (the server's address; ?delay=ms draws the world that much in the past, 70 by default)
+//   https://<PC>:8443/webcam.html       the same view over a webcam's picture (the engine's webcam page, docs/ARCHITECTURE.md 6c: window.view below)
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { PLAYER_COLOURS } from '/mumr/xr/players3d.js';
 import { createRoom3d } from '/mumr/xr/room3d.js';
+import { createCameraMarks } from '/mumr/xr/cammark3d.js';
 import { createScene } from './draw.js';
 import { markCursor } from './shades.js';
 
 const M = window.MUMR, J = window.JENGA;
-const DELAY = Math.max(0, Math.min(1000, Number(new URLSearchParams(location.search).get('delay') ?? 70)));
+let DELAY = Math.max(0, Math.min(1000, Number(new URLSearchParams(location.search).get('delay') ?? 70)));
 const canvas = document.getElementById('view'), hud = document.getElementById('hud');
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
 renderer.setPixelRatio(Math.min(2, devicePixelRatio));
 // the room this view has instead of a real one: a dark warm floor that fades into the haze, lit by the scene's own light (look.js)
-const BG = 0x0f0c0a, scene = new THREE.Scene(); scene.background = new THREE.Color(BG); scene.fog = new THREE.Fog(BG, 3.5, 11);
+const BG = 0x0f0c0a, scene = new THREE.Scene(), FOG = new THREE.Fog(BG, 3.5, 11); scene.background = new THREE.Color(BG); scene.fog = FOG;
 const camera = new THREE.PerspectiveCamera(45, 1, 0.02, 80);
 const controls = new OrbitControls(camera, canvas); controls.enableDamping = true; controls.maxPolarAngle = Math.PI * 0.49;
 // left alone for a while, the view drifts slowly round the game (this view's own camera: nothing in the world moves); any key or touch stops it
@@ -25,6 +27,8 @@ controls.autoRotateSpeed = 0.35;
 const world = new THREE.Group(); scene.add(world);
 const floor = new THREE.Mesh(new THREE.CircleGeometry(14, 64), new THREE.MeshStandardMaterial({ color: 0x241c17, roughness: 0.85 })); floor.rotation.x = -Math.PI / 2; floor.receiveShadow = true; world.add(floor);
 const room3d = createRoom3d({ THREE, parent: world });
+// the real cameras of the room (cams.js: a webcam page aligned them), small, where they really are: the same drawing as in the headsets
+const camMarks = createCameraMarks({ THREE, group: world });
 
 const scene3d = createScene({ THREE, parent: world, renderer, playerColours: PLAYER_COLOURS });
 
@@ -78,6 +82,10 @@ function frame() {
   const now = performance.now(), dt = Math.min(0.1, (now - last) / 1000); last = now;
   const sn = feed.serverNow(), at = sn === null ? undefined : sn - DELAY, S = feed.session, state = S.doc.jenga || J.waiting();
   room3d.set(S.doc.room ? S.doc.room.data : null);
+  camMarks.update(Object.values(S.doc.cameras || {}));
+  // through a webcam (webcam.html) the real floor is the camera's picture: no floor of this view's own and no haze over the picture
+  const throughCam = !!(window.mixed && window.mixed.WCV.running);
+  floor.visible = !throughCam; scene.fog = throughCam ? null : FOG;
   const smp = feed.sample('jenga', null, at), snap = smp ? smp.data : null;
   // the room's ceiling lights and their shades, and the aim of whoever marks them (from their presence, as every headset works it out)
   const roomNow = S.doc.room ? S.doc.room.data : null, lights = M.room.lights(roomNow, S.doc.rlights || {});
@@ -123,4 +131,16 @@ function frame() {
 }
 setInterval(() => sound.music.tick(), 1000);
 window.__view = { feed, scene3d, camera, controls, sound, aim, renderer, scene };
+// What the webcam page (webcam.html, engine/client/webcam/mixed.js) needs of this view: the feed, the scene and its camera and controls (the page
+// replaces controls.update, which is called once a frame just before drawing), the delay, the cameras' drawing, the parts of the picture that its
+// Show menu switches (this view draws the room as one outline and the players' heads and joints; the board is the game's, not a menu) and the lights
+// that light the real room (as the headsets' relight: the lantern, the lamps, the candles, the shades), in this view's world.
+const each = (f) => [...drawn.values()].flatMap(f);
+window.view = { feed, scene, camera, renderer, orbit: controls, setDelay: (ms) => { DELAY = ms; }, camMarks, world, relights: () => scene3d.relights(),
+  parts: {
+    hands: () => each((o) => [o.dots]),
+    head: () => each((o) => [o.head]),
+    floor: { objects: () => [room3d.group], static: true },
+    cameras: { objects: () => [camMarks.group], static: true },
+  } };
 requestAnimationFrame(frame);
