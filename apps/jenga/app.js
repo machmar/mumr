@@ -127,7 +127,7 @@ app = await createApp({
     turnBell(state());
     occluder.update(serverRoom(), !!(a.xr && a.xr()));
     const lights = roomLights();
-    scene3d.update({ state: state(), snap, now, t: a.S.serverNow(), lay: J.board(state(), info()), touches: a.boardTouches('main'), heads: heads(a, now), hands: pinchHands(a), deco: a.S.doc.jdeco || null, garden: a.S.game('garden'),
+    scene3d.update({ state: state(), snap, now, t: a.S.serverNow(), lay: J.board(state(), info()), touches: a.boardTouches('main'), heads: heads(a, now), hands: pinchHands(a), me: a.S.me, deco: a.S.doc.jdeco || null, garden: a.S.game('garden'),
       shades: { lights, cursor: marking(a, now, lights), dark: a.dimLevel().dark } });
     a.relight(scene3d.relights());                       // (the lantern lights the real room: the dim lifts round it, the walls warm)
     perf.frames++; perf.worst = Math.max(perf.worst, now - lastDraw); perf.ms += performance.now() - perf.t0;

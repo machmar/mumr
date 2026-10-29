@@ -176,7 +176,7 @@ export function createFx({ THREE, overlay, own }) {
 
   let lastPhase = null, phaseAt = 0, lastFallRev = null;
   // hands: everybody's hands this frame, [{ at (between thumb and index, common frame), gap (m), pinch }]
-  function update({ state, snap, t, dt, blocks, dieMesh, L, place, moments, fonts, lampAt, heads = [], colours = [], hands = [] }) {
+  function update({ state, snap, t, dt, blocks, dieMesh, L, place, moments, fonts, lampAt, heads = [], colours = [], hands = [], me = null }) {
     const d = L.d, T = L.plinth.top, k = d.k, ph = state.phase, mode = snap ? snap.mode : 0;
     game.position.set(place.x, 0, -place.y); game.rotation.set(0, place.yaw, 0);
     if (ph !== lastPhase) { lastPhase = ph; phaseAt = t; }
@@ -328,12 +328,14 @@ export function createFx({ THREE, overlay, own }) {
       haloGlow.position.set(...p); haloGlow.scale.setScalar(0.42); haloGlow.material.opacity = turnA * 0.35;
       const col = colours[onTurn % Math.max(1, colours.length)] || 0xffd08a; halo.material.color.set(col); haloGlow.material.color.set(col);
     }
-    // YOUR TURN: when a turn begins (a new move or a new round), in front of that player's eyes, for four seconds
+    // YOUR TURN: when a turn begins (a new move or a new round), in front of that player's eyes, for four seconds. Only on that player's own headset
+    // (`me`: this page's slot; the PC view has none): a deliberate exception to rule 1, like a wrist card (Marek, 2026-10-29: "it's weird that the
+    // other players see it"). The halo over the head stays shared: that is how the others see whose turn it is.
     const tk = hd ? `${state.round}|${state.moves}|${onTurn}` : null;
     if (tk && tk !== turnStartKey) { yourAt = t; yourPos = null; }
     turnStartKey = tk;
     const yu = (t - yourAt) / 4, ya = hd && yu >= 0 && yu < 1 ? Math.min(1, yu * 6) * Math.min(1, (1 - yu) * 3) : 0;
-    yours.visible = ya > 0.01;
+    yours.visible = ya > 0.01 && me !== null && me === onTurn;
     if (yours.visible) {
       const name = (state.players[state.turn] || {}).name || '';
       if (name !== yourKey || fonts !== yourFonts) { yourKey = name; yourFonts = fonts; drawYours(name); }

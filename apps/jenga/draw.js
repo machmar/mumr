@@ -371,7 +371,7 @@ export function createScene({ THREE, parent, renderer, playerColours = [0xf2c14e
   // heads: where the players are, [{ slot, x, y }] in the common frame (from everybody's presence: whose turn it is is lit at their feet)
   // deco: the document's jdeco (the room's garden, deco.js); garden: the Garden setting (0..2); shades: { lights, cursor, dark } (shades.js)
   // hands: everybody's hands for the pinch's aim (fx.js), [{ at, gap, pinch }] in the common frame
-  function update({ state, snap, now = performance.now(), t, lay, touches = [], heads = [], hands = [], deco = null, garden = 2, shades: sh = null }) {
+  function update({ state, snap, now = performance.now(), t, lay, touches = [], heads = [], hands = [], deco = null, garden = 2, shades: sh = null, me = null }) {
     if (!state) return;
     warmRestore();
     const ts = (t === undefined || t === null ? now : t) / 1000, dt = last === null ? 1 / 60 : Math.min(0.1, Math.max(0, (now - last) / 1000)); last = now;
@@ -419,7 +419,7 @@ export function createScene({ THREE, parent, renderer, playerColours = [0xf2c14e
     if (arrived) moments.push('arrived');
     prevState = state;
     const T2 = performance.now();
-    fx.update({ state, snap, t: ts, dt, blocks, dieMesh, L, place: pl, moments, fonts: fontsVer, lampAt: rig.lampAt, heads, colours: playerColours, hands });
+    fx.update({ state, snap, t: ts, dt, blocks, dieMesh, L, place: pl, moments, fonts: fontsVer, lampAt: rig.lampAt, heads, colours: playerColours, hands, me });
     timing.fx = performance.now() - T2;
     decor.update({ plan: deco, level: garden, t: ts, wc: fx.clock(), lightK });
     warmStep();
