@@ -22,8 +22,12 @@
   #quality { position: fixed; right: 18px; bottom: 40px; z-index: 5; font: 12px "Zen Kaku Gothic New", system-ui, sans-serif; color: #efe4d2; background: rgba(20, 15, 12, 0.7); border: 1px solid rgba(201, 162, 90, 0.3); border-radius: 8px; padding: 3px 6px; }
   #align { position: fixed; right: 112px; bottom: 16px; z-index: 5; font: 12px "Zen Kaku Gothic New", system-ui, sans-serif; color: #efe4d2; background: rgba(20, 15, 12, 0.7); border: 1px solid rgba(201, 162, 90, 0.3); border-radius: 8px; padding: 4px 10px; cursor: pointer; }
   #align.on { background: #c9a25a; color: #14100c; }
+  #musicVol { position: fixed; right: 210px; bottom: 16px; z-index: 5; display: flex; align-items: center; gap: 6px; font: 12px "Zen Kaku Gothic New", system-ui, sans-serif; color: #efe4d2; background: rgba(20, 15, 12, 0.7); border: 1px solid rgba(201, 162, 90, 0.3); border-radius: 8px; padding: 3px 8px; }
+  #musicVol input { width: 110px; accent-color: #c9a25a; }
+  #musicVol b { font-weight: 500; min-width: 32px; text-align: right; }
+  #soundNote { position: fixed; left: 50%; bottom: 16px; transform: translateX(-50%); z-index: 5; font: 12px "Zen Kaku Gothic New", system-ui, sans-serif; color: #14100c; background: #c9a25a; border-radius: 8px; padding: 4px 12px; pointer-events: none; }
   /* F: the picture alone */
-  body.bare #hud, body.bare #help, body.bare .dir, body.bare #quality, body.bare #align, body.bare #left, body.bare #wcPanel, body.bare #wcPick, body.bare #wcLoupe, body.bare #wcLoupeBar { display: none !important; }
+  body.bare #hud, body.bare #help, body.bare .dir, body.bare #quality, body.bare #musicVol, body.bare #soundNote, body.bare #align, body.bare #left, body.bare #wcPanel, body.bare #wcPick, body.bare #wcLoupe, body.bare #wcLoupeBar { display: none !important; }
   #quality { bottom: 16px; }
 </style>
 <script type="importmap">
@@ -43,7 +47,7 @@
      Open https://<pc>:8443/webcam.html on the PC the webcam is plugged into. -->
 <canvas id="view"></canvas>
 <pre id="hud"></pre>
-<p id="help"><b>drag</b> turn &nbsp; <b>wheel</b> zoom &nbsp; <b>right drag</b> move &nbsp; <b>1 2 3 4</b> tower, console, room, player &nbsp; <b>M</b> music</p>
+<p id="help"><b>drag</b> turn &nbsp; <b>wheel</b> zoom &nbsp; <b>right drag</b> move &nbsp; <b>1 2 3 4</b> tower, console, room, player</p>
 <script type="module" src="view.js"></script>
 <script type="module" src="/mumr/webcam/start.js"></script>
 </body>

@@ -1,6 +1,7 @@
 // The PC's view of the Jenga world: a watcher (WorldFeed), no game logic. It draws what the headsets draw, with the same module (draw.js): the
 // tower and the die from the host's bodies, the furniture, the scoreboard, the shared board (as the engine draws a menu), everybody's hands and
-// heads as ghosts. It can also play the soundtrack (press M once: a page may make no sound before a key).
+// heads as ghosts. It plays what the headsets hear (the music, the game's sounds, the clacks panned from where its camera is, a webcam's when it
+// looks through one); a browser lets a page make no sound before a click or a key, so the first one starts it.
 //   http://<PC>:8766/view.html          (the server's address; ?delay=ms draws the world that much in the past, 70 by default)
 //   https://<PC>:8443/webcam.html       the same view over a webcam's picture (the engine's webcam page, docs/ARCHITECTURE.md 6c: window.view below)
 import * as THREE from 'three';
@@ -52,7 +53,7 @@ function playerObj(slot) {
   world.add(head, dots); o = { head, dots, col, hands: {} }; drawn.set(slot, o); return o;
 }
 
-// the soundtrack, if asked for with M
+// the soundtrack, as on the headsets: the host's music and the game's sounds
 const sound = new J.Soundtrack({ base: 'music/', now: () => { const t = feed.serverNow(); return t === null ? Date.now() : t; } });
 // the director's view, with or without sound: which scene and track the host's director chose, how tense it is here, and the moments it answers (?hud=0 hides it)
 const dir = { tension: new J.Tension(), prev: null, moments: [] };
@@ -61,7 +62,16 @@ hudBox.className = 'dir'; if (new URLSearchParams(location.search).get('hud') ==
 document.body.appendChild(hudBox);
 const MOMENT = { rolled: 'die rolled: soft bell, short swell', pulled: 'block pulled: swell + riser', placed: 'placed: bell', placedWell: 'placed well: bells', placedBad: 'foul: low bell', fall: 'FALL: music ducks, deep boom', replay: 'REPLAY: riser, music returns louder', aftermath: 'bells', roundEnd: 'round over: bell', matchEnd: 'match over: bells, long swell', start: 'start: bells' };
 fetch('music/tracks.json').then((r) => (r.ok ? r.json() : null)).catch(() => null).then((m) => sound.music.load(m || {}));
-addEventListener('keydown', (e) => { if (e.key === 'm' || e.key === 'M') { if (!sound.music.ctx) sound.music.start(); else { sound.music.dispose(); } } });
+// (the first click or key starts the sound and it stays on: the game's sounds are not this page's to turn off; only the music has a slider)
+const wake = () => { try { sound.music.start(); } catch (e) { /* no audio here */ } };
+for (const ev of ['pointerdown', 'keydown', 'touchstart']) addEventListener(ev, wake, { passive: true, capture: true });
+// the music's slider: 75 % is as loud as the headsets play it (the game's Music setting), 100 % a third louder, 0 silent. Not kept: every load starts at 75 %
+const musicBox = document.createElement('label'); musicBox.id = 'musicVol';
+musicBox.innerHTML = '<span>music</span><input type="range" min="0" max="100" step="1" value="75"><b>75%</b>';
+const musicIn = musicBox.querySelector('input'), musicTxt = musicBox.querySelector('b');
+musicIn.addEventListener('input', () => { musicTxt.textContent = `${musicIn.value}%`; sound.music.setTrim(musicIn.value / 75); });
+document.body.appendChild(musicBox);
+const soundNote = document.createElement('div'); soundNote.id = 'soundNote'; soundNote.textContent = 'click anywhere for sound'; document.body.appendChild(soundNote);
 
 // the camera's places
 const spots = {
@@ -184,11 +194,12 @@ function frame() {
   }
   for (const [slot, o] of [...drawn]) if (!here.has(slot)) { world.remove(o.head, o.dots); for (const g of Object.values(o.hands)) { world.remove(g.ghost.mesh); g.ghost.dispose(); } drawn.delete(slot); }
   // the soundtrack plays the host's record and follows the same shared state
+  soundNote.style.display = sound.music.ctx && sound.music.ctx.state === 'running' ? 'none' : '';
   if (sound.music.ctx) { const fw = new THREE.Vector3(); camera.getWorldDirection(fw); sound.update(S.doc.jenga || null, snap ? snap.items : null, dt, S.game('music'), { x: camera.position.x, y: -camera.position.z, yaw: Math.atan2(-fw.z, fw.x) }, S.doc.jmusic || null); }
   if (!controls.autoRotate && now - touchedAt > 30000) controls.autoRotate = true;
   controls.update();
   renderer.render(scene, camera);
-  if (now - hudAt < 5) hud.textContent = [state.phase.replace('_', ' '), `round ${state.round} of ${state.rounds}`, S.hostHere ? null : 'NO HOST', `${S.others} ${S.others === 1 ? 'player' : 'players'}`, smp ? null : 'waiting for bodies', sound.music.ctx ? `music: ${sound.scene || ''}` : 'M for the music'].filter(Boolean).join('   ·   ');
+  if (now - hudAt < 5) hud.textContent = [state.phase.replace('_', ' '), `round ${state.round} of ${state.rounds}`, S.hostHere ? null : 'NO HOST', `${S.others} ${S.others === 1 ? 'player' : 'players'}`, smp ? null : 'waiting for bodies', sound.music.ctx ? `music: ${sound.scene || ''}` : 'no sound yet: click'].filter(Boolean).join('   ·   ');
   requestAnimationFrame(frame);
 }
 setInterval(() => sound.music.tick(), 1000);

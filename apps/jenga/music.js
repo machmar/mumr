@@ -197,7 +197,7 @@
     constructor(io = {}) {
       this.io = io; this.cfg = Object.assign({}, CFG); this.base = io.base || 'music/'; this.now = io.now || (() => Date.now());
       this.manifest = manifestOf(null);
-      this.ctx = null; this.decks = []; this.scene = null; this.track = null; this.recN = null; this.vol = 2; this.tension = 0; this.ducked = false;
+      this.ctx = null; this.decks = []; this.scene = null; this.track = null; this.recN = null; this.vol = 2; this.trim = 1; this.tension = 0; this.ducked = false;
       this.log = io.log || (() => {});
     }
     load(manifest) { this.manifest = manifestOf(manifest); }
@@ -225,7 +225,14 @@
     setVolume(v) {
       this.vol = Math.max(0, Math.min(4, v | 0));
       if (!this.ctx) return;
-      this.master.gain.cancelScheduledValues(this.ctx.currentTime); this.master.gain.setTargetAtTime(this.cfg.volumes[this.vol], this.ctx.currentTime, 0.4);
+      this.master.gain.cancelScheduledValues(this.ctx.currentTime); this.master.gain.setTargetAtTime(this.cfg.volumes[this.vol] * this.trim, this.ctx.currentTime, 0.4);
+    }
+    // a listener's own turn of the music on top of the game's Music setting (the PC and webcam views' slider: 1 is as the headsets hear it); the game's
+    // sounds (the clacks, the bells, the boom) are not touched by either
+    setTrim(k) {
+      k = Math.max(0, Math.min(2, Number(k) || 0));
+      if (k === this.trim) return;
+      this.trim = k; this.setVolume(this.vol);
     }
     // ---- the record from the document (the host's director): play its track from its place, on the server's clock
     follow(rec) {
