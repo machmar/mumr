@@ -141,17 +141,27 @@ export async function createApp(o) {
   const camMarks = createCameraMarks({ THREE, group: world }), camKnobs = new M.camknobs.CamKnobs();
   let camSent = 0, camPend = null;
   const r2 = (v) => Math.round(v * 100) / 100;
-  function camInfo() { const list = Object.values(S.doc.cameras), c = list[0]; return { count: list.length, name: c ? c.name : '', x: c ? r2(c.x) : 0, y: c ? r2(c.y) : 0, z: c ? r2(c.z) : 0 }; }
-  function camReset() {
-    const list = Object.values(S.doc.cameras);
+  function camInfo() { const list = Object.values(S.doc.cameras); return { count: list.length, list: list.map((c) => ({ id: c.id, name: c.name, x: r2(c.x), y: r2(c.y), z: r2(c.z), hand: !!c.hand })) }; }
+  function camReset(id) {
+    const c = S.doc.cameras[id];
     camKnobs.cancel(); camPend = null;
-    if (!list.length) { say('No camera is aligned'); return; }
-    for (const c of list) S.resetCamera(c.id);
-    say(list.length === 1 ? 'The camera is back where its clicks put it' : `${list.length} cameras are back where their clicks put them`);
+    if (!c) { say('No camera is aligned'); return; }
+    S.resetCamera(c.id);
+    say(c.hand ? `${c.name} is back where it was put` : `${c.name} is back where its clicks put it`);
   }
-  function camFrame(now, tips, cams) {
+  // the camera brought to arm's length in front of this player, a little under the eyes (a camera put behind a wall can be reached again: Marek, 2026-10-31)
+  function camHere(id) {
+    const c = S.doc.cameras[id];
+    camKnobs.cancel(); camPend = null;
+    if (!c || !space.ok) { say(c ? 'Line up first' : 'No camera is aligned'); return; }
+    const own = [head[0] + Math.cos(head[2]) * 0.55, head[1] + Math.sin(head[2]) * 0.55], p = space.toCommon(own);
+    S.moveCamera(c.id, p[0], p[1], Math.max(0.1, head[3] - 0.15) - space.fz);
+    life(`camera: ${c.id} asked to come in front of the player`);
+    say(c.hand ? `${c.name} is in front of you: take it by its white knob` : `${c.name} asked to come in front of you (a camera its clicks placed moves at most 3 m)`);
+  }
+  function camFrame(now, tips, cams, mine = cams) {
     if (lineup.active && S.connected && space.ok) {
-      const r = camKnobs.update(tips, cams, space.fz);
+      const r = camKnobs.update(tips, mine, space.fz);
       if (r.grabbed) life('camera: a knob was taken');
       const last = r.release || (r.moves.length ? r.moves[r.moves.length - 1] : null);
       if (last) camPend = last;
@@ -167,7 +177,7 @@ export async function createApp(o) {
     exit: () => { if (xr) { life('xr: the Exit button ended the session'); xr.session.end(); } else say('Not in mixed reality'); },
     roomSetup: () => { const r = xr ? xr.roomSetup() : 'none'; say(r === 'started' ? 'Room setup: the headset takes over' : r === 'used' ? 'Room setup was used once: leave mixed reality and come back for it again' : 'No room setup here'); },
     roomUsed: () => !!(xr && xr.roomUsed),
-    room, life, cams: camInfo, camReset,
+    room, life, cams: camInfo, camReset, camHere,
   });
   const bodies = (typeof o.bodies === 'function' ? o.bodies({ S, space, say, life }) : o.bodies || []).map((b) => new M.body.Body(S, b));
   const clicks = new M.clicks.Clicks();
@@ -342,7 +352,8 @@ export async function createApp(o) {
     const tipList = M.hands.tips(own, Object.fromEntries(own.map((s) => [s.id, !!s.pinch])));
     lineup.update(now, dt, tipList);
     const camsOwn = space.ok ? Object.values(S.doc.cameras).map((c) => M.cams.toOwn(space.frame, c)) : [];       // (a camera needs a frame to be placed in: none until lined up)
-    camFrame(now, tipList, camsOwn);
+    const chosen = sys.camId(), camsMine = camsOwn.filter((c) => c && c.id === chosen);           // (the knobs hang only at the camera chosen in the camera menu)
+    camFrame(now, tipList, camsOwn, camsMine);
     S.tick(now);
     room.update(now, [head[0], head[1]]);
     presence.send(now, head, own.concat(feet));
@@ -354,7 +365,7 @@ export async function createApp(o) {
     windowsFrame(now, dt, head, handsXR);
     modelFrame(now, own);
     players.update(presence.others(now).map((q) => ({ slot: q.slot, head: q.head, sources: q.sources })), dt);
-    players.marks(Object.assign(lineup.marks(), { camKnobs: lineup.active ? camKnobs.knobs(camsOwn).slice(0, 8) : [] }));
+    players.marks(Object.assign(lineup.marks(), { camKnobs: lineup.active ? camKnobs.knobs(camsMine).slice(0, 8) : [] }));
     world.position.y = space.floorY;
     room3d.set(room.local()); room3d.group.visible = !xr || lineup.active;
     if (handWall) handWall.update(room.local(), wallHands(), now, viewerPreview || viewerSpot());
