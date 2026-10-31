@@ -19,6 +19,8 @@ import { createWebcamView } from './webcamview.js';
 import { createLensPass } from './lenspass.js';
 import { createDim3d } from '../xr/dim3d.js';
 import { buildPage } from './page.js';
+import { createPeopleCut } from './peoplecut.js';
+import { createSegmenter } from './segmenter.js';
 
 export async function startMixedView(V) {
   const M = window.MUMR, CAL = M.webcamcal, $ = (id) => document.getElementById(id);
@@ -62,7 +64,16 @@ export async function startMixedView(V) {
     if (!$('camNote').dataset.find) $('camNote').textContent = cams.length ? `Real cameras: ${cams.map((c) => c.name).join(', ')}.` : 'No real camera is aligned.';
     $('wcExtra').textContent = `The world is drawn ${DELAY.ms} ms in the past (${DELAY.from === 'address' ? 'the address says so' : DELAY.from === 'profile' ? 'the latency measured for this camera' : 'the usual; measure the latency of the camera in the calibration mode, or put ?delay=100 in the address'}). `
       + (ADJ.moved === false ? '' : `The camera has been moved ${(ADJ.moved * 100).toFixed(1)} cm by hand from where the clicks put it${ADJ.held ? ' (kept from the last time; waiting for the spots)' : ''} (Reset: in the headset's line-up menu; or click the spots again). `)
-      + (spread === null || spread === undefined ? 'Clock: not known yet.' : spread > 5 ? `Clock spread ${spread.toFixed(1)} ms: the world will slide against the picture.` : `Clock spread ${spread.toFixed(1)} ms.`);
+      + (spread === null || spread === undefined ? 'Clock: not known yet.' : spread > 5 ? `Clock spread ${spread.toFixed(1)} ms: the world will slide against the picture.` : `Clock spread ${spread.toFixed(1)} ms.`)
+      + ` ${peopleText()}`;
+  }
+  function peopleText() {
+    if (show.people === 'none') return 'People cutout: none.';
+    const n = `${people.stats.players} ${people.stats.players === 1 ? 'player' : 'players'} covered`;
+    if (show.people === 'crude') return `People cutout: crude, ${n}.`;
+    if (seg && seg.failed) return `ML cutout unavailable: ${seg.failed}; using crude, ${n}.`;
+    if (!seg || !seg.ready) return `People cutout: loading the ML cutout (crude until then), ${n}.`;
+    return `People cutout: ML, ${n}, segmenting ${seg.ms.toFixed(1)} ms a frame.`;
   }
 
   // ---- the Show menu: one check box for each part of the picture (mixedshow.js), and the panels that roll up
@@ -109,6 +120,10 @@ export async function startMixedView(V) {
   // the physics crashes into. They draw nothing; what is behind one, seen from the webcam, is cut off. Always there while the camera is placed, whatever the Show menu hides
   // of the room (it is built apart from the view's own room, which the menu switches); people and hands never occlude. Off in the free view (no camera).
   const occ = new THREE.Object3D(); occ.name = 'occluders'; occ.visible = false; scene.add(occ);
+  // ---- real people hide the world (peoplecut.js): the players' stand-in bodies, depth-only, in the Show menu's People cutout mode; the ML mode's person
+  // mask (segmenter.js) is loaded the first time that mode is chosen. ?people=debug draws the stand-ins as wireframes too.
+  const people = createPeopleCut({ THREE, scene, feed, renderer, camera, debug: new URLSearchParams(location.search).get('people') === 'debug' });
+  let seg = null;
   const occMat = new THREE.MeshBasicMaterial({ colorWrite: false, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 2 });       // (pushed back a hair: a wall drawn on the same place shows)
   const occGeo = new THREE.BoxGeometry(1, 1, 1);
   function rebuildOcc() {
@@ -184,6 +199,11 @@ export async function startMixedView(V) {
     const P = poseNow();
     lensPass.setPlan(P && WCV.running ? M.overlaylens.renderPlan(calib.lens, calib.W, calib.H, P.hfov, P.aspect) : null);
     occ.visible = !!(P && show.occlude);
+    // (the person mask of the frame about to be shown, then the stand-ins at the world's time; no mask yet, or none to be had: crude)
+    const solved = !!(P && WCV.running);
+    if (show.people === 'ml' && solved) { if (!seg) seg = createSegmenter({ THREE, video }); seg.run(performance.now(), people.box); }
+    const pmode = show.people === 'ml' && !(seg && seg.ready && !seg.failed) ? 'crude' : show.people;
+    people.update(pmode, { solved, delayMs: DELAY.ms, lensPlan: lensPass.plan, mask: pmode === 'ml' ? seg : null, wantBox: show.people === 'ml' });
     // the room's dim on the picture, at the moment the picture shows (DELAY ms ago); none on the PC view, which has no real room
     const sn = feed.serverNow();
     dim.linear = !!(lensPass.plan.distort && tex);                   // (the lens pass draws the world into a linear target, over the picture)
@@ -195,6 +215,6 @@ export async function startMixedView(V) {
     return out;
   };
 
-  window.mixed = { WCV, calib, feed, get DELAY() { return DELAY; }, show, myCam, ADJ, KEEP, occ, lensPass, dim };
+  window.mixed = { WCV, calib, feed, get DELAY() { return DELAY; }, show, myCam, ADJ, KEEP, occ, lensPass, dim, people, get seg() { return seg; } };
   return window.mixed;
 }
