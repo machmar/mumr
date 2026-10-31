@@ -155,7 +155,7 @@ export async function startMixedView(V) {
     if (!tex && video.videoWidth) { tex = new THREE.VideoTexture(video); tex.colorSpace = THREE.SRGBColorSpace; }
     const P = poseNow();
     orbit.enabled = false; scene.background = tex || dark;
-    scene.visible = !!P;                                      // (a camera but no solution: only its picture, to click in)
+    scene.visible = !!P && !WCV.task;                        // (a camera but no solution, or a point being picked: only its picture, to click in. Marek, 2026-10-31)
     if (!P) return false;
     camera.up.set(0, 1, 0);
     const vfov = 2 * Math.atan(Math.tan(P.hfov / 2) / P.aspect) * 180 / Math.PI;
