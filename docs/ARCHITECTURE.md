@@ -165,7 +165,8 @@ after the view's own script (apps/cube/webcam.html), which waits for `window.vie
   (`cam+` with `hand: true`); a headset that lines up sees a fourth, white knob on the camera itself that moves it one to one (camknobs.js), carries it to
   the real camera, and the page's **Aim** click on one spot it sees turns it (handcam.js: the ray through that pixel passes through the spot, no roll).
 - **The camera menu** (the wrist menu's Line up > Cameras, sysmenu.js): which camera the knobs hang at (Camera 1 of 2: a press takes the next),
-  **Place in front of me** (at arm's length, a little under the eyes: a camera put behind a wall is reached again) and **Reset position**, for that camera only.
+  **Place in front of me** (at arm's length, a little under the eyes: a camera put behind a wall is reached again), **Rough move** (its body taken
+  and carried one to one, like any other thing) and **Reset position**, for that camera only.
 - **The overlay is bent, the picture is not:** a camera profile (field of view, lens `a1 a2`, latency) is made in the calibration mode (sheet 4; the
   laptop's screen shown to the camera for the lens and the latency). With a lens the world is rendered with a wider frustum into a target and warped by the
   lens on the way to the screen (lenspass.js); the world is drawn `latency` ms in the past so that hands and picture agree.

@@ -352,7 +352,7 @@ export async function createApp(o) {
     const tipList = M.hands.tips(own, Object.fromEntries(own.map((s) => [s.id, !!s.pinch])));
     lineup.update(now, dt, tipList);
     const camsOwn = space.ok ? Object.values(S.doc.cameras).map((c) => M.cams.toOwn(space.frame, c)) : [];       // (a camera needs a frame to be placed in: none until lined up)
-    const chosen = sys.camId(), camsMine = camsOwn.filter((c) => c && c.id === chosen);           // (the knobs hang only at the camera chosen in the camera menu)
+    const chosen = sys.camId(), camsMine = camsOwn.filter((c) => c && c.id === chosen).map((c) => (sys.camRough ? Object.assign({}, c, { grab: true }) : c));     // (the knobs hang only at the camera chosen in the camera menu; Rough move: its body knob too)
     camFrame(now, tipList, camsOwn, camsMine);
     S.tick(now);
     room.update(now, [head[0], head[1]]);

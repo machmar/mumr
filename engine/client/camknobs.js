@@ -5,7 +5,8 @@
 //   across (green) 12 cm to its left: sideways
 //   up (blue)     12 cm above it: height
 // A camera placed by hand (cams.js hand: true, webcam/handcam.js) has a fourth knob, white, on the camera itself (body): it moves the camera one to one,
-// all three ways, so that it can be carried to where the real camera stands (Marek, 2026-10-31). Only the position moves. The camera keeps looking at the point it looked at when the pull began (cams.js aimPoint: where its axis met the floor), so its
+// all three ways, so that it can be carried to where the real camera stands (Marek, 2026-10-31); so has any camera given `grab: true` (the camera
+// menu's Rough move). Only the position moves. The camera keeps looking at the point it looked at when the pull began (cams.js aimPoint: where its axis met the floor), so its
 // pan and tilt change as it moves (cams.js lookAt). No THREE and no DOM, so that Node can test it. Everything here is in the headset's OWN frame (cams.toOwn):
 // x, y on the floor plan, z above this headset's floor (`plane` is where the common floor lies in it), the same space as the fingertips.
 //
@@ -46,7 +47,7 @@
           out.push({ id: c.id, axis, held, pull, from: axis === 'along' ? [c.x, c.y, c.z] : B,         // (the stalk it hangs on: from the camera, or from the point in front of it)
             x: B[0] + W[axis][0] * off + d[0] * pull, y: B[1] + W[axis][1] * off + d[1] * pull, z: B[2] + W[axis][2] * off + d[2] * pull });
         }
-        if (c.hand) { const held = !!this._g && this._g.id === c.id && this._g.axis === 'body'; out.push({ id: c.id, axis: 'body', held, pull: held ? this._g.pull : 0, from: [c.x, c.y, c.z], x: c.x, y: c.y, z: c.z }); }
+        if (c.hand || c.grab) { const held = !!this._g && this._g.id === c.id && this._g.axis === 'body'; out.push({ id: c.id, axis: 'body', held, pull: held ? this._g.pull : 0, from: [c.x, c.y, c.z], x: c.x, y: c.y, z: c.z }); }
       }
       return out;
     }

@@ -7,7 +7,8 @@
 //             Home: Line up, Room setup, Exit (Exit asks again: Exit now, Stay)
 //             Line up: Spot 1, Spot 2, Check spot, Room (upload), Cameras (when a webcam page has aligned one), Done; poking a
 //             spot opens its menu: Lock, Replace, Delete, Back; Cameras opens the camera menu (Marek, 2026-10-31): which camera the knobs
-//             are for (Camera 1 of 2: a press takes the next), Place in front of me, Reset position, Back
+//             are for (Camera 1 of 2: a press takes the next), Place in front of me, Rough move (the camera taken by its body and carried one to
+//             one, like any other thing), Reset position, Back
 //             the home menu (Home, nothing else open) folds by itself once it has been hidden for HIDDEN ms in a row (the hand turned away
 //             from the face, or not tracked; Marek, 2026-10-22). Anything else that is open (lining up) never folds by itself
 // Like every menu it is shared: it goes out in the `M` packet as panel 'wrist' with its state in info.sys, the other players see it on its
@@ -16,12 +17,13 @@
 //   const sys = new SysMenu(session, lineup, { exit, roomSetup, roomUsed, room, cams, camReset, camHere, life })     room: room.js Room (its Room row and button)
 //                            cams() -> { count, list: [{ id, name, x, y, z, hand }] } (the real cameras; x y z to the centimetre); camReset(id), camHere(id):
 //                            the buttons, for the chosen camera.   sys.camId(): the chosen camera's id (null: none), the one whose knobs hang
+//                            sys.camRough: Rough move is on (the chosen camera has the body knob, camknobs.js)
 //   ACTIONS                  add them to the session's actions; press(id) from the 'action' listener -> true when it was one of ours
 //   info()                   what another page needs to draw this menu: { open, lining, fields, lined, dist, note, spot, asking, players, ... }
 //   SysMenu.layout(info)     the layout (like menus.grid, plus `card`, `wrist`, `folded`) for anybody's wrist menu; SysMenu.width(info): its width in metres
 //   place(head, jp, floorY)  where it floats this frame (a panel pose), or null while the wrist does not look at you
 (function (M) {
-  const OWN = ['sysOpen', 'sysClose', 'exit', 'exitYes', 'exitNo', 'roomSetup', 'spot1', 'spot2', 'spot3', 'spotBack', 'spotLock', 'spotReplace', 'spotDelete', 'camMenu', 'camNext', 'camHere', 'camReset', 'camBack'];
+  const OWN = ['sysOpen', 'sysClose', 'exit', 'exitYes', 'exitNo', 'roomSetup', 'spot1', 'spot2', 'spot3', 'spotBack', 'spotLock', 'spotReplace', 'spotDelete', 'camMenu', 'camNext', 'camHere', 'camRough', 'camReset', 'camBack'];
   const OPEN_W = 0.22, FOLDED_W = 0.02, MAP_W = 0.32;
   const HIDDEN = 5000;          // ms hidden in a row before the open home menu folds (Marek: 10 s, then 5)
   const WRIST_SIDE = 'left';
@@ -67,6 +69,7 @@
       c.count > 1 ? { slot: 0, id: 'camNext', label: `Camera ${c.sel + 1} of ${c.count}`, value: 'next' } : { slot: 0, label: 'Camera 1 of 1', value: k.name || 'Webcam' },
       { slot: 1, id: 'camHere', label: 'Place in front of me', value: "at arm's length" },
       { slot: 2, id: 'camReset', label: 'Reset position', value: k.hand ? 'where it was put' : 'where its clicks put it' },
+      k.hand ? { slot: 3, label: 'Rough move', value: 'always: its white knob' } : { slot: 3, id: 'camRough', label: 'Rough move', value: c.rough ? 'on: take it by its body' : 'off', active: !!c.rough },
       { slot: 4, id: 'camBack', label: 'Back' }], 2);
   }
 
@@ -98,7 +101,7 @@
       this.session = session; this.lineup = lineup; this.opts = opts;
       this.open = false; this.shown = false; this.pose = null;
       this.spot = null; this.asking = false;                    // the spot menu (0..2) and "Exit asks again" are open in it
-      this.camOpen = false; this.camSel = null;                 // the camera menu is open; the chosen camera's id
+      this.camOpen = false; this.camSel = null; this.camRough = false;      // the camera menu is open; the chosen camera's id; Rough move
       this.now = opts.now || M.util.nowMs; this.hiddenAt = null;
     }
     static get ACTIONS() { return OWN.concat(M.lineup.ACTIONS, M.room.ACTIONS); }
@@ -109,7 +112,7 @@
       const c = this.opts.cams ? this.opts.cams() : null;
       if (!c || !c.list || !c.list.length) return { count: 0, list: [], sel: 0 };
       const i = Math.max(0, c.list.findIndex((k) => k.id === this.camSel));
-      return { count: c.list.length, list: c.list, sel: i };
+      return { count: c.list.length, list: c.list, sel: i, rough: this.camRough };
     }
     camId() { const c = this._cams(); return c.count ? c.list[c.sel].id : null; }
     _fold(why) { this.open = false; this.spot = null; this.asking = false; this.camOpen = false; this.hiddenAt = null; if (this.opts.life) this.opts.life(`wrist menu folded: ${why}`); }
@@ -130,6 +133,7 @@
       if (id === 'roomSetup') { if (this.opts.roomSetup) this.opts.roomSetup(); return true; }
       if (id === 'camMenu') { if (this.lineup && this.lineup.active) { this.camOpen = true; this.spot = null; } return true; }
       if (id === 'camBack') { this.camOpen = false; return true; }
+      if (id === 'camRough') { this.camRough = !this.camRough; return true; }
       if (id === 'camNext') { const c = this._cams(); if (c.count) this.camSel = c.list[(c.sel + 1) % c.count].id; return true; }
       if (id === 'camHere') { const k = this.camId(); if (k && this.opts.camHere) this.opts.camHere(k); return true; }
       if (id === 'camReset') { const k = this.camId(); if (k && this.opts.camReset) this.opts.camReset(k); return true; }
@@ -139,7 +143,7 @@
       const act = { spotLock: 'lock', spotReplace: 'create', spotDelete: 'delete' }[id];
       if (act) { if (L && this.spot !== null) L.press(`p${this.spot + 1}${act}`); return true; }
       if (this.opts.room && this.opts.room.press(id)) { if (this.opts.room.choice) this.open = true; return true; }     // (the room picker must be seen)
-      if (L && L.press(id)) { if (id === 'lineUp' && L.active) this.open = true; if (!L.active) { this.spot = null; this.camOpen = false; } return true; }      // (lining up: the fields must be seen)
+      if (L && L.press(id)) { if (id === 'lineUp' && L.active) this.open = true; if (!L.active) { this.spot = null; this.camOpen = false; this.camRough = false; } return true; }      // (lining up: the fields must be seen)
       return false;
     }
     info() {
