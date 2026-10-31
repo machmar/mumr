@@ -4,7 +4,8 @@
 //   along (red)   on that point: forward and back, the way the camera looks on the floor
 //   across (green) 12 cm to its left: sideways
 //   up (blue)     12 cm above it: height
-// Only the position moves. The camera keeps looking at the point it looked at when the pull began (cams.js aimPoint: where its axis met the floor), so its
+// A camera placed by hand (cams.js hand: true, webcam/handcam.js) has a fourth knob, white, on the camera itself (body): it moves the camera one to one,
+// all three ways, so that it can be carried to where the real camera stands (Marek, 2026-10-31). Only the position moves. The camera keeps looking at the point it looked at when the pull began (cams.js aimPoint: where its axis met the floor), so its
 // pan and tilt change as it moves (cams.js lookAt). No THREE and no DOM, so that Node can test it. Everything here is in the headset's OWN frame (cams.toOwn):
 // x, y on the floor plan, z above this headset's floor (`plane` is where the common floor lies in it), the same space as the fingertips.
 //
@@ -17,7 +18,7 @@
 (function (M) {
   const CAMS = () => M.cams;
   const DEF = { ahead: 0.5, side: 0.12, up: 0.12, grab: 0.04, fine: 1 / 20 };
-  const AXES = ['along', 'across', 'up'];
+  const AXES = ['along', 'across', 'up'];                 // (and 'body', on a camera placed by hand)
 
   class CamKnobs {
     constructor(cfg = {}) { this.cfg = Object.assign({}, DEF, cfg); this.held = null; this._g = null; this._pinch = new Map(); }
@@ -45,6 +46,7 @@
           out.push({ id: c.id, axis, held, pull, from: axis === 'along' ? [c.x, c.y, c.z] : B,         // (the stalk it hangs on: from the camera, or from the point in front of it)
             x: B[0] + W[axis][0] * off + d[0] * pull, y: B[1] + W[axis][1] * off + d[1] * pull, z: B[2] + W[axis][2] * off + d[2] * pull });
         }
+        if (c.hand) { const held = !!this._g && this._g.id === c.id && this._g.axis === 'body'; out.push({ id: c.id, axis: 'body', held, pull: held ? this._g.pull : 0, from: [c.x, c.y, c.z], x: c.x, y: c.y, z: c.z }); }
       }
       return out;
     }
@@ -63,7 +65,7 @@
           for (const k of this.knobs(cams)) { const d = Math.hypot(tip.x - k.x, tip.y - k.y, tip.z - k.z); if (d < bd) { bd = d; best = k; } }
           const c = best && byId.get(best.id);
           if (c) {
-            const dirv = CamKnobs.dirs(c.yaw)[best.axis];
+            const dirv = best.axis === 'body' ? null : CamKnobs.dirs(c.yaw)[best.axis];
             this._g = { id: c.id, axis: best.axis, pull: 0, dirv, pos: [c.x, c.y, c.z], aim: CAMS().aimPoint(c, plane), tip: tip.id, last: [tip.x, tip.y, tip.z] };
             this.held = { id: c.id, axis: best.axis, pull: 0 }; res.grabbed = true;
           }
@@ -71,6 +73,11 @@
         const g = this._g;
         if (g && g.tip === tip.id && byId.has(g.id)) {
           if (!tip.pinch) { res.release = { id: g.id, x: g.pos[0], y: g.pos[1], z: g.pos[2] }; this._g = null; this.held = null; continue; }
+          if (!g.dirv) {                                     // (the body: where the hand goes, the camera goes)
+            const dv = [tip.x - g.last[0], tip.y - g.last[1], tip.z - g.last[2]]; g.last = [tip.x, tip.y, tip.z];
+            if (dv.some((v) => v !== 0)) { for (let i = 0; i < 3; i++) g.pos[i] += dv[i]; g.pull += Math.hypot(...dv); this.held.pull = g.pull; res.moves.push({ id: g.id, x: g.pos[0], y: g.pos[1], z: g.pos[2] }); }
+            continue;
+          }
           const d = g.dirv, step = (tip.x - g.last[0]) * d[0] + (tip.y - g.last[1]) * d[1] + (tip.z - g.last[2]) * d[2];      // how far the hand went along the knob's direction
           g.last = [tip.x, tip.y, tip.z];
           if (step !== 0) {

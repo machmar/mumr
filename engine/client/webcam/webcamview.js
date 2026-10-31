@@ -18,6 +18,9 @@ export function createWebcamView({ calib, getSpots, say, marksVisible }) {
   const box = $('viewBox'), video = $('wcVideo'), pickCv = $('wcPick'), g = pickCv.getContext('2d');
   const el = { panel: $('wcPanel'), start: $('wcStart'), device: $('wcDevice'), status: $('wcStatus'), fov: $('wcFov'), fovBtn: $('wcFovMeasure'),
     calOpen: $('wcCalOpen'), fovClick: $('wcFovClick'), fovReset: $('wcFovReset'), fovSel: $('wcFovSel'), barH: $('wcBarH'), barV: $('wcBarV'), barReset: $('wcBarReset'), alt: $('wcAlt'), clear: $('wcClear'), spots: [0, 1, 2].map((i) => $('wcSpot' + i)) };
+  // the camera placed by hand (handcam.js): carried in a headset to where the real one is, turned by one click on a spot
+  const hand = new NS.handcam.HandCam(calib.store); hand.aimIdeal = (uv) => calib._ideal(uv);
+  const hb = { btn: $('wcHand'), aims: $('wcAims'), aim: [0, 1, 2].map((i) => $('wcAim' + i)) };
   const NAMES = ['spot 1', 'spot 2', 'the check spot'], COLOURS = ['#ff9f43', '#4ea1ff', '#7bd88f'];
   let on = false, stream = null, still = 0, task = null, text = '';      // task: { kind: 'spot', i } | { kind: 'fov', pts: [[u, v], ...] } (the clicks)
   // the automatic measurement of the field of view: { cap (FovCapture), markers (what the detector sees now), status, timer, busy, gray, finished }
@@ -467,6 +470,7 @@ export function createWebcamView({ calib, getSpots, say, marksVisible }) {
 
   function pose() {
     if (!on || !running()) return null;
+    if (hand.on) return hand.pose({ hfov: calib.fovDeg * D2R, W: calib.W, H: calib.H, spots: getSpots() });
     const r = calib.result(getSpots());
     if (!r.ok) return null;
     return { x: r.cam.x, y: r.cam.y, z: r.cam.z, yaw: r.cam.yaw, pitch: r.cam.pitch, hfov: calib.fovDeg * D2R, aspect: calib.W / calib.H };
@@ -485,6 +489,7 @@ export function createWebcamView({ calib, getSpots, say, marksVisible }) {
     if (!task || !pend) return;
     const uv = pend; pend = null; hover = null;
     if (task.kind === 'spot') { calib.setClick(task.i, uv); task = null; }
+    else if (task.kind === 'aim') { hand.setAim(task.i, uv); say(`The camera turned to see ${NAMES[task.i]} there`); task = null; }
     else {
       task.pts.push(uv);
       if (task.pts.length === 4) {
@@ -614,6 +619,12 @@ export function createWebcamView({ calib, getSpots, say, marksVisible }) {
       g.strokeStyle = '#ffffff'; g.lineWidth = 2 * k; g.beginPath(); g.arc(pend[0], pend[1], 9 * k, 0, 2 * Math.PI); g.moveTo(pend[0] - 14 * k, pend[1]); g.lineTo(pend[0] + 14 * k, pend[1]); g.moveTo(pend[0], pend[1] - 14 * k); g.lineTo(pend[0], pend[1] + 14 * k); g.stroke();
     }
     if (auto && !auto.finished) drawGuide(k);
+    if (hand.on && hand.aim && marksOn()) {                           // (the aim click, and where the camera now puts that spot)
+      const i = hand.aim.i, c = hand.aim.uv, P = pose(), sp = getSpots(), t = sp && sp.pts[i];
+      g.strokeStyle = COLOURS[i]; g.fillStyle = COLOURS[i]; g.lineWidth = 2 * k;
+      g.beginPath(); g.arc(c[0], c[1], 11 * k, 0, 2 * Math.PI); g.stroke(); g.font = `${14 * k}px sans-serif`; txt('aim', c[0] + 14 * k, c[1] - 12 * k);
+      if (P && t) { const q0 = WC.project(P, P.hfov, calib.W, calib.H, t), q = q0[2] > 0 ? bend(q0).concat([q0[2]]) : q0; if (q[2] > 0) { g.beginPath(); g.moveTo(q[0] - 8 * k, q[1]); g.lineTo(q[0] + 8 * k, q[1]); g.moveTo(q[0], q[1] - 8 * k); g.lineTo(q[0], q[1] + 8 * k); g.stroke(); } }
+    }
     if (task && task.kind === 'fov') {
       g.strokeStyle = '#ff6b81'; g.fillStyle = '#ff6b81'; g.lineWidth = 2 * k;
       task.pts.forEach((p, i) => { g.beginPath(); g.arc(p[0], p[1], 7 * k, 0, 2 * Math.PI); g.stroke(); g.font = `${14 * k}px sans-serif`; txt(String(i + 1), p[0] + 10 * k, p[1] - 8 * k); });
@@ -669,11 +680,24 @@ export function createWebcamView({ calib, getSpots, say, marksVisible }) {
     return lines.join('\n');
   }
 
+  function handText() {
+    const P = pose();
+    if (!P) return 'Placed by hand: start the camera.';
+    const where = `The camera is at x ${P.x.toFixed(2)}, y ${P.y.toFixed(2)} m, ${P.z.toFixed(2)} m up (placed by hand).`;
+    if (task && task.kind === 'aim') return `${where}
+Click ${NAMES[task.i]} in the picture${pend ? ', fine-tune it with the arrow keys and press Accept or Enter' : ' (Esc cancels)'}.`;
+    return `${where}
+${P.aimed ? 'Turned by the aim click. Click Aim again to change it.' : 'In a headset, while lining up, take it by the white knob on it and carry it to the real camera. Then click Aim and the spot, where it is in the picture.'}`;
+  }
+  hb.btn.addEventListener('click', () => { if (hand.on) hand.stop(); else { hand.start(((getSpots() || {}).pts) || []); say('A camera to place by hand is in the room: take it in a headset by its white knob (while lining up)'); } layout(); });
+  hb.aim.forEach((b, i) => b.addEventListener('click', () => { const sp = getSpots(); if (!sp || !sp.pts[i]) { say(`There is no ${NAMES[i]} yet: line up a headset first`); return; } task = { kind: 'aim', i }; layout(); }));
+
   function update() {
     if (!on) return;
     calSync();
     const spots = getSpots(), r = calib.result(spots);
-    const t = describe(r);
+    const t = hand.on ? handText() : describe(r);
+    hb.btn.textContent = hand.on ? 'Back to the spots' : 'Place by hand'; hb.aims.hidden = !hand.on;
     if (t !== text) { text = t; el.status.textContent = t; }
     if (document.activeElement !== el.fov) el.fov.value = calib.fovDeg.toFixed(1);
     refreshLib();
@@ -690,5 +714,5 @@ export function createWebcamView({ calib, getSpots, say, marksVisible }) {
     layout();
     window.dispatchEvent(new Event('resize'));
   }
-  return { show, update, pose, start, useStill, stop, openCalibration, closeCalibration, get calibration() { return cal; }, get screenLog() { return screenLog; }, get calBoard() { return bd ? bd.board : null; }, get running() { return running(); }, get measuring() { return !!auto && !auto.finished; }, get capture() { return auto ? auto.cap : null; }, get task() { return task; } };
+  return { show, update, pose, hand, start, useStill, stop, openCalibration, closeCalibration, get calibration() { return cal; }, get screenLog() { return screenLog; }, get calBoard() { return bd ? bd.board : null; }, get running() { return running(); }, get measuring() { return !!auto && !auto.finished; }, get capture() { return auto ? auto.cap : null; }, get task() { return task; } };
 }
