@@ -43,6 +43,8 @@ const CSS = `
   #wcPanel button:not(.roll), #wcPanel select, #wcPanel input { font: inherit; padding: 4px 8px; border: 1px solid var(--line); border-radius: 8px; background: #1e222c; color: var(--ink); }
   #wcPanel button:disabled { color: var(--dim); }
   #wcFovSel { max-width: 250px; }
+  #wcPanel button#wcRec.on { background: #a8322c; }
+  #wcRecInfo { color: var(--dim); font-size: 12px; }
   #wcStatus { white-space: pre-line; margin: 6px 0; font-size: 13px; }
   #wcExtra, #wcNote { color: var(--dim); font-size: 12px; margin: 4px 0 0; }
 
@@ -161,7 +163,8 @@ const HTML = `
   <div class="row" title="For a close-up, where the spots are not all in the picture: a camera put into the room, carried by hand in a headset (the white knob on it, while lining up) to where the real camera stands, then turned by one click on a spot it sees">Or by hand:
     <button id="wcHand">Place by hand</button><span id="wcAims" hidden> then aim at <button id="wcAim0">Spot 1</button><button id="wcAim1">Spot 2</button><button id="wcAim2">Check spot</button></span></div>
   <div class="row"><label>Profile <select id="wcFovSel" title="The camera profile this camera uses (field of view, lens, latency). They are made, filled in and deleted in the camera calibration"></select></label></div>
-<div class="row"><button id="wcCalOpen" title="A full-screen mode that measures the field of view, the lens distortion and the latency of this camera">Camera calibration...</button></div>
+<div class="row" title="Records the camera's picture with the world over it (not the panels), at the camera's own resolution whatever the size of the window, into an HEVC .mp4"><button id="wcRec" disabled>Record</button><select id="wcRecFps"><option>24</option><option>25</option><option>30</option><option>50</option><option>60</option></select> fps <span id="wcRecInfo"></span></div>
+<div class="row"><button id="wcCalOpen"title="A full-screen mode that measures the field of view, the lens distortion and the latency of this camera">Camera calibration...</button></div>
   <p id="wcStatus"></p>
   <p id="wcExtra"></p>
   <p id="wcNote"></p>

@@ -19,6 +19,7 @@ import { createWebcamView } from './webcamview.js';
 import { createLensPass } from './lenspass.js';
 import { createDim3d } from '../xr/dim3d.js';
 import { buildPage } from './page.js';
+import { createRecorder } from './recorder.js';
 
 export async function startMixedView(V) {
   const M = window.MUMR, CAL = M.webcamcal, $ = (id) => document.getElementById(id);
@@ -185,6 +186,18 @@ export async function startMixedView(V) {
     return out;
   };
 
-  window.mixed = { WCV, calib, feed, get DELAY() { return DELAY; }, show, myCam, ADJ, KEEP, occ, lensPass, dim };
+  // ---- the recorder (recorder.js): the canvas only (the picture and the world over it), at the camera's own resolution; the frame rate is kept in this browser
+  const rec = createRecorder({ renderer, scene, getSize: () => (WCV.running && video.videoWidth ? [video.videoWidth, video.videoHeight] : null) });
+  const recFps = $('wcRecFps'), recBtn = $('wcRec');
+  recFps.value = String(LS.get('mumr.webcam.recFps', 30));
+  recFps.addEventListener('change', () => LS.set('mumr.webcam.recFps', +recFps.value));
+  recBtn.addEventListener('click', async () => { if (rec.on) await rec.stop(); else await rec.start(+recFps.value); });
+  setInterval(() => {
+    recBtn.disabled = !rec.on && !WCV.running; recFps.disabled = rec.on;
+    recBtn.classList.toggle('on', rec.on); recBtn.textContent = rec.on ? 'Stop' : 'Record';
+    $('wcRecInfo').textContent = rec.text;
+  }, 250);
+
+  window.mixed = { WCV, calib, rec, feed, get DELAY() { return DELAY; }, show, myCam, ADJ, KEEP, occ, lensPass, dim };
   return window.mixed;
 }
