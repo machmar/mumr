@@ -41,7 +41,7 @@ async function load() {
   const fin = (a) => a.every(Number.isFinite);
   const differs = (a, b) => a[0] !== b[0] || a[1] !== b[1] || a[2] !== b[2] || (a.length > 3 && a[3] !== b[3]);
   const MAX_DT = 0.05, HAND_MAX = 4, HOLD_W = 10, V_MAX = 30, W_MAX = 100, WALL_T = 0.2, PLATE_T = 0.01, FAR = 0.5, NEAR_WAKE = 0.05, GROUND = 100, MAX_SUB = 32, CATCH_TAU = 0.05, CATCH_UP = 2;
-  const STATIC = 0, MOVING = 1, HAND = 2, GHOST = 0.05, SOFT_W = 40;
+  const STATIC = 0, MOVING = 1, HAND = 2, GHOST = 0.05, SOFT_W = 40, JUMP = 0.04, SOFT_V = 2;
   const nearOn = (s, x) => { if (!s.q) return s.p; const d = sub(s.q, s.p), L = dot(d, d), t = L > 1e-12 ? Math.max(0, Math.min(1, dot(sub(x, s.p), d) / L)) : 0; return add(s.p, d, t); };
   // the turn that takes the y axis to direction d (unit)
   const fromY = (d) => { const c = cross([0, 1, 0], d), w = 1 + d[1]; return w < 1e-6 ? [1, 0, 0, 0] : Q.normalize([c[0], c[1], c[2], w]); };
@@ -281,7 +281,7 @@ async function load() {
         const soft = this.opts.softHands, cs = new J.BodyCreationSettings(shape, this.rv, rot, soft ? J.EMotionType_Dynamic : J.EMotionType_Kinematic, HAND);
         cs.mFriction = 0.6; cs.mRestitution = 0;
         if (soft) {
-          cs.mGravityFactor = 0; cs.mLinearDamping = 0; cs.mAngularDamping = 0; cs.mAllowSleeping = false; cs.mMotionQuality = J.EMotionQuality_LinearCast;
+          cs.mGravityFactor = 0; cs.mLinearDamping = 0; cs.mAngularDamping = 0; cs.mAllowSleeping = false; cs.mMotionQuality = J.EMotionQuality_LinearCast; cs.mMaxLinearVelocity = SOFT_V;
           cs.mOverrideMassProperties = J.EOverrideMassProperties_CalculateInertia; cs.mMassPropertiesOverride.mMass = soft.mass || 0.05;
         }
         e = { id: this._mk(cs, J.EActivation_Activate), shape, p: p.slice(), q: q.slice(), on: true, seen: true, fresh: true, ghost: false };
@@ -311,7 +311,7 @@ async function load() {
     hold(b, target, opts = {}) {
       const o = Object.assign({ spring: 20, speed: 5, breakAway: 0.3 }, opts);
       if (!target || !fin(target.p) || !target.q || !fin(target.q) || !(Math.hypot(...target.q) > 1e-6) || Math.hypot(...sub(target.p, b.p)) > o.breakAway) { b.held = null; return 'released'; }
-      b.held = { p: target.p, q: target.q, v: target.v || [0, 0, 0], w: target.w || [0, 0, 0], spring: o.spring, speed: o.speed, age: 0, force: o.force > 0 ? o.force : 0, omega: o.omega > 0 ? o.omega : 80 };
+      b.held = { p: target.p, q: target.q, v: target.v || [0, 0, 0], w: target.w || [0, 0, 0], spring: o.spring, speed: o.speed, age: 0, force: o.force > 0 ? o.force : 0, omega: o.omega > 0 ? o.omega : 80, maxErr: o.maxErr > 0 ? o.maxErr : Infinity };
       this.wake(b); return 'holding';
     }
     release(b) { b.held = null; }
@@ -330,7 +330,8 @@ async function load() {
     _force(b, h) {
       const H = b.held, id = b._j.id, bi = this.bi, w0 = H.omega;
       this._pullPose(b);
-      const e = sub(add(H.p, H.v, H.age), b.p), cur = bi.GetLinearVelocity(id), ev = sub(H.v, [cur.GetX(), cur.GetY(), cur.GetZ()]);
+      let e = sub(add(H.p, H.v, H.age), b.p); const el = Math.hypot(...e); if (el > H.maxErr) e = mulv(e, H.maxErr / el);          // (maxErr: a hand that jumped does not throw the body)
+      const cur = bi.GetLinearVelocity(id), ev = sub(H.v, [cur.GetX(), cur.GetY(), cur.GetZ()]);
       let f = mulv(add(mulv(e, w0 * w0), ev, 2 * w0), b.mass); const fl = Math.hypot(...f); if (fl > H.force) f = mulv(f, H.force / fl);
       this.v1.Set(f[0], f[1], f[2]); bi.AddForce(id, this.v1);
       let qe = Q.mul(H.q, Q.conj(b.q)); if (qe[3] < 0) qe = qe.map((x) => -x);
@@ -390,6 +391,9 @@ async function load() {
           if (this._occupied(t)) { e.p = t.p.slice(); e.q = t.q.slice(); continue; }
           e.ghost = false; bi.AddBody(e.id, J.EActivation_Activate); e.on = true; e.fresh = true;
         }
+        // (a hand that jumps further than JUMP in one frame came in late, after a gap in its packets: the finger does not chase it through the blocks,
+        //  it lets go of them until the place where the hand now is is free: Marek's run on bad Wi-Fi, 2026-10-29, a block flew off at a touch)
+        if (!e.fresh && Math.hypot(...sub(t.p, e.p)) > JUMP && Math.hypot(...sub(t.p, e.p)) <= FAR) { bi.RemoveBody(e.id); e.on = false; e.ghost = true; e.p = t.p.slice(); e.q = t.q.slice(); continue; }
         if (e.fresh || Math.hypot(...sub(t.p, e.p)) > FAR) {
           this.rv.Set(t.p[0], t.p[1], t.p[2]); const r = this._quat(t.q); bi.SetPositionAndRotation(e.id, this.rv, r, J.EActivation_Activate); J.destroy(r);
           this.v1.Set(v[0], v[1], v[2]); this.v2.Set(0, 0, 0); bi.SetLinearAndAngularVelocity(e.id, this.v1, this.v2);
