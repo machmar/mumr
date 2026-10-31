@@ -13,12 +13,13 @@
 //   the moments  in fx.js
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { ATLAS, blockAtlas, dieFace, yakisugi, walnut, hinoki, sand, felt, washi, seigaiha, enso, glow, blobShadow, drawShape } from './textures.js';
+import { ATLAS, blockAtlas, dieFace, yakisugi, walnut, hinoki, sand, felt, washi, seigaiha, enso, glow, standOut, blobShadow } from './textures.js';
 import { FONT, loadFonts, environment, createRig, mergeStatic } from './look.js';
 import { createStand } from './stand.js';
 import { createFx } from './fx.js';
 import { createDecor } from './decor.js';
 import { createShades } from './shades.js';
+import { createDemo } from './demo.js';
 
 const S = window.JENGA;
 const toV = (p) => [p[0], p[2], -p[1]];
@@ -33,6 +34,7 @@ export function createScene({ THREE, parent, renderer, playerColours = [0xf2c14e
   const overlay = new THREE.Group(); root.add(overlay);                   // glows, rings, words: common frame
   const disposables = [];
   const own = (o) => { disposables.push(o); return o; };
+  const demo = createDemo({ THREE, parent: root, own });                  // (the ghost demo: demo.js)
   let fontsVer = 0;
   loadFonts(fontBase).then(() => { fontsVer++; });
 
@@ -55,6 +57,7 @@ export function createScene({ THREE, parent, renderer, playerColours = [0xf2c14e
     bamboo: std({ color: 0xc9a56a, roughness: 0.3 }),
     cord: std({ color: 0xb2321d, roughness: 0.8, envMapIntensity: 0.2 }),
     lampBack: own(new THREE.MeshBasicMaterial({ color: 0x5a3010 })),
+    glass: std({ color: 0xf4e8d0, roughness: 0.06, transparent: true, opacity: 0.16, depthWrite: false, side: THREE.DoubleSide, envMapIntensity: 1.3 }),
   };
   T.felt.map.repeat.set(3, 3); T.felt.normal.repeat.set(3, 3);
   const blockMats = new Map();
@@ -186,39 +189,37 @@ export function createScene({ THREE, parent, renderer, playerColours = [0xf2c14e
     // -- the die's tray: black lacquer walls lined with vermilion, a vermilion lip, indigo felt (square to the table)
     const Tr = L.tray, tw = Tr.wall, th = Tr.rim, tz = c.top, tc = [-0.22, vs * -0.06];          // (spec.js layout: in a little from the end, so that the dice tower astride its far wall stands on the table)
     const felt3 = add(new THREE.PlaneGeometry(2 * Tr.half, 2 * Tr.half), mats.felt, ...at(tc[0], tc[1], tz + 0.0008), cg, false); felt3.rotation.x = -Math.PI / 2;
-    // (the far wall in two, with the dice tower standing astride the gap between them: spec.js furniture)
-    const dg = L.dtower.A + L.dtower.t, dh = (Tr.half + tw / 2 - dg) / 2;
-    for (const [x, y, w, dp, ix, iy] of [[tc[0] - Tr.half, tc[1] - (dg + dh), tw, 2 * dh, 1, 0], [tc[0] - Tr.half, tc[1] + (dg + dh), tw, 2 * dh, 1, 0], [tc[0] + Tr.half, tc[1], tw, 2 * Tr.half + tw, -1, 0], [tc[0], tc[1] - Tr.half, 2 * Tr.half + tw, tw, 0, 1], [tc[0], tc[1] + Tr.half, 2 * Tr.half + tw, tw, 0, -1]]) {
+    // (the end wall and the back wall stop where the dice tower stands on their corner: spec.js trayWalls)
+    for (const [x, y, w, dp, ix, iy] of S.trayWalls(L).map(([u0, u1, v0, v1]) => { const cu = (u0 + u1) / 2, cv = (v0 + v1) / 2, end = u1 - u0 < v1 - v0; return [tc[0] + cu, tc[1] + vs * cv, u1 - u0, v1 - v0, end ? -Math.sign(cu) : 0, end ? 0 : -Math.sign(cv) * vs]; })) {
       // (w is along the table, dp across it: in THREE, x and z)
       box(w, th, dp, mats.lacquer, ...at(x, y, tz + th / 2), cg, 0.004);
       const lw = ix ? 0.002 : w - 2 * tw, ld = iy ? 0.002 : dp - 2 * tw;
       box(lw, th - 0.006, ld, mats.shu, ...at(x + ix * (tw / 2 + 0.001), y + iy * (tw / 2 + 0.001), tz + (th - 0.006) / 2 + 0.001), cg);
     }
-    // -- the dice tower (spec.js dtowerParts: the host's physics has the same boxes): walnut walls with a vermilion lip round the mouth, black lacquer planks
-    //    and its dress: a black lacquer skirt at its foot, a vermilion band, a roof of black lacquer edged in vermilion, the six signs of the die down its front
-    const DT = L.dtower, dq = new THREE.Quaternion();
+    // -- the dice tower (spec.js dtowerParts: the host's physics has the same boxes): windows of pale glass in walnut frames, so that the die is seen
+    //    tumbling down it (Marek, 2026-10-31), black lacquer planks behind them; a black lacquer skirt at its foot, a vermilion lip round the
+    //    mouth, a small roof of black lacquer edged in vermilion
+    const DT = L.dtower, dq = new THREE.Quaternion(), fr = 0.012;
     for (const b of S.dtowerParts(L)) {
-      const mat = b.part === 'wall' || b.part === 'post' ? mats.walnut : mats.lacquer;
-      const m = box(b.size[0], b.size[2], b.size[1], mat, ...at(b.p[0], b.p[1], b.p[2]), furniture, b.part === 'plank' ? 0 : 0.002);
-      m.quaternion.set(b.q[0], b.q[2], -b.q[1], b.q[3]); dq.copy(m.quaternion);
-      if (b.part === 'wall') {
-        for (const [z, hh, mt, grow] of [[b.p[2] + b.size[2] / 2 + 0.004, 0.008, mats.shu, 0.004], [DT.base + 0.009, 0.018, mats.lacquer, 0.008], [DT.base + DT.H * 0.62, 0.01, mats.shu, 0.003]]) {
-          if (z - hh / 2 < b.p[2] - b.size[2] / 2 - 0.001) continue;                       // (the front wall stops short of the table: no skirt there)
-          const band = box(b.size[0] + grow, hh, b.size[1] + grow, mt, ...at(b.p[0], b.p[1], z), furniture, 0.002); band.quaternion.copy(dq);
-        }
-      }
-      if (b.part === 'roof') { const edge = box(b.size[0] + 0.006, 0.006, b.size[1] + 0.006, mats.shu, ...at(b.p[0], b.p[1], b.p[2] - 0.009), furniture, 0.002); edge.quaternion.copy(dq); }
+      const g = new THREE.Group(); g.position.set(...at(b.p[0], b.p[1], b.p[2])); g.quaternion.set(b.q[0], b.q[2], -b.q[1], b.q[3]); dq.copy(g.quaternion); furniture.add(g);
+      const lx = b.size[0], ly = b.size[2], lz = b.size[1];
+      if (b.part !== 'wall') { box(lx, ly, lz, b.part === 'post' ? mats.walnut : mats.lacquer, 0, 0, 0, g, b.part === 'plank' ? 0 : 0.002); }
+      if (b.part === 'roof') box(lx + 0.006, 0.005, lz + 0.006, mats.shu, 0, -0.0075, 0, g, 0.002);
+      if (b.part !== 'wall') continue;
+      // a pane of glass, framed: rails along the top and the foot (or the door's lintel), one across at the middle planks' height, a muntin up the middle
+      const long = Math.max(lx, lz), along = (w, h, y, mat, grow = 0.002, r = 0.002) => lx > lz ? box(w, h, lz + grow, mat, 0, y, 0, g, r) : box(lx + grow, h, w, mat, 0, y, 0, g, r);
+      const upright = (x, w) => lx > lz ? box(w, ly, lz + 0.001, mats.walnut, x, 0, 0, g, 0.001) : box(lx + 0.001, ly, w, mats.walnut, 0, 0, x, g, 0.001);
+      box(lx > lz ? lx - 0.004 : lx * 0.5, ly - 0.004, lx > lz ? lz * 0.5 : lz - 0.004, mats.glass, 0, 0, 0, g);
+      along(long, fr, ly / 2 - fr / 2, mats.walnut);
+      along(long, fr, -ly / 2 + fr / 2, mats.walnut);
+      const mid = DT.base + DT.H * 0.62 - b.p[2]; if (Math.abs(mid) < ly / 2 - fr) along(long, 0.008, mid, mats.walnut);
+      upright(0, 0.006);
+      along(long + 0.004, 0.008, ly / 2 + 0.004, mats.shu, 0.004);                                     // (the lip round the mouth)
+      const foot = DT.base + 0.009 - b.p[2]; if (foot - 0.009 > -ly / 2 - 0.001) along(long + 0.008, 0.018, foot, mats.lacquer, 0.008);       // (the skirt; the front wall stops short of the table)
     }
-    {
-      // the six signs, inlaid down the front wall over the door
-      const cv = document.createElement('canvas'); cv.width = 96; cv.height = 576; const g = cv.getContext('2d');
-      g.fillStyle = '#2a1a10'; g.fillRect(0, 0, 96, 576);
-      S.COLOURS.forEach((col, k) => { const y = 48 + k * 96; g.fillStyle = `#${col.hex.toString(16).padStart(6, '0')}`; g.beginPath(); g.arc(48, y, 36, 0, Math.PI * 2); g.fill(); g.fillStyle = 'rgba(255,246,228,0.95)'; g.strokeStyle = g.fillStyle; drawShape(g, col.shape, 48, y, 19); });
-      const tex = own(new THREE.CanvasTexture(cv)); tex.colorSpace = THREE.SRGBColorSpace;
-      const sw = DT.D * 0.62, sh = sw * 6, cy = Math.cos(DT.yaw), sy = Math.sin(DT.yaw), fu = DT.A + DT.t + 0.0012, z = DT.base + DT.door + 0.012 + sh / 2;
-      const strip = add(new THREE.PlaneGeometry(sw, sh), own(new THREE.MeshStandardMaterial({ map: tex, roughness: 0.45, envMap: env, envMapIntensity: 0.5 })), ...at(DT.c[0] + cy * fu, DT.c[1] + sy * fu, z), furniture, false);
-      strip.rotation.y = DT.yaw + Math.PI / 2;
-    }
+    // (the four corner posts, up its whole height)
+    { const cy = Math.cos(DT.yaw), sy = Math.sin(DT.yaw), e = DT.A + DT.t / 2;
+      for (const [u, v] of [[-e, -e], [-e, e], [e, -e], [e, e]]) { const m = box(DT.t + 0.006, DT.H + 0.006, DT.t + 0.006, mats.walnut, ...at(DT.c[0] + u * cy - v * sy, DT.c[1] + u * sy + v * cy, DT.base + DT.H / 2), furniture, 0.002); m.quaternion.copy(dq); } }
     // -- the lantern: a paper andon on the floor; walnut posts, a black cap, washi with a lattice, lit from inside
     const lx = L.lantern[0], ly = L.lantern[1], LH = 0.74, pw = 0.2, p0 = 0.17, p1 = 0.64;
     for (const sx of [-1, 1]) for (const sy of [-1, 1]) box(0.016, LH, 0.016, mats.walnut, ...at(lx + sx * (pw / 2 + 0.004), ly + sy * (pw / 2 + 0.004), LH / 2));
@@ -235,6 +236,7 @@ export function createScene({ THREE, parent, renderer, playerColours = [0xf2c14e
     const paper = add(new THREE.BoxGeometry(pw, p1 - p0, pw), lanternMat, ...at(lx, ly, (p0 + p1) / 2), furniture, false);
     paper.material = [lanternMat, lanternMat, own(new THREE.MeshBasicMaterial({ visible: false })), own(new THREE.MeshBasicMaterial({ color: 0x3a2010 })), lanternMat, lanternMat];
     if (!lanternGlow) lanternGlow = new THREE.Sprite(own(new THREE.SpriteMaterial({ map: own(glow(THREE)), color: 0xffa250, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, opacity: 0.5 })));
+    standOut(THREE, lanternGlow, 0.16);
     lanternGlow.scale.set(0.95, 1.25, 1); lanternGlow.position.set(...at(lx, ly, (p0 + p1) / 2)); furniture.add(lanternGlow);
     if (!relit) { const pool = floorShadow(lx, ly, 1.3, 1.3, false, 0.2); pool.material.color.set(0xffa860); pool.material.blending = THREE.AdditiveBlending; pool.material.map = own(glow(THREE)); }       // (its light on the floor)
     floorShadow(lx, ly, 0.36, 0.36, true, 0.5);
@@ -257,46 +259,93 @@ export function createScene({ THREE, parent, renderer, playerColours = [0xf2c14e
     furnKey = furnSig(sz, place);
   }
 
-  // ---- how to take a block (Marek, 2026-10-29): a sign of wood with a washi face, hanging on two cords from an arm out of the scroll stand's post
+  // ---- how to take a block (Marek, 2026-10-29): a sign of wood with a washi face, hanging on two cords from an arm out of the scroll stand's post.
+  //      Pictures more than words (Marek, 2026-10-31), and under it on a cord a round button that plays the ghost demo (demo.js)
   let howto = null;
   function buildHowto(sg, postX, postH) {
     // (on the stand's -x side: arrange.js keeps that much more room there)
-    const armY = postH - 0.2, armL = 0.3, W = 0.27, H = 0.4, cx = -(postX + armL - 0.15), top = armY - 0.07;
+    const armY = postH - 0.2, armL = 0.3, W = 0.27, H = 0.4, cx = -(postX + armL - 0.15), top = armY - 0.07, R = 0.04, by = top - H - 0.02 - 0.07 - R;
     if (!howto) {
-      const cv = document.createElement('canvas'); cv.width = 680; cv.height = 920;
+      const cv = document.createElement('canvas'); cv.width = 680; cv.height = 1000;
       const tex = own(new THREE.CanvasTexture(cv)); tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 8;
-      howto = { cv, tex, mat: own(new THREE.MeshStandardMaterial({ map: tex, roughness: 0.9, emissive: 0xffffff, emissiveMap: tex, emissiveIntensity: 0.14, envMap: env, envMapIntensity: 0.2 })), key: null };
+      const bc = document.createElement('canvas'); bc.width = bc.height = 256;
+      const btex = own(new THREE.CanvasTexture(bc)); btex.colorSpace = THREE.SRGBColorSpace;
+      howto = { cv, tex, mat: own(new THREE.MeshStandardMaterial({ map: tex, roughness: 0.9, emissive: 0xffffff, emissiveMap: tex, emissiveIntensity: 0.14, envMap: env, envMapIntensity: 0.2 })), key: null,
+        bc, btex, bmat: own(new THREE.MeshStandardMaterial({ map: btex, roughness: 0.5, emissive: 0xffffff, emissiveMap: btex, emissiveIntensity: 0.2, envMap: env, envMapIntensity: 0.4 })), button: null, lit: null };
     }
     box(armL, 0.022, 0.03, mats.walnut, -(postX + armL / 2), armY, 0, sg, 0.004);
     box(0.03, 0.03, 0.036, mats.lacquer, -(postX + armL - 0.012), armY, 0, sg, 0.004);
     for (const dx of [-0.09, 0.09]) add(new THREE.CylinderGeometry(0.0013, 0.0013, armY - top, 5), mats.cord, cx + dx, (armY + top) / 2, 0.004, sg, false);
     box(W + 0.02, H + 0.02, 0.012, mats.walnut, cx, top - H / 2, 0, sg, 0.004);
     add(new THREE.PlaneGeometry(W, H), howto.mat, cx, top - H / 2, 0.0065, sg, false);
+    // the button: a cord from the sign's foot, a walnut ring round a vermilion face with the sign of play on it (both sides)
+    const cordTop = top - H - 0.01, cordLen = cordTop - (by + R + 0.008);
+    add(new THREE.CylinderGeometry(0.0013, 0.0013, cordLen, 5), mats.cord, cx, cordTop - cordLen / 2, 0, sg, false);
+    const bg = new THREE.Group(); bg.position.set(cx, by, 0); sg.add(bg);
+    for (const m of [
+      add(new THREE.CylinderGeometry(R + 0.008, R + 0.008, 0.016, 40).rotateX(Math.PI / 2), mats.walnut, 0, 0, 0, bg),
+      add(new THREE.CircleGeometry(R, 40), howto.bmat, 0, 0, 0.0085, bg, false),
+      add(new THREE.CircleGeometry(R, 40).rotateY(Math.PI), howto.bmat, 0, 0, -0.0085, bg, false),
+    ]) m.userData.keep = true;                                                      // (not merged: it moves when pressed)
+    howto.button = bg; howto.R = R;
     howto.key = null;
   }
+  function drawButton(on) {
+    const g = howto.bc.getContext('2d'), n = 256;
+    g.fillStyle = on ? '#e0683a' : '#a8301c'; g.fillRect(0, 0, n, n);
+    const gr = g.createRadialGradient(n * 0.4, n * 0.35, 10, n / 2, n / 2, n * 0.6); gr.addColorStop(0, 'rgba(255,255,255,0.25)'); gr.addColorStop(1, 'rgba(0,0,0,0.25)'); g.fillStyle = gr; g.fillRect(0, 0, n, n);
+    g.fillStyle = '#fff3e0'; g.beginPath(); g.moveTo(n * 0.4, n * 0.24); g.lineTo(n * 0.4, n * 0.6); g.lineTo(n * 0.7, n * 0.42); g.closePath(); g.fill();
+    g.font = `700 32px ${FONT.body}`; g.textAlign = 'center'; g.textBaseline = 'alphabetic'; g.fillText('show me', n / 2, n * 0.8);
+    howto.btex.needsUpdate = true; howto.lit = on;
+  }
+  // the pictures: blocks seen from above (rectangles), fingertips (round pads), the way things go (arrows), a red cross for "no", a green tick for "yes"
   function drawHowto() {
     const g = howto.cv.getContext('2d'), W = howto.cv.width, H = howto.cv.height;
     washi(g, W, H, 17, [248, 240, 224]);
-    g.fillStyle = 'rgba(178,48,28,0.9)'; g.fillRect(36, 36, 8, H - 72);
-    let y = 96; const x = 72, wrap = (text, font, colour, lh, maxW = W - x - 50) => {
-      g.font = font; g.fillStyle = colour; const words = text.split(' '); let line = '';
-      for (const w of words) { const t = line ? `${line} ${w}` : w; if (g.measureText(t).width > maxW && line) { g.fillText(line, x, y); y += lh; line = w; } else line = t; }
-      if (line) { g.fillText(line, x, y); y += lh; }
-    };
+    g.fillStyle = 'rgba(178,48,28,0.9)'; g.fillRect(30, 30, 8, H - 60);
     g.textBaseline = 'alphabetic'; g.textAlign = 'left';
-    wrap('Taking a block', `800 54px ${FONT.head}`, '#221a14', 64);
-    y += 10;
-    for (const [head, body] of [
-      ['Poke it', 'push a block with a fingertip and it slides out at the other side'],
-      ['Pinch from a little way off', 'bring thumb and finger together near a block: a thread of light shows what the pinch will take; close it to take it'],
-      ['The middle block', 'poke it out first, then take it by the end that sticks out'],
-      ['An outer block', 'take it by its outer side and draw it out sideways'],
-      ['A red thread', 'it cannot be held there'],
-      ['The die', 'let it go over the mouth of the little tower'],
-    ]) { wrap(head, `700 34px ${FONT.head}`, '#a8301c', 40); wrap(body, `500 28px ${FONT.body}`, '#3a2e24', 36); y += 16; }
+    g.font = `800 50px ${FONT.head}`; g.fillStyle = '#221a14'; g.fillText('Taking a block', 64, 92);
+    const wood = '#c99a62', red = '#b8402a', ink = '#3a2e24';
+    const blk = (x, y, w, h, c = wood) => { g.fillStyle = c; g.fillRect(x, y, w, h); g.strokeStyle = 'rgba(40,25,10,0.7)'; g.lineWidth = 3; g.strokeRect(x, y, w, h); };
+    const arrow = (xa, ya, xb, yb, c = '#a8301c') => { const a = Math.atan2(yb - ya, xb - xa); g.strokeStyle = g.fillStyle = c; g.lineWidth = 8; g.lineCap = 'round'; g.beginPath(); g.moveTo(xa, ya); g.lineTo(xb - 14 * Math.cos(a), yb - 14 * Math.sin(a)); g.stroke(); g.beginPath(); g.moveTo(xb, yb); g.lineTo(xb - 26 * Math.cos(a - 0.5), yb - 26 * Math.sin(a - 0.5)); g.lineTo(xb - 26 * Math.cos(a + 0.5), yb - 26 * Math.sin(a + 0.5)); g.closePath(); g.fill(); };
+    const tip = (x, y, r = 16) => { g.fillStyle = '#f0c9a8'; g.strokeStyle = '#7a4a30'; g.lineWidth = 3; g.beginPath(); g.arc(x, y, r, 0, Math.PI * 2); g.fill(); g.stroke(); };
+    const cross = (x, y) => { g.strokeStyle = '#c0281c'; g.lineWidth = 9; g.lineCap = 'round'; g.beginPath(); g.moveTo(x - 20, y - 20); g.lineTo(x + 20, y + 20); g.moveTo(x + 20, y - 20); g.lineTo(x - 20, y + 20); g.stroke(); };
+    const tick = (x, y) => { g.strokeStyle = '#3c7a3a'; g.lineWidth = 9; g.lineCap = 'round'; g.beginPath(); g.moveTo(x - 20, y); g.lineTo(x - 6, y + 16); g.lineTo(x + 22, y - 18); g.stroke(); };
+    const label = (t, y) => { g.font = `700 34px ${FONT.head}`; g.fillStyle = '#a8301c'; g.fillText(t, 64, y); };
+    const rule = (y) => { g.fillStyle = 'rgba(80,60,40,0.18)'; g.fillRect(64, y, W - 110, 2); };
+    const bw = 190, bh = 40, xa = 96, xb = 380;
+    // 1. the middle block: poke it out, then pinch the end that sticks out
+    let y = 150; label('1  poke, then pinch', y);
+    for (let k = 0; k < 3; k++) blk(xa, y + 24 + k * (bh + 4), bw, bh, k === 1 ? red : wood);
+    tip(xa - 30, y + 24 + 1.5 * bh + 4); arrow(xa - 8, y + 24 + 1.5 * bh + 4, xa + 56, y + 24 + 1.5 * bh + 4);
+    for (let k = 0; k < 3; k++) blk(xb + (k === 1 ? 60 : 0), y + 24 + k * (bh + 4), bw, bh, k === 1 ? red : wood);
+    tip(xb + 60 + bw - 22, y + 24 + bh + 4 - 12, 13); tip(xb + 60 + bw - 22, y + 24 + 2 * bh + 4 + 12, 13);
+    arrow(xb + 60 + bw + 6, y + 24 + 1.5 * bh + 4, xb + 60 + bw + 70 > W - 30 ? W - 34 : xb + 60 + bw + 70, y + 24 + 1.5 * bh + 4);
+    rule(y + 190);
+    // 2. an outer block: pinch its outer side and draw it out sideways (yes); not by its end (no)
+    y = 390; label('2  outer: from its side', y);
+    for (let k = 0; k < 3; k++) blk(xa + 20, y + 70 + k * (bh + 4), bw, bh, k === 0 ? red : wood);
+    tip(xa + 20 + bw / 2 - 30, y + 54, 13); tip(xa + 20 + bw / 2 + 30, y + 54, 13);
+    arrow(xa + 20 + bw / 2, y + 44, xa + 20 + bw / 2, y + 2);
+    tick(xa + 20 + bw + 40, y + 70 + bh / 2);
+    for (let k = 0; k < 3; k++) blk(xb, y + 70 + k * (bh + 4), bw, bh, k === 0 ? red : wood);
+    tip(xb + bw + 18, y + 70 + bh / 2, 13); cross(xb + bw + 34, y + 70 + bh + 40);
+    rule(y + 230);
+    // 3. a red thread from the hand: it cannot be held there
+    y = 670; label('3  red thread: not there', y);
+    blk(xa + 20, y + 36, bw, bh); tip(xa + 20 + bw + 120, y + 36 + bh / 2);
+    g.strokeStyle = '#d0301c'; g.lineWidth = 5; g.setLineDash([12, 9]); g.beginPath(); g.moveTo(xa + 20 + bw + 104, y + 36 + bh / 2); g.lineTo(xa + 20 + bw + 4, y + 36 + bh / 2); g.stroke(); g.setLineDash([]);
+    cross(xb + 200, y + 36 + bh / 2);
+    rule(y + 120);
+    // 4. the die: over the little tower's mouth, let go; and the button under the sign shows it all
+    y = 830; label('4  die: drop it in', y);
+    g.fillStyle = '#5a3a22'; g.fillRect(xa + 60, y + 40, 84, 110); g.fillStyle = 'rgba(200,230,255,0.55)'; g.fillRect(xa + 72, y + 52, 60, 86);
+    g.fillStyle = '#f2ead8'; g.strokeStyle = ink; g.lineWidth = 3; g.fillRect(xa + 84, y - 10, 36, 36); g.strokeRect(xa + 84, y - 10, 36, 36);
+    arrow(xa + 102, y + 30, xa + 102, y + 70);
+    g.font = `600 30px ${FONT.body}`; g.fillStyle = ink; g.fillText('see it done:', xb - 40, y + 90); g.fillText('the button  ▼', xb - 40, y + 130);
     howto.tex.needsUpdate = true;
+    drawButton(false);
   }
-
   // ---- the scroll (kakejiku): brocade of waves round a washi heart; a thin rod at the top, a roller with black ends at the bottom; ink and a red seal
   const SCW = 1024;
   function buildScroll(sg, SC, postH) {
@@ -371,7 +420,7 @@ export function createScene({ THREE, parent, renderer, playerColours = [0xf2c14e
   // heads: where the players are, [{ slot, x, y }] in the common frame (from everybody's presence: whose turn it is is lit at their feet)
   // deco: the document's jdeco (the room's garden, deco.js); garden: the Garden setting (0..2); shades: { lights, cursor, dark } (shades.js)
   // hands: everybody's hands for the pinch's aim (fx.js), [{ at, gap, pinch }] in the common frame
-  function update({ state, snap, now = performance.now(), t, lay, touches = [], heads = [], hands = [], deco = null, garden = 2, shades: sh = null, me = null }) {
+  function update({ state, snap, now = performance.now(), t, lay, touches = [], heads = [], hands = [], deco = null, garden = 2, shades: sh = null, me = null, jdemo = null }) {
     if (!state) return;
     warmRestore();
     const ts = (t === undefined || t === null ? now : t) / 1000, dt = last === null ? 1 / 60 : Math.min(0.1, Math.max(0, (now - last) / 1000)); last = now;
@@ -393,6 +442,14 @@ export function createScene({ THREE, parent, renderer, playerColours = [0xf2c14e
       }
       for (const im of inst) { im.instanceMatrix.needsUpdate = true; im.visible = true; }
     } else { for (const m of blocks) m.visible = false; for (const im of inst) im.visible = false; if (dieMesh) dieMesh.visible = false; }
+    // the ghost demo, in place of the tower (its blocks are not drawn while it plays); the button lit while it plays (demo.js)
+    const tMs = t === undefined || t === null ? now : t, demoOn = demo.update(state, jdemo, tMs);
+    if (demoOn) for (const im of inst) im.visible = false;
+    if (howto && howto.button) {
+      if (howto.lit !== demoOn) drawButton(demoOn);
+      const since = jdemo ? (tMs - jdemo.at) / 1000 : 9;
+      howto.button.position.z = since >= 0 && since < 0.35 ? -0.008 * Math.sin((since / 0.35) * Math.PI) : 0;          // (pressed: it gives a little)
+    }
     // the light
     // the game put down somewhere new: the lantern swells a little as it arrives (fx.js: rings of light on the floor and the sand)
     const pk = `${pl.x}|${pl.y}|${pl.yaw}|${state.size}`, arrived = placeKey !== null && pk !== placeKey;
@@ -471,5 +528,8 @@ export function createScene({ THREE, parent, renderer, playerColours = [0xf2c14e
     root.traverse(show); for (const o of warmExtra) show(o);
   }          // (ms this frame: the scroll redrawn, the board, the moments; app.js logs a slow frame with them)
   function quality(q) { if (q === qual) return; qual = q; rig.quality(q); fx.quality(q); decor.quality && decor.quality(q); }
-  return { root, update, relights, quality, timing, warmUp, boardPose: stand.pose, boardAspect: stand.aspect, boardWidth: stand.width, dispose, group: { furniture, bodies, overlay } };
+  // the demo's button (common frame, its middle) and its radius, for the page to see a fingertip press it
+  const bw = new THREE.Vector3();
+  function demoButton() { if (!howto || !howto.button) return null; howto.button.getWorldPosition(bw); root.worldToLocal(bw); return { p: [bw.x, -bw.z, bw.y], r: howto.R }; }
+  return { root, update, demoButton, demoRunning: (state, jd, ms) => demo.running(state, jd, ms), relights, quality, timing, warmUp, boardPose: stand.pose, boardAspect: stand.aspect, boardWidth: stand.width, dispose, group: { furniture, bodies, overlay } };
 }

@@ -156,7 +156,7 @@ function frame() {
   const lay = J.board(state, { here: S.peers.size, game: S.stateOf(null), mine: { ghost: true }, host: S.hostHere && !!S.doc.jenga,
     mark: { slot: mpr ? mslot : null, mine: false, name: mpr ? ((state.players || []).find((p) => p.slot === mslot) || {}).name || `Player ${mslot + 1}` : '', n: lights.length } });
   const heads = feed.players().map((p) => { const pr = feed.sample('presence', p.slot, at); return pr ? { slot: p.slot, x: pr.data.head[0], y: pr.data.head[1] } : null; }).filter(Boolean);
-  scene3d.update({ state, snap, now, t: sn === null ? undefined : sn, lay, heads, deco: S.doc.jdeco || null, garden: S.game('garden'),
+  scene3d.update({ state, snap, now, t: sn === null ? undefined : sn, lay, heads, deco: S.doc.jdeco || null, jdemo: S.doc.jdemo || null, garden: S.game('garden'),
     shades: { lights, cursor, dark: M.dim.level(S.doc.dim, sn).dark } });
   const tn = dir.tension.update(S.doc.jenga || null, snap ? snap.items : null, dt), mu = S.doc.jmusic || null;
   for (const w of J.momentsBetween(dir.prev, S.doc.jenga || null)) dir.moments.push({ text: MOMENT[w] || w, t: now });

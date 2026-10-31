@@ -16,7 +16,7 @@
 //                                                            cursor: null or { aim: [x, y] | null, drag: { a, b } | null, over: id | null,
 //                                                            tip: [x, y, z] | null, h }
 //   sh.relights() -> the engine's relight list (world coordinates)
-import { washi, kumiko, glow, softRing } from './textures.js';
+import { washi, kumiko, glow, standOut, softRing } from './textures.js';
 
 const toV = (x, y, z) => [x, z, -y];
 const TILE = [0.22, 0.19];            // m: one kumiko tile (two triangles of 11 cm across, two rows)
@@ -77,7 +77,7 @@ export function createShades({ THREE, parent, env = null, own = (x) => x }) {
     const cord = new THREE.CylinderGeometry(0.0028, 0.0028, drop + 0.01, 6); cord.translate(0, -(drop + 0.01) / 2, 0); g.add(new THREE.Mesh(cord, M.cord));
     const can = new THREE.CylinderGeometry(0.05, 0.058, 0.02, 24); can.translate(0, -0.01, 0); g.add(new THREE.Mesh(can, M.wood));
     const halo = new THREE.Sprite(new THREE.SpriteMaterial({ map: tGlow, color: 0xffc58a, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, opacity: 0 }));
-    halo.scale.setScalar(W * 2.1); halo.position.y = -drop - Hs / 2; g.add(halo);
+    halo.scale.setScalar(W * 2.1); halo.position.y = -drop - Hs / 2; standOut(THREE, halo, W * 0.6); g.add(halo);
     const veil = new THREE.Mesh(new THREE.PlaneGeometry(W + 2 * 1.1, W + 2 * 1.1), veilMat([W / 2, W / 2], W / 2, 0.75)); veil.rotation.x = Math.PI / 2; veil.position.y = -0.004; veil.renderOrder = 1; g.add(veil);
     g.position.set(...toV(L.a[0], L.a[1], L.h));
     return { id: L.id, g, body, halo, veil, glowAt: new THREE.Vector3(0, -drop - Hs, 0), range: 3.4, size: W };

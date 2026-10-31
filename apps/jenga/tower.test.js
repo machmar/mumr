@@ -228,6 +228,30 @@ t('what a hand may hold in the tower: a centre block only once it is poked out, 
   assert.strictEqual(rule(mid, [-L / 2 - 0.008, 0, 0]).ok, false, 'not by the end that went in');
 });
 
+t('a block in a full row with gaps over and under it may be pinched there, thumb above and finger below, the middle one too (Marek, 2026-10-31)', () => {
+  const w = tower(); run(w, 0.5);
+  const gone = new Set([3 * 5 + 1, 3 * 7 + 1]), H = w.d.H;                 // (the middle blocks of the rows under and over level 6, taken)
+  const bodies = w.all().map((b, i) => ({ i, p: b.p, q: b.q })).filter((o) => !gone.has(o.i));
+  const rule = (i, local, list) => { const b = w.blocks[i].body; return S.grabRule(list, { i, p: b.p, q: b.q }, M.physics.quat.rotate(b.q, local).map((v, k) => v + b.p[k]), w.size, w.place); };
+  const mid = 3 * 6 + 1, all = w.all().map((b, i) => ({ i, p: b.p, q: b.q }));
+  assert.ok(rule(mid, [0, 0, H / 2 + 0.008], bodies).ok, 'from above, through the gap: yes');
+  assert.ok(rule(mid, [0, 0, -H / 2 - 0.008], bodies).ok, 'from below, through the gap: yes');
+  assert.strictEqual(rule(mid, [0, 0, H / 2 + 0.008], all).ok, false, 'with the rows over and under it whole: no');
+  assert.strictEqual(rule(mid, [w.d.W, 0, H / 2 + 0.008], bodies).ok, false, 'nearer its end, where a block lies over it: no');
+});
+
+t('a player holds one thing at a time: the other hand takes nothing (Marek, 2026-10-31)', () => {
+  const w = tower(); w.awake = true; run(w, 0.5);
+  const top = (i) => { const b = w.blocks[i].body; return [b.p[0], b.p[1], b.p[2] + w.d.H / 2 + 0.006]; };
+  const a = 3 * 17 + 0, b = 3 * 17 + 2;
+  run(w, 0.3, () => [hand('p1-right', top(a), true)]);
+  assert.strictEqual(w.heldBy(a), 'p1-right');
+  run(w, 0.3, () => [hand('p1-right', top(a), true), hand('p1-left', top(b), true)]);
+  assert.strictEqual(w.heldBy(b), null, "the same player's other hand: no");
+  run(w, 0.3, () => [hand('p1-right', top(a), true), hand('p2-left', top(b), true)]);
+  assert.strictEqual(w.heldBy(b), 'p2-left', 'another player: yes');
+});
+
 t('a hand whose packets stop (bad Wi-Fi) keeps its block, held still, for a few seconds; longer, and it lets go (Marek, 2026-10-29)', () => {
   const w = tower(); w.awake = true; run(w, 0.5);
   const i = 3 * 4 + 0, b = w.blocks[i].body, p0 = b.p.slice(), hd = S.toCommon({ x: 0, y: 0, yaw: w.place.yaw }, [0, -1, 0]), beyond = w.d.W / 2 + 0.008;

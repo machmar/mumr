@@ -51,6 +51,19 @@ test('tension: nothing in the lobby; a quiet whole tower is calm; holes, a leani
   assert.ok(shaky.v < before && shaky.v > 0.2 * before, 'it comes down, but not at once');
 });
 
+test('tension: the colour the die chose raises it when that colour has no easy block left (Marek, 2026-10-31)', () => {
+  const order = S.colourOrder(5), c = order[0];
+  const whole = new Mu.Tension(); for (let k = 0; k < 90; k++) whole.update(STATE({ phase: 'pull', roll: c }), towerItems(), 1 / 30);
+  assert.strictEqual(whole.parts.risk, 0, 'a whole tower: easy blocks of every colour');
+  // in each row with a block of that colour, only that colour's blocks are left (and of a middle one and an outer one, only the middle): none easy
+  const keep = (it) => { if (it.i >= 54) return true; const lv = Math.floor(it.i / 3), row = [0, 1, 2].filter((sl) => order[lv * 3 + sl] === c); if (lv >= 17 || !row.length) return true; return order[it.i] === c && !(row.includes(1) && it.i % 3 !== 1); };
+  const hard = towerItems().filter(keep);
+  const risky = new Mu.Tension(); for (let k = 0; k < 90; k++) risky.update(STATE({ phase: 'pull', roll: c }), hard, 1 / 30);
+  assert.strictEqual(risky.parts.risk, 1, 'none easy: the most risk');
+  const other = new Mu.Tension(); for (let k = 0; k < 90; k++) other.update(STATE({ phase: 'pull', roll: null }), hard, 1 / 30);
+  assert.ok(risky.v > other.v + 0.1, `the risk raises it (${risky.v.toFixed(2)} against ${other.v.toFixed(2)})`);
+});
+
 test('scenes: by phase, then by how far the game has got and how tense it is; a scene lasts a while, and is left lower than it is entered', () => {
   assert.strictEqual(Mu.sceneFor(STATE({ phase: 'lobby' }), 0, null, 0), 'calm');
   assert.strictEqual(Mu.sceneFor(STATE({ moves: 1 }), 0.1, null, 0), 'build');

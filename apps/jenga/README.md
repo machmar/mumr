@@ -14,7 +14,7 @@ node --test "apps/jenga/*.test.js"
 ## How to play
 
 1. **Move here** (a plaque on the board: the game goes in front of you), choose the **Size**, press **Start game**. Everybody who is in the room plays; a match is three rounds.
-2. **Roll the die**: pinch it off the tray and let it go over the mouth of the **dice tower** that stands in the tray; it falls down three planks inside
+2. **Roll the die**: pinch it off the tray and let it go over the mouth of the **dice tower** on the tray's back corner; it falls down three planks inside
    and comes out onto the tray (a die that did not come down the tower is put back, as is one that lands cocked, or when no block of its colour can be
    taken; **Die back** on the board puts it on the tray).
 3. **Pull a block of that colour** from a level below the highest complete one (the gold line round the tower is the limit), and **put it on top**. A clean move scores
@@ -251,13 +251,33 @@ Found with a pretend hand that pulls blocks out of a tower under its own weight 
 
 ## The dice tower
 
-A walnut box astride the tray's far wall, half in the tray and half out of it (the wall has a gap where it stands), its mouth up and its way out into the
-tray; a black lacquer skirt, vermilion bands, the six signs of the die inlaid down its front over the door, and a little roof on two posts over the front
-half of the mouth (the roof and the posts are in the physics too). It is the same size at every size of the game (the die is 4 cm) (`spec.js dtowerParts`: the host's physics has the same boxes as fixtures, every page draws
+It stands on the tray's back corner at the table's end, turned 45 degrees (Marek, 2026-10-31): its way out spans the corner from one wall of the tray
+to the other (those walls stop there, `spec.js trayWalls`) and the die comes out across the tray. Its walls are windows of pale glass in walnut frames,
+so that the die is seen tumbling down the black lacquer planks; a black lacquer skirt, a vermilion lip round the mouth, and a small roof (no wider than
+the tower) on two posts over the front half of the mouth (the roof and the posts are in the physics too). The board stands 4 cm further along, clear of it. It is the same size at every size of the game (the die is 4 cm) (`spec.js dtowerParts`: the host's physics has the same boxes as fixtures, every page draws
 them). Inside, two planks at 40 degrees reach half way across from opposite walls and a ramp at 30 degrees (steeper than the die's friction) brings the die out
 through a door in the front wall. The gaps are wider than a die turned on its corner (1.73 dice): 1.9 dice from a plank's end to the wall, more than 2.1 dice
 square to the next plank, a door 2.4 dice high; the die is 4 to 6 cm, so the tower is 39 to 59 cm high and the tray grows with the die. `tower.test.js` lets a die
 go over the mouth 12 times at each size, turned and spun: it comes out onto the tray every time and lands on several faces.
+
+## The how-to sign and the ghost demo
+
+The sign under the scroll stand's arm is pictures more than words (Marek, 2026-10-31): poke the middle block, then pinch the end that sticks out; an
+outer block from its side; a red thread means not there; the die into the tower. Under it hangs a round **show me** button: a fingertip on it (in the
+lobby) puts `jdemo` in the document (when it started, on the server's clock), and every headset and PC view plays the same 14 s demo in place of the
+tower (`demo.js`): ghost blocks, a gold block and two ghost fingertips poke it out, take it by its end, draw it out and put it on top. The tower's own
+blocks are not drawn while it plays. `__jenga.demo()` starts it from a page's console.
+
+## Holding, and the mood
+
+- **One hand at a time** (Marek, 2026-10-31): a player whose one hand holds something takes nothing with the other (`tower.js`); each held block shows
+  one thread, to the pinching hand nearest it (`fx.js`: before, every pinching hand near it drew one, and the other hand looked as if it held it too).
+- **Through a gap**: thumb above and finger below, a block may be pinched where the rows over and under it both leave a gap at that point (the middle
+  block of a full row between two rows whose middles are gone): `spec.js grabRule`.
+- **The colour's risk**: once the die has chosen, the tension (`music.js`, the music's mood and the room's dim) rises when that colour has no easy block
+  left (easy: in a full row, or an outer block beside the middle one; the top row, and the one under it while the top is not full, do not count).
+- The glow round the lantern, the floor lamps and the ceiling shades is drawn nearer the eye than the lamp's middle (`textures.js standOut`): a sprite
+  through the paper was half hidden by it, a bright half and a dark one that turned with the head.
 
 ## Not yet tried
 

@@ -7,6 +7,7 @@ import { createApp, PLAYER_COLOURS } from '/mumr/xr/app.js';
 import { createScene } from './draw.js';
 import { markCursor } from './shades.js';
 import { createOccluder } from './occlude.js';
+import { DURATION as DEMO_S } from './demo.js';
 
 const J = window.JENGA, R = window.MUMR.room;
 const stream = new J.Stream(60);
@@ -56,6 +57,19 @@ function marking(a, now, lights) {
   return r.cursor;
 }
 const hostBody = () => app.bodies[0];
+// the demo's button under the how-to sign: this player's own fingertip on it starts the ghost demo for everybody (in the lobby, one at a time)
+function demoPress(a) {
+  const b = scene3d.demoButton(), s = state(), jd = a.S.doc.jdemo, t = a.S.serverNow(), sp = a.space;
+  if (!b || s.phase !== 'lobby' || !s.place || (jd && t - jd.at < DEMO_S * 1000 + 800)) return;
+  for (const src of a.everyone) {
+    if (!(src.slot === undefined || src.slot === null) || src.foot) continue;
+    const q = (src.points || []).find((p) => p.name === 'index' || p.name === 'ctrl');
+    if (!q) continue;
+    const c = sp.ok ? sp.toCommon([q.x, q.y, q.z]) : [q.x, q.y, q.z];
+    if (Math.hypot(c[0] - b.p[0], c[1] - b.p[1], c[2] - b.p[2]) < b.r + 0.012) { startDemo(a, src.id); return; }
+  }
+}
+function startDemo(a, how = 'by hand') { a.S.emit({ k: 'jdemo', at: a.S.serverNow(), slot: a.S.me }); a.life(`jenga: the ghost demo started (${how})`); }
 // everybody's hands for the pinch's aim (fx.js): the point between the thumb and the index, how far apart they are, the pinch, in the common frame
 function pinchHands(a) {
   const sp = a.space, out = [];
@@ -127,7 +141,8 @@ app = await createApp({
     turnBell(state());
     occluder.update(serverRoom(), !!(a.xr && a.xr()));
     const lights = roomLights();
-    scene3d.update({ state: state(), snap, now, t: a.S.serverNow(), lay: J.board(state(), info()), touches: a.boardTouches('main'), heads: heads(a, now), hands: pinchHands(a), me: a.S.me, deco: a.S.doc.jdeco || null, garden: a.S.game('garden'),
+    demoPress(a);
+    scene3d.update({ state: state(), snap, now, t: a.S.serverNow(), jdemo: a.S.doc.jdemo || null, lay: J.board(state(), info()), touches: a.boardTouches('main'), heads: heads(a, now), hands: pinchHands(a), me: a.S.me, deco: a.S.doc.jdeco || null, garden: a.S.game('garden'),
       shades: { lights, cursor: marking(a, now, lights), dark: a.dimLevel().dark } });
     a.relight(scene3d.relights());                       // (the lantern lights the real room: the dim lifts round it, the walls warm)
     perf.frames++; perf.worst = Math.max(perf.worst, now - lastDraw); perf.ms += performance.now() - perf.t0;
@@ -153,6 +168,6 @@ const wake = () => { if (!sound.music.ctx) { try { sound.music.start(); app.life
 for (const ev of ['pointerdown', 'keydown', 'touchstart']) addEventListener(ev, wake, { passive: true });
 document.getElementById('enter')?.addEventListener('click', wake);
 setInterval(() => sound.music.tick(), 1000);
-window.__jenga = Object.assign(app, { stream, scene3d, sound });
+window.__jenga = Object.assign(app, { stream, scene3d, sound, demo: () => startDemo(app, 'from the console') });
 // the page's header (the engine's): a link to the webcam page, for the PC the webcam is plugged into
 document.querySelector('header')?.insertAdjacentHTML('beforeend', '<a href="webcam.html" style="margin-left:auto;color:#c9d4ea;font:inherit">Webcam view</a>');

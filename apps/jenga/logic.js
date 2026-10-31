@@ -30,6 +30,11 @@
     keep: () => ({ key: 'jenga:deco' }),
     apply(sess, e) { if (e.d && typeof e.d === 'object' && Array.isArray(e.d.items)) { sess.doc.jdeco = e.d; sess.notify('jdeco', e.d); } },
   },
+  // the ghost demo of how a block is taken (demo.js): when it started, on the server's clock, and who pressed its button. Every page plays it from this
+  jdemo: {
+    keep: () => ({ key: 'jenga:demo' }),
+    apply(sess, e) { if (Number.isFinite(e.at)) { sess.doc.jdemo = { at: e.at, slot: Number.isInteger(e.slot) ? e.slot : null }; sess.notify('jdemo', sess.doc.jdemo); } },
+  },
   // who is marking the room's ceiling lights (the board's Lights; shades.js): one player at a time, everybody sees where they point
   jmark: {
     keep: () => ({ key: 'jenga:mark' }),

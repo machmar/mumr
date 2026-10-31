@@ -14,7 +14,7 @@
 // (about a dozen draw calls), a vertex shader grows and sways them; no lights of their own (the lamps and candles light the real room through the
 // engine's relight; the PC view, which has no real room, gets a painted pool of light instead).
 import { mergeGeometries, mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
-import { rand, hash, vnoise, rakedStrip, glow, puff, washi } from './textures.js';
+import { rand, hash, vnoise, rakedStrip, glow, standOut, puff, washi } from './textures.js';
 
 const toV = (x, y, z) => [x, z, -y];                // common frame floor plan -> THREE (inside the common group)
 const GROW = 7;                                     // s: one thing growing in
@@ -269,7 +269,7 @@ export function createDecor({ THREE, parent, env, own, relit = false }) {
     for (const f of flames) {
       if (f.tongue) { const m = new THREE.Mesh(tongueGeo, new THREE.MeshBasicMaterial({ vertexColors: true, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, opacity: 0 })); m.position.set(...f.at); m.userData.f = f; m.renderOrder = 3; root.add(m); sprites.push(m); continue; }
       const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: tGlow, color: f.colour, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, opacity: 0 }));
-      s.position.set(...f.at); s.userData.f = f; s.renderOrder = 3; root.add(s); sprites.push(s);
+      s.position.set(...f.at); s.userData.f = f; s.renderOrder = 3; if (f.soft) standOut(THREE, s, 0.12); root.add(s); sprites.push(s);
     }
     for (const q of pools) {
       const m = new THREE.Mesh(poolGeo, new THREE.MeshBasicMaterial({ map: tGlow, color: 0xffa860, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, opacity: 0 }));

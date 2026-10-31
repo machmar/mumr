@@ -89,11 +89,12 @@
     const A = place && place.arr && place.arr.size === d.size ? place.arr : defaultArr(size);
     const P = [-A.p, A.q || 0], C = A.c, U = A.u, V = A.v, face = (p) => Math.atan2(P[1] - p[1], P[0] - p[0]);
     const at = (du, dv) => [C[0] + U[0] * du + V[0] * dv, C[1] + U[1] * du + V[1] * dv];          // (a point on the console: along it, across it)
-    const bc = at(0.1, 0.14), sc = A.s, tray = at(-0.22, -0.06), D = 0.04;           // (the die and its tower are the same at every size: they stand on the same table)
+    const bc = at(0.14, 0.14), sc = A.s, tray = at(-0.22, -0.06), D = 0.04;           // (the die and its tower are the same at every size: they stand on the same table; the board a little along, clear of the tower)
     // the dice tower stands in the tray at its end away from the table's middle, its mouth up and its way out along the table, into the tray
     // (Marek, 2026-10-28: "a dice tower to guarantee a couple of rolls"); the die lies in the tray's free part
-    // (it stands astride the tray's far wall, half in the tray and half out of it, so that the tray is free for the die: Marek, 2026-10-29, "it feels cramped")
-    const TH = Math.max(0.17, 0.08 + 2.5 * D), dA = 1.9 * D, dT = 0.012, dtc = [tray[0] - U[0] * TH, tray[1] - U[1] * TH], dieAt = [tray[0] + U[0] * 0.03, tray[1] + U[1] * 0.03];
+    // (it stands on the tray's back corner at the table's end, turned 45 degrees: its way out spans the corner, from one wall of the tray to the
+    //  other, and the die comes out across the tray. Marek, 2026-10-29, "it feels cramped"; 2026-10-31, "the back right corner, 45deg")
+    const TH = Math.max(0.17, 0.08 + 2.5 * D), dA = 1.9 * D, dT = 0.012, dtc = [tray[0] + (V[0] - U[0]) * TH, tray[1] + (V[1] - U[1]) * TH], dieAt = [tray[0] + U[0] * 0.03, tray[1] + U[1] * 0.03];
     // the board faces the front of the table, turned towards P by about half the way (at most a third of a right angle either way)
     const front = Math.atan2(-V[1], -V[0]), boardYaw = front + Math.max(-0.6, Math.min(0.6, 0.45 * wrap(face(bc) - front)));
     return {
@@ -104,7 +105,7 @@
       score: { c: sc, w: 0.62, h: 0.86, bottom: tableH + 0.02, yaw: face(sc) },                     // the scroll hangs on its own stand, facing P
       lantern: A.l,                                                                                  // a paper lantern standing on the floor
       die: { size: D, at: [dieAt[0], dieAt[1], tableH + D / 2 + 0.003] },
-      dtower: { c: dtc, yaw: Math.atan2(U[1], U[0]), A: dA, t: dT, H: 9.8 * D, door: 2.4 * D, D, base: tableH },
+      dtower: { c: dtc, yaw: Math.atan2(U[1] - V[1], U[0] - V[0]), A: dA, t: dT, H: 9.8 * D, door: 2.4 * D, D, base: tableH },
     };
   }
   // The dice tower as boxes (game frame): four walls (the front one stops short of the table: the way out), and three planks inside that the die
@@ -127,16 +128,22 @@
     plank(-A - t / 2, 8.215 * D, 0, 6.625 * D);
     plank(A + t / 2, 5.315 * D, 0, 3.725 * D);
     plank(-A - t / 2, 2.2 * D, A + t, 0.05 * D);
-    // a little roof on two posts over the front half of the mouth (the die goes in at the back half, onto the first plank)
-    const RH = H + 1.6 * D, ro = 0.018;
+    // a little roof on two posts over the front half of the mouth (the die goes in at the back half, onto the first plank); no wider than the
+    // tower and lower on its posts (Marek, 2026-10-31: "about 30% smaller")
+    const RH = H + 1.15 * D, ro = 0.004;
     for (const v of [-(A + t / 2), A + t / 2]) out.push({ size: [t, t, RH - H], p: P(A + t / 2, v, (H + RH) / 2), q: qy, part: 'post' });
-    out.push({ size: [A + t + 2 * ro, 2 * (A + t) + 2 * ro, 0.012], p: P(A / 2 + t / 2, 0, RH + 0.006), q: qy, part: 'roof' });
+    out.push({ size: [A + t + ro, 2 * (A + t) + 2 * ro, 0.01], p: P(A / 2 + t / 2 + ro / 2, 0, RH + 0.005), q: qy, part: 'roof' });
     return out;
   }
   // is a point (game frame) inside the dice tower (its inside, mouth to table)?
   function inDtower(L, g) {
     const T = L.dtower, dx = g[0] - T.c[0], dy = g[1] - T.c[1], u = dx * Math.cos(T.yaw) + dy * Math.sin(T.yaw), v = -dx * Math.sin(T.yaw) + dy * Math.cos(T.yaw), z = g[2] - T.base;
     return Math.abs(u) < T.A && Math.abs(v) < T.A && z > 0 && z < T.H;
+  }
+  // the tray's four walls as [u0, u1, v0, v1] round the tray's middle (along the table, across it), with the corner the dice tower stands on left out
+  function trayWalls(L) {
+    const T = L.tray.half, w = L.tray.wall / 2, s = Math.SQRT2 * (L.dtower.A + L.dtower.t);
+    return [[-T - w, -T + w, -T - w, T - s], [-T + s, T + w, T - w, T + w], [T - w, T + w, -T - w, T + w], [-T - w, T + w, -T - w, -T + w]];
   }
   // the dice tower's boxes in the common frame, for the physics (static: physics-jolt.js setFixtures)
   const fixtures = (size, place) => dtowerParts(layout(size, place)).map((b) => ({ size: b.size, p: toCommon(place, b.p), q: qCommon(place, b.q) }));
@@ -160,9 +167,8 @@
     const w = t.wall / 2, h = c.top + t.rim, T = t.half, on = (du, dv) => [t.c[0] + U[0] * du + V[0] * dv, t.c[1] + U[1] * du + V[1] * dv];
     // (the tray's walls stand on the table: slabs from its top up, not solids from the floor, which made an edge under the table that a falling block
     //  caught on: Marek's run, 2026-10-28)
-    // (the far wall has a gap where the dice tower stands astride it: its way out is in the tray)
-    const g = L.dtower.A + L.dtower.t, half = (T + w - g) / 2;
-    for (const [q, hu, hv] of [[on(-T, -(g + half)), w, half], [on(-T, g + half), w, half], [on(T, 0), w, T + w], [on(0, -T), T + w, w], [on(0, T), T + w, w]]) planes.push({ l: 'tray table', v: false, p: rect(q, hu, hv, h), thick: t.rim });
+    // (the end wall and the back wall stop where the dice tower stands on their corner: its way out spans the corner)
+    for (const [q, hu, hv] of trayWalls(L).map(([u0, u1, v0, v1]) => [on((u0 + u1) / 2, (v0 + v1) / 2), (u1 - u0) / 2, (v1 - v0) / 2])) planes.push({ l: 'tray table', v: false, p: rect(q, hu, hv, h), thick: t.rim });
     return planes;
   }
   // the real room with the furniture added (one object per room, so that the physics sees "the same room" and rebuilds nothing)
@@ -214,9 +220,16 @@
       const covered = blocks.some((o) => { const r = rel(o); return Math.abs(r[2]) < 0.5 * H && Math.abs(dot(r, across) - sg * W) < 0.5 * W && Math.abs(dot(r, axis)) < 0.8 * L; });
       return covered ? { ok: false, face: 'side' } : { ok: true, face: 'side', dir: across.map((v) => v * sg) };
     }
-    if (sg < 0) return { ok: false, face: 'bottom' };
+    // (thumb above and finger below: where the rows over and under it both leave a gap at the pinch, a block in a full row can be held there,
+    //  the middle one too. Marek, 2026-10-31: "your fingers could theoretically reach it")
+    const gapAt = (dz) => {
+      const pt = [b.p[0] + axis[0] * l[0] + across[0] * l[1], b.p[1] + axis[1] * l[0] + across[1] * l[1], b.p[2] + dz], m = 0.25 * W;
+      return !blocks.some((o) => { if (Math.abs(o.p[2] - pt[2]) > 0.5 * H) return false; const ol = qRot([-o.q[0], -o.q[1], -o.q[2], o.q[3]], [pt[0] - o.p[0], pt[1] - o.p[1], 0]); return Math.abs(ol[0]) < L / 2 + m && Math.abs(ol[1]) < W / 2 + m; });
+    };
+    const through = b.p[2] - d.plinth > 1.2 * H && gapAt(H) && gapAt(-H);
+    if (sg < 0) return through ? { ok: true, face: 'top' } : { ok: false, face: 'bottom' };
     const onTop = blocks.some((o) => { const r = rel(o); return r[2] > 0.5 * H && r[2] < 1.5 * H && Math.hypot(r[0], r[1]) < 0.75 * L; });
-    return onTop ? { ok: false, face: 'top' } : { ok: true, face: 'top' };
+    return onTop && !through ? { ok: false, face: 'top' } : { ok: true, face: 'top' };
   }
   // the body a pinch at `at` (common frame) takes: the nearest block within reach that may be held there (grabRule), or the die if it is nearer still
   // and within its own reach. bodies: [{ i, p, q }] (a snapshot's items, or the host's bodies); free(i) false for one somebody holds; place: the game's.
@@ -234,5 +247,5 @@
     return best || no;
   }
 
-  Object.assign(J, { dtowerParts, inDtower, fixtures, boxGap, aim, grabRule, POKE, DIE_REACH, LEVELS, PER, BLOCKS, DIE, BASE, SIZES, SIZE_KEYS, COLOURS, WOOD, dims, tuning, rng, colourOrder, blockSpec, blockHome, slotHome, layout, defaultArr, TABLE, toCommon, fromCommon, qYaw, qMul, qCommon, qRot, furniture, withFurniture, DIE_FACES, DIE_COLOURS, dieUp });
+  Object.assign(J, { dtowerParts, trayWalls, inDtower, fixtures, boxGap, aim, grabRule, POKE, DIE_REACH, LEVELS, PER, BLOCKS, DIE, BASE, SIZES, SIZE_KEYS, COLOURS, WOOD, dims, tuning, rng, colourOrder, blockSpec, blockHome, slotHome, layout, defaultArr, TABLE, toCommon, fromCommon, qYaw, qMul, qCommon, qRot, furniture, withFurniture, DIE_FACES, DIE_COLOURS, dieUp });
 })(typeof module !== 'undefined' ? module.exports : (globalThis.JENGA = globalThis.JENGA || {}));

@@ -19,6 +19,7 @@
   const SEEN = 0.06;                      // s of the hand's quiet after letting go (a hand that has just let go pushes nothing)
   const GRACE = 0.3, OPEN = 0.06;         // a pinch that drops for less than GRACE s keeps its hold (a hand reaching into the tower loses its tracking now
                                           // and then: Marek's run, 2026-10-28, blocks let go mid-pull), unless the thumb and index are OPEN m apart
+  const owner = (id) => String(id).replace(/-?(left|right)$/, '');          // the player a hand belongs to ('p1-left' -> 'p1')
   const LOST = 3;                         // s a hold is kept, the body held still, while the hand's packets do not come (bad Wi-Fi: gaps of up to 7 s, 2026-10-29)
   const PLACED_STILL = 0.5;               // s a block put on top must lie still before it counts (one that is still sliding is not placed)
   // the turn of a hand from its joints (WebXR: 0 wrist, 6 index and 21 little finger knuckles, 11 the middle one), or null (a controller, the desktop)
@@ -142,6 +143,8 @@
       // hands that take hold: a pinch takes the nearest block or the die within reach; a fist takes only the die
       for (const g of grips) {
         if (!g.start || !g.at || !g.kind || noHold.has(g.id) || this.holds.has(g.id)) continue;
+        // (one hand at a time: a player whose other hand holds something takes nothing with this one. Marek, 2026-10-31: "remove two hand grab entirely")
+        if ([...this.holds.keys()].some((id) => owner(id) === owner(g.id))) continue;
         const free = (i) => ![...this.holds.values()].some((h) => h.i === i);
         let best = -1, bd = Infinity;
         let rule = null;

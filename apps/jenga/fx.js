@@ -194,13 +194,17 @@ export function createFx({ THREE, overlay, own }) {
     const aimList = [];
     if (snap && ['lobby', 'roll', 'pull', 'place', 'round_end', 'match_end'].includes(ph)) {
       const items = snap.items, free = (i) => { const it = items.find((q) => q.i === i); return !(it && it.flags & S.F.held); };
+      // (holding: the thread stays, to the block it holds: each held one to the one pinching hand nearest it, within reach. Not to every pinching
+      //  hand near it: the other hand looked as if it held it too, from far off. Marek, 2026-10-31)
+      const pinching = hands.filter((h) => h.pinch), far = (it, h) => Math.hypot(it.p[0] - h.at[0], it.p[1] - h.at[1], it.p[2] - h.at[2]);
+      for (const it of items) {
+        if (!(it.flags & S.F.held)) continue;
+        let h = null, hd = 0.35 * Math.sqrt(k);
+        for (const q of pinching) { const dd = far(it, q); if (dd < hd) { hd = dd; h = q; } }
+        if (h) { const sz = it.i === S.DIE ? [L.die.size, L.die.size, L.die.size] : [d.L, d.W, d.H], g = S.boxGap(it.p, it.q, sz, h.at); aimList.push({ i: it.i, near: g.near, at: h.at, s: 1, ok: true, held: true }); }
+      }
       for (const h of hands) {
-        if (h.pinch) {                               // (holding: the thread stays, to the block it holds: the nearest held one within reach of the hand)
-          let held = null, hd = Infinity;
-          for (const it of items) { if (!(it.flags & S.F.held)) continue; const dd = Math.hypot(it.p[0] - h.at[0], it.p[1] - h.at[1], it.p[2] - h.at[2]); if (dd < hd && dd < 0.35 * Math.sqrt(k)) { hd = dd; held = it; } }
-          if (held) { const sz = held.i === S.DIE ? [L.die.size, L.die.size, L.die.size] : [d.L, d.W, d.H], g = S.boxGap(held.p, held.q, sz, h.at); aimList.push({ i: held.i, near: g.near, at: h.at, s: 1, ok: true, held: true }); }
-          continue;
-        }
+        if (h.pinch) continue;
         if (!(h.gap < 0.07)) continue;
         const a = S.aim(h.at, items, state.size, free, place);
         if (a) aimList.push(Object.assign(a, { at: h.at, s: Math.max(0, Math.min(1, (0.07 - h.gap) / 0.045)) }));
