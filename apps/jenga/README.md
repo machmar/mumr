@@ -7,19 +7,23 @@ score, spots the block that was pulled and the one that fell, and when the tower
 ```bash
 node tools/run.js jenga                  # headsets: https://<PC>:8443/      (the server starts the host; it needs Node and `npm install` for Jolt)
 node tools/run.js jenga --http           # PC rehearsal: two tabs /?name=A&frame=0,0,0 and /?name=B&frame=1,0.5,40, and the PC view /view.html
+                                         # a webcam on the PC: https://<PC>:8443/webcam.html (the game over its picture, docs/ARCHITECTURE.md 6c)
 node --test "apps/jenga/*.test.js"
 ```
 
 ## How to play
 
 1. **Move here** (a plaque on the board: the game goes in front of you), choose the **Size**, press **Start game**. Everybody who is in the room plays; a match is three rounds.
-2. **Roll the die** on the tray of the console (pinch it and let go; a die that lands cocked, or when no block of its colour can be taken, is rolled again).
+2. **Roll the die**: pinch it off the tray and let it go over the mouth of the **dice tower** on the tray's back corner; it falls down three planks inside
+   and comes out onto the tray (a die that did not come down the tower is put back, as is one that lands cocked, or when no block of its colour can be
+   taken; **Die back** on the board puts it on the tray).
 3. **Pull a block of that colour** from a level below the highest complete one (the gold line round the tower is the limit), and **put it on top**. A clean move scores
    1, 2 if the block came from the bottom third (levels 1 to 6). A block of the wrong colour, or from a level that is not allowed, scores nothing.
 4. The player on turn when a block other than the pulled one reaches the ground **topples the tower: -3**, and the round is over (if it falls within three seconds of a
    placement it is the placer's). The highest total after three rounds wins.
-5. **The replay.** When the first block hits the ground everything freezes where it is (the block that did it glows, TIMBER!), rewinds two seconds, plays them again
-   at 0.3x, and the collapse finishes in real time. Anybody can **Skip replay** on the board.
+5. **The replay.** When the first block hits the ground the tower goes on falling for a moment (TIMBER!), then everything freezes where it is (the block that did it
+   glows), the whole fall rewinds (every block flies back into the tower), and it plays again with a speed curve: slow, slower still into the moment the first
+   block hit the ground, faster after it. Then the collapse finishes in real time. Anybody can **Skip replay** on the board.
 
 | Size | Tower | The block | Stands on |
 |---|---|---|---|
@@ -33,11 +37,45 @@ There is no menu of your own: the board on the console is **one thing for everyb
 untouched). It is not a panel of buttons but a thing of the game's own (`stand.js`; the engine is asked only to press it: `boards: [{ panel: false }]`): a walnut stand like a
 small gate at the back of the table, turned a little towards the player who put the game down. Under its beam a **panel of washi lit from behind** says what is going on: whose
 turn (an ensō with the player's colour), the colour the die gave (its sign and its name, Ai · indigo), what to do, and the round as a red seal. Under it **wooden plaques (ema) hang
-on vermilion cords**, and small round tokens on a bamboo rod: Start game / Round 2 / New match, Roll again, Block lost? (puts the pulled block back on the plinth), Skip replay,
-Size, Move here, Music - +, Room dim - +, Garden, Lights, Ghosts (your ghost fingers). A fingertip pushes a plaque back on its cord and it swings when let go; everybody's fingertips are seen on every page, so
+on vermilion cords**, and small round tokens on a bamboo rod: Start game / Round 2 / New match, Die back, Roll again, Block lost? (puts the pulled block back on the plinth), Skip replay,
+Size, Move here, Music - +, Room dim - +, Garden, Lights, Ghosts (your ghost fingers), Quality (yours: below). A fingertip pushes a plaque back on its cord and it swings when let go; everybody's fingertips are seen on every page, so
 everybody sees it swing. A plaque that cannot be pressed now **hangs turned round** (its back is plain wood, the name burnt in faintly), and one whose words change turns once on its
 cord and comes back with the new words. The score is a **hanging scroll** (kakejiku) on a stand like the board's: names, the points of each round, the total, an ensō round whose
 turn it is, the referee's last words.
+
+## Taking a block
+
+- **The aim.** A hand whose thumb and index come within 7 cm of each other shows what a pinch there would take: a thread of light from between the fingers to the
+  block, a bead where it would be held, the block's edges lit, brighter as the fingers close. Every page draws everybody's aim from everybody's hands; the host
+  takes with the same rule (`spec.js aim`: the nearest block within reach, 3 cm at the normal size, or the die if it is nearer).
+- **What may be held** in the tower (`spec.js grabRule`, the host and the aim alike), as fingers could: a block **by an end** only once it sticks out 1 cm (so a
+  centre block is poked out first), **by a side** only a side nothing lies against (an outer block's outer side: it then comes out sideways, never along its
+  length, until it is clear), **from above** only with nothing on it. The aim shows a block that may not be held where the fingers are with a dull red thread,
+  and keeps its thread to the block while it is held. A sign hangs from an arm of the scroll's stand and says all this.
+- **A bad network.** A hand whose packets stop keeps its block (held still) for 3 s. A hand that jumps (a late packet) does not throw its fingers or its block:
+  a fingertip that would jump more than 4 cm passes through until its place is free, fingertips go at most 2 m/s, and a hold pulls no harder than 3 cm of
+  error would.
+- **Holding.** A pinch that drops for less than 0.3 s (a hand reaching into the tower loses its tracking now and then) keeps its block; fingers that open let go
+  at once. A block keeps its turn while it comes out of the tower (the hand's own little turns would wrench it in its slot) and turns with the hand once it is
+  clear of the tower (out of the column by its own length, or lifted over the top). The die turns with the hand from the start.
+- **Fingertips** are light bodies pulled to the tracked hand by a spring of limited force (engine `physics-jolt.js softHands`): pressed on a block that will not
+  give, a finger stops at it instead of driving it into its neighbour. A hand pushed right through the blocks lets go of them until the place it is in is free.
+- **What counts as pulled**: a block a hand holds that has come out a little, or one pushed out of a level that may be taken, along its own level. A block on top
+  that settles, or one that starts to go with a falling tower, is not a move. A block put on top counts once it has lain still for half a second.
+
+## Quality (each player's own)
+
+**Quality** on the board is the presser's own setting, like Ghosts: it says how finely their headset draws the same world (rule 1: what is there is the same for
+everybody). Auto is medium on a Quest Pro or a Quest 2 and high on anything else.
+
+| | Shadows | The relight | Motes, smoke, petals | The picture | Foveation |
+|---|---|---|---|---|---|
+| high | 1024, soft | 8 lights, the furniture shades them | yes | 100% | 0.5 |
+| medium | 512 | 4 lights | yes | 85% | 1 |
+| low | none | 2 lights | none | 72% | 1 |
+
+The picture's size is fixed when the headset enters, so a change of it is seen the next time. Every shader of the game is made when the headset enters (`draw.js
+warmUp`): the effects that appear one by one in a game no longer each stop the headset for a moment.
 
 ## Where it stands in your room
 
@@ -68,16 +106,23 @@ arrangement whenever either changes and keeps the plan in the document (`jdeco`)
 | a corner (two walls meeting) | a few stems of **bamboo**, their leaves swaying |
 | the tops of a table, a side table, a shelf (0.3 to 1.5 m) | near the back corner: a **vase with a plum branch** in blossom (now and then a petal falls and lies on the table, then fades), **incense** (a glowing tip, a thread of smoke that rises straight and breaks into slow curls), a **candle** |
 
-Never under or behind a table, never behind a sofa, a bed or a cabinet (the headset could not hide a thing behind real furniture: it would show through), never on a
+The game's way round the tower is a circle of six tenths of the tower's height beyond the plinth (a square as wide as the tower was tall took the
+whole room for a huge or a giant tower). Never under or behind a table, never behind a sofa, a bed or a cabinet (the headset could not hide a thing behind real furniture: it would show through), never on a
 sofa or a bed, never in a doorway, never in the game's way (the plinth and where its blocks fall, the console and the room in front of the board, the scroll, the
 lantern, where the player stands). When the plan arrives everything **grows in**, one thing after another over a minute (stones settle, sand spreads, bamboo rises,
 the branch blossoms, the flames light). The sway and the growing follow the server's clock; the petals and the smoke follow the **world's** clock, so they stop when
 the tower falls and run back with the rewind. The board's **Garden** (full, sparse, none) is a shared setting: sparse keeps the first garden, lamp, stones, corner and top, full adds the rest.
 
 **Lights that light the real room.** The lantern, the lamps and the candles lift the room's dim round them (engine `app.relight`): where the room is darkened, the
-real floor and walls near a lamp stay brighter and are warmed in its colour, as if the lamp lit them. The engine draws the dim on the scanned surfaces of the
+real floor and walls near a lamp stay brighter and are warmed in its colour, as if the lamp lit them; near a light a veil of its colour lies over the real
+surface too (engine dim3d `warmth`, 0.35), so a white real room turns amber round a lamp instead of only having a little warm light laid on it. The engine draws the dim on the scanned surfaces of the
 server's room (floor, walls, tables) and lets each light take some of it away by distance and by how squarely the surface faces it; the same lights and the same
 room on every headset, so the pool of light is in the same real place for everybody. At the fall the lights go down with the room (`lightK`).
+
+**The props darken with the room.** Every material of the furniture, the plinth and its sand, the garden, the scroll, the how-to sign and the board's plaques
+takes 1 - 0.8 x the room's dim of its colour, its reflections and its own faint glow (`draw.js propLight`); the lights (the lantern, the lamps and candles, the
+shades, the board's lit paper) and the tower and the die do not. **The real walls hide what is behind them** (`occlude.js`): in the headset each wall of the
+server's room is drawn into the depth buffer only, 4 cm behind the real wall, so the garden of the next room does not show through the wall.
 
 ## Shades over the ceiling lights
 
@@ -105,9 +150,11 @@ every page from that player's head and hands.
 A quiet room with one warm light (`look.js`, `draw.js`, `fx.js`): the tower of pine blocks stained in the six colours, each colour's sign burnt into both ends; a plinth of charred
 cedar (yakisugi) on a black foot, with a hinoki rim and sand raked in rings round the slate stone the tower stands on; the console in walnut with the die's tray in black lacquer lined
 with vermilion; a paper andon on the floor at the end of the table, which is a real light. The key light throws the tower's shadows on the sand and on the real floor; the furniture has
-soft contact shadows. The moments are drawn in light, never as panels: a gold band round the tower at the level a block may be taken from, a gold edge on the pulled block, the
+soft contact shadows. The key light comes from the real ceiling light over the game when the room has one (a lamp of the scan, or one marked with **Lights**),
+and its shadows are as soft as that light is big for its distance; with none it stands high to the side of the player. The moments are drawn in light, never as panels: a gold band round the tower at the level a block may be taken from, a gold edge on the pulled block, the
 tray breathing at the die's turn and a ring of the colour it gave, a ring of light off the top for a block put on top (gold sparks for a good move), the floor of the player on
-turn lit in their colour, and at the fall the floor rippling out, a puff of sawdust, the trail of the block that did it, and **TIMBER / REWIND / REPLAY** circling above the tower in
+turn lit in their colour, a ring of light in their colour over their head (everybody sees it), YOUR TURN in letters of light in front of their eyes for four
+seconds when their turn begins and a bell on their headset, and at the fall the floor rippling out, a puff of sawdust, the trail of the block that did it, and **TIMBER / REWIND / REPLAY** circling above the tower in
 letters of light with a ring that fills as the replay goes on. Motes of dust drift in the lantern's light on the **world's clock**: they stop when everything freezes, run back
 with the rewind and slowly with the replay. Every motion (the flicker, the sway of the plaques, the turn of the words) follows the server's clock, so it is the same on every
 headset. The fonts (Shippori Mincho B1, Zen Kaku Gothic New) are in `fonts/`, SIL OFL, so a headset needs no internet for them.
@@ -138,12 +185,12 @@ step of 0.05, so the document is not a stream.
 | Moment | Dark | Grey | Takes |
 |---|---|---|---|
 | lobby, end of the match | 0 | 0 | 2.5 s / 5 s |
-| die | 0.30 | 0.20 | 2.5 s |
-| pull / put on top | 0.45 to 0.80, more with the tension (a hand holding a half pulled block a little more) | 0.30 to 0.75 | 1.5 s |
+| die | 0.40 | 0.25 | 2.5 s |
+| pull / put on top (tension counts only real motion: a tower kept awake trembles) | 0.55 to 0.90, more with the tension (a hand holding a half pulled block a little more) | 0.35 to 0.80 | 1.5 s |
 | a block comes out | a quick extra +0.12 for 1.2 s | +0.10 | 0.15 s in, 2.5 s out |
 | the fall | 0.90 | 1 | 0.15 s |
 | the replay | 0.85 | 1 | 0.7 s |
-| after the fall, round end | 0.35, then 0.15 | 0.5, then 0.1 | 3.5 s, 3 s |
+| after the fall, round end | 0.45, then 0.25 | 0.5, then 0.15 | 3.5 s, 3 s |
 
 The board's **Room dim** (off, gentle = half of everything, full) is a shared setting like the music, since the room is one for everybody. Real hands are dimmed with the room
 (`over: true`; ghost fingers show the hands). It never goes fully black (0.92). A host that goes away must not leave a dark room (the server keeps the dim): any page with no host for
@@ -172,7 +219,9 @@ The board's **Room dim** (off, gentle = half of everything, full) is a shared se
 | `stand.js` | the board: the stand, the lit paper panel, the hanging plaques (swing, turn round) |
 | `fx.js` | the moments: edge glows, the limit band, rings, sparks, sawdust, the words of the fall, the trail, the turn's ring, the motes on the world's clock |
 | `app.js`, `index.html` | the page on `createApp` |
-| `view.js`, `view.html` | the PC view (a watcher; keys 1 2 3 4 move the camera, M the music) |
+| `view.js`, `view.html` | the PC view (a watcher; keys 1 2 3 4 move the camera; it plays what the headsets hear from where its camera is, from the first click, with a music slider: 75 % is the headsets' level, not kept) |
+| `webcam.html` | the PC view over a webcam's picture (a Quality choice bottom right, as on the headset: auto steps down below 45 fps; F shows the picture alone, full screen; Align shows the floor spots' rings and crosses over the picture, hidden otherwise; the engine's webcam page: Start camera, click the three line-up spots; the view hides its own floor and haze then, and hands the page its lights for the room's relight) |
+| `occlude.js` | the real room's walls in the depth buffer only: what of the game is behind a real wall is hidden (in the headset) |
 | `focus.js` | the room's dim: the look of each phase, what tension adds, the Room dim setting; asked by the referee through `session.dim` |
 | `music.js`, `music/` | the soundtrack: the director on the host (scene, track, where in it), the page's player (tension, moments, the crossfades, the swells, the limiter, the generated bells, boom, riser and block clacks); the folders for your tracks |
 | `*.test.js` | `rules`, `net` (and replay), `tower`, `referee`, `app` (the whole app with pretend headsets and a pretend host), `music`, `focus`, `arrange`, `deco`, `shades` |
@@ -181,6 +230,13 @@ The board's **Room dim** (off, gentle = half of everything, full) is a shared se
 
 Found with a pretend hand that pulls blocks out of a tower under its own weight (`tower.test.js`, and a soak that pulled each of the 51 pullable blocks of a fresh tower):
 
+- **What it costs the host.** An awake tower is about 3.5 ms a step on the PC (Jolt's speculative contact distance down to 2 mm from 2 cm: a third less; a
+  substep of 1/180 would halve it but lets a stack lean off), up to three times that on a busy PC; a step covers at most 25 ms, so a host that cannot keep up
+  runs a little slow rather than falling further behind (Marek's run, 2026-10-29: 45 ms a step, the host fell behind, holds broke).
+- **In play the tower never sleeps** (engine `JoltWorld.keepAwake`). A sleeping stack that is woken settles a little (Jolt starts its contacts afresh): about
+  0.8 mm down and up to a millimetre sideways at the top each time, and a hand near the tower woke it a hundred times a round; it crept until it fell by
+  itself (Marek's run, 2026-10-28). Awake, it settles once and stands still (a minute: under 0.01 mm). The position correction is gentle (baumgarte 0.05):
+  a stronger one has no friction in it and walks a stack that leans on one side off it, block by block.
 - A **velocity motor** (the engine's old hold) does not pull a block from under a load: friction cancels it inside the solver step. A **kinematic grip** pulls it but is infinitely
   stiff, so it carries the whole load and takes the tower out with it. What works is a **grip of limited strength** (`hold(b, target, { force, omega })`, engine
   `physics-jolt.js`): a critically damped spring to the hand with its force capped at 4 N x scale^3, applied inside every substep. A stuck block lags behind the hand and then
@@ -193,7 +249,43 @@ Found with a pretend hand that pulls blocks out of a tower under its own weight 
 - Result on a fresh tower at 3.5 cm/s: 45 of 51 blocks come out with the rest of the tower moving under 2 mm; the other six are tight blocks in the upper levels that drag the stack out
   with them and bring it down. At 15 cm/s 46 come out. A grip a third as strong leaves 12 blocks stuck.
 
+## The dice tower
+
+It stands on the tray's back corner at the table's end, turned 45 degrees (Marek, 2026-10-31): its way out spans the corner from one wall of the tray
+to the other (those walls stop there, `spec.js trayWalls`) and the die comes out across the tray. Its walls are windows of pale glass in walnut frames,
+so that the die is seen tumbling down the black lacquer planks; a black lacquer skirt, a vermilion lip round the mouth, and a small roof (no wider than
+the tower) on two posts over the front half of the mouth (the roof and the posts are in the physics too). The board stands 4 cm further along, clear of it. It is the same size at every size of the game (the die is 4 cm) (`spec.js dtowerParts`: the host's physics has the same boxes as fixtures, every page draws
+them). Inside, two planks at 40 degrees reach half way across from opposite walls and a ramp at 30 degrees (steeper than the die's friction) brings the die out
+through a door in the front wall. The gaps are wider than a die turned on its corner (1.73 dice): 1.9 dice from a plank's end to the wall, more than 2.1 dice
+square to the next plank, a door 2.4 dice high; the die is 4 to 6 cm, so the tower is 39 to 59 cm high and the tray grows with the die. `tower.test.js` lets a die
+go over the mouth 12 times at each size, turned and spun: it comes out onto the tray every time and lands on several faces.
+
+## The how-to sign and the ghost demo
+
+The sign under the scroll stand's arm is pictures more than words (Marek, 2026-10-31): poke the middle block, then pinch the end that sticks out; an
+outer block from its side; a red thread means not there; the die into the tower. Under it hangs a round **show me** button: a fingertip on it (in the
+lobby) puts `jdemo` in the document (when it started, on the server's clock), and every headset and PC view plays the same 14 s demo in place of the
+tower (`demo.js`): ghost blocks, a gold block and two ghost fingertips poke it out, take it by its end, draw it out and put it on top. The tower's own
+blocks are not drawn while it plays. `__jenga.demo()` starts it from a page's console.
+
+## Holding, and the mood
+
+- **One hand at a time** (Marek, 2026-10-31): a player whose one hand holds something takes nothing with the other (`tower.js`); each held block shows
+  one thread, to the pinching hand nearest it (`fx.js`: before, every pinching hand near it drew one, and the other hand looked as if it held it too).
+- **Through a gap**: thumb above and finger below, a block may be pinched where the rows over and under it both leave a gap at that point (the middle
+  block of a full row between two rows whose middles are gone): `spec.js grabRule`.
+- **The colour's risk**: once the die has chosen, the tension (`music.js`, the music's mood and the room's dim) rises when that colour has no easy block
+  left (easy: in a full row, or an outer block beside the middle one; the top row, and the one under it while the top is not full, do not count).
+- The glow round the lantern, the floor lamps and the ceiling shades is drawn nearer the eye than the lamp's middle (`textures.js standOut`): a sprite
+  through the paper was half hidden by it, a bright half and a dark one that turned with the head.
+
 ## Not yet tried
+
+**After Marek's first two-headset run (2026-10-28)**: everything in "Taking a block", the dice tower, Quality, the replay's rewind and curve, the turn's halo
+and words, the garden round a big tower, the shadows from the real light and the incense's smoke were fixed or made on the PC and checked in Node tests and a
+desktop rehearsal, not yet on a headset. The run's frame rate (logged each 5 s, `jenga perf`): Quest Pro 37 fps, Quest 3 60, with stalls of 0.75 s at every
+change of the state; the stalls were the scroll and the board painting their paper pixel by pixel (now once), and shaders made as effects first appeared (now
+when the headset enters).
 
 Everything here ran on the PC: Node tests (physics with pretend hands, the whole app with pretend headsets) and browser tabs through the real server and host (a full turn:
 Start, the die thrown by a pinch, a block pulled and put on top, scored; the fall with the replay). **Not yet on a headset**: how a real pinch finds a 15 mm block at the normal size

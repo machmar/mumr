@@ -285,6 +285,17 @@ export function enso(g, x, y, r, { seed = 7, colour = '20,16,14', width = r * 0.
 }
 
 // ---- soft round glow (white; coloured by the material), and a ring with soft edges, for sprites and floor glows
+// A glow sprite round a lit thing (a lantern, a shade) is drawn r nearer the eye than its centre, each eye's own: a sprite through the middle of the
+// paper was half hidden by it, a bright half and a dark one that turned with the head (Marek, 2026-10-31). Its position stays the centre.
+export function standOut(THREE, s, r) {
+  const c = new THREE.Vector3(), e = new THREE.Vector3();
+  s.onBeforeRender = (rd, sc, cam) => {
+    c.copy(s.position); if (s.parent) s.parent.localToWorld(c);
+    e.setFromMatrixPosition(cam.matrixWorld).sub(c); const n = e.length();
+    s.matrixWorld.setPosition(n > r * 1.5 ? c.addScaledVector(e, r / n) : c);
+  };
+  return s;
+}
 export function glow(THREE, n = 128, inner = 0) {
   const c = canvas(n, n), g = c.getContext('2d'), gr = g.createRadialGradient(n / 2, n / 2, inner * n / 2, n / 2, n / 2, n / 2);
   gr.addColorStop(0, 'rgba(255,255,255,1)'); gr.addColorStop(0.25, 'rgba(255,255,255,0.55)'); gr.addColorStop(0.6, 'rgba(255,255,255,0.12)'); gr.addColorStop(1, 'rgba(255,255,255,0)');

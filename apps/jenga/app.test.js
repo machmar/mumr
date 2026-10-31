@@ -86,10 +86,10 @@ t('the host dims the real room with the game and every page has the same look: t
   const a = player(hub, 'A'), b = player(hub, 'B'); hub.flush(); tick(h, hub, 12);
   assert.deepStrictEqual([a.sess.doc.dim.dark, a.sess.doc.dim.mute], [0, 0], 'the lobby: the room as it is');
   a.body.ask('start', {}); hub.flush(); tick(h, hub, 15);
-  for (const p of [a, b]) { assert.strictEqual(p.sess.doc.jenga.phase, 'roll'); assert.deepStrictEqual([p.sess.doc.dim.dark, p.sess.doc.dim.mute, p.sess.doc.dim.over], [0.3, 0.2, true], 'a round: the room recedes'); }
+  for (const p of [a, b]) { assert.strictEqual(p.sess.doc.jenga.phase, 'roll'); assert.deepStrictEqual([p.sess.doc.dim.dark, p.sess.doc.dim.mute, p.sess.doc.dim.over], [0.4, 0.25, true], 'a round: the room recedes'); }
   assert.strictEqual(JSON.stringify(a.sess.doc.dim), JSON.stringify(b.sess.doc.dim), 'the same for both');
-  const late = player(hub, 'C'); hub.flush(); assert.strictEqual(late.sess.doc.dim.dark, 0.3, 'a newcomer is at the same look at once');
-  const lv = M.dim.level(a.sess.doc.dim, a.sess.serverNow() + 5000); assert.ok(Math.abs(lv.dark - 0.3) < 1e-9, 'and the fade is over by then');
+  const late = player(hub, 'C'); hub.flush(); assert.strictEqual(late.sess.doc.dim.dark, 0.4, 'a newcomer is at the same look at once');
+  const lv = M.dim.level(a.sess.doc.dim, a.sess.serverNow() + 5000); assert.ok(Math.abs(lv.dark - 0.4) < 1e-9, 'and the fade is over by then');
   a.sess.press(null, 'dimDown'); a.sess.press(null, 'dimDown'); hub.flush(); tick(h, hub, 15);
   assert.deepStrictEqual([a.sess.doc.dim.dark, a.sess.doc.dim.mute], [0, 0], 'off: the room as it is');
 });
@@ -99,7 +99,7 @@ t('the board follows the phase: what can be pressed in the lobby, in a round, af
   const at = (phase, o = {}) => L.board(Object.assign({}, base, { phase }, o), { here: 2 });
   const ids = (lay) => lay.buttons.filter((b) => b.id && !b.off).map((b) => b.id);
   assert.ok(ids(at('lobby')).includes('start'));
-  assert.ok(!ids(at('roll')).includes('start') && ids(at('roll')).includes('reroll') && !ids(at('roll')).includes('size') && !ids(at('roll')).includes('place'));
+  assert.ok(!ids(at('roll')).includes('start') && ids(at('roll')).includes('dieback') && ids(at('pull')).includes('reroll') && !ids(at('roll')).includes('size') && !ids(at('roll')).includes('place'));
   assert.ok(!ids(at('pull', { handled: { i: 1 } })).includes('reroll'));
   assert.ok(ids(at('place')).includes('back'));
   assert.ok(ids(at('replay')).includes('skip'));

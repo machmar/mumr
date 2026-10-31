@@ -60,30 +60,31 @@ test('the page draws the host 60 ms in the past, between two packets, and starts
   assert.strictEqual(st.buf.length, 1, 'a new holder starts the buffer again');
 });
 
-test('the recorder keeps four seconds at 30 a second, and the last two seconds end with the exact state', () => {
-  const rec = new R.Recorder(), body = (x) => [{ p: [x, 0, 0.8], q: [0, 0, 0, 1] }];
+test('the recorder keeps the last seconds at 30 a second, and the last two seconds end with the exact state', () => {
+  const rec = new R.Recorder(), body = (x) => [{ p: [x, 0, 0.8], q: [0, 0, 0, 1] }], keep = R.REPLAY.keepSecs;
   for (let t = 0; t < 6000; t += 11) rec.push(t, body(t / 1000));
-  assert.ok(rec.frames.length <= 4 * 30 + 3 && rec.frames.length >= 4 * 30 - 3, `${rec.frames.length} frames`);
-  assert.ok(5990 - rec.frames[0].t <= 4000 + 40);
+  assert.ok(rec.frames.length <= keep * 30 + 3 && rec.frames.length >= keep * 30 - 3, `${rec.frames.length} frames`);
+  assert.ok(5990 - rec.frames[0].t <= keep * 1000 + 40);
   const w = rec.take(6000, body(6), 2);
   assert.ok(w[0].t >= 4000 - 1 && w.at(-1).t === 6000);
   assert.ok(Math.abs(w.at(-1).a[0] - 6) < 1e-6, 'the last frame is the exact state');
 });
 
-test('the replay: frozen, rewound to the first frame, then slow motion to the last, then done; skip ends it', () => {
-  const rec = new R.Recorder();
-  for (let t = 0; t <= 2000; t += 10) rec.push(t, [{ p: [t / 1000, 0, 1], q: [0, 0, 0, 1] }]);
-  const frames = rec.take(2000, [{ p: [2, 0, 1], q: [0, 0, 0, 1] }], 2), r = new R.Replay(frames);
-  assert.strictEqual(r.step(500).mode, 1, 'frozen at first'); assert.strictEqual(r.step(500).pose, null);
-  const rw = r.step(500 + 300);                                      // t = 1800: 300 ms into the rewind of 800
-  assert.strictEqual(rw.mode, 2); assert.ok(rw.pose[0] < 2 && rw.pose[0] > 0, `rewinding at ${rw.pose[0]}`);
-  const first = r.step(500);                                         // the rewind is over at t = 2300
-  assert.ok(first.mode === 3 || first.mode === 2);
-  let last = null, sawSlow = false, prev = -1;
-  for (let k = 0; k < 400 && !(last && last.done); k++) { last = r.step(50); if (last.mode === 3) { sawSlow = true; assert.ok(last.pose[0] >= prev - 1e-6, 'forwards'); prev = last.pose[0]; } }
-  assert.ok(sawSlow); assert.ok(last.done); assert.ok(Math.abs(last.pose[0] - 2) < 0.02, 'ends on the exact state');
-  assert.ok(Math.abs(r.slowMs - 2000 / R.REPLAY.rate) < 20, 'two seconds at 0.3x');
+test('the replay: frozen, rewound to the first frame, then forwards with a speed curve (slowest at the hit), then done; skip ends it', () => {
+  const rec = new R.Recorder(), span = R.REPLAY.span;
+  for (let t = 0; t <= span; t += 10) rec.push(t, [{ p: [t / 1000, 0, 1], q: [0, 0, 0, 1] }]);
+  const end = span / 1000, frames = rec.take(span, [{ p: [end, 0, 1], q: [0, 0, 0, 1] }], end), hitAt = span - R.REPLAY.follow, r = new R.Replay(frames, { hitAt });
+  assert.strictEqual(r.step(300).mode, 1, 'frozen at first'); assert.strictEqual(r.step(300).pose, null);
+  const rw = r.step(100 + R.REPLAY.rewindMs / 2);                    // half way through the rewind
+  assert.strictEqual(rw.mode, 2); assert.ok(rw.pose[0] < end - 0.3 && rw.pose[0] > 0.3, `rewinding: half way back (${rw.pose[0]})`);
+  let last = r.step(R.REPLAY.rewindMs / 2 + 1), prev = -1, rates = [];
+  assert.ok(last.pose[0] < 0.05, `back at the first frame (${last.pose[0]})`);
+  for (let k = 0; k < 2000 && !last.done; k++) { last = r.step(20); if (last.mode === 3) { assert.ok(last.pose[0] >= prev - 1e-6, 'forwards'); prev = last.pose[0]; rates.push([last.pose[0] * 1000, last.rate]); } }
+  assert.ok(last.done); assert.ok(Math.abs(last.pose[0] - end) < 1e-6, 'ends on the exact state');
+  const at = (ms) => rates.reduce((b, q) => (Math.abs(q[0] - ms) < Math.abs(b[0] - ms) ? q : b))[1];
+  assert.ok(at(hitAt) < at(200) && at(hitAt) < at(span - 50) && at(hitAt) < 0.3, `slowest at the hit (${at(200).toFixed(2)}, ${at(hitAt).toFixed(2)}, ${at(span - 50).toFixed(2)})`);
+  assert.ok(r.slowMs > span * 1.4, `slower than it happened (${r.slowMs.toFixed(0)} ms for ${span})`);
   const s = new R.Replay(frames); s.skip(); assert.strictEqual(s.step(1).done, true);
   const tr = R.trail(frames, 0, 5);
-  assert.ok(tr.length > 5 && tr[0][0] < 0.05 && Math.abs(tr.at(-1)[0] - 2) < 1e-9, 'the path from the first frame to the exact last');
+  assert.ok(tr.length > 5 && tr[0][0] < 0.05 && Math.abs(tr.at(-1)[0] - end) < 1e-9, 'the path from the first frame to the exact last');
 });

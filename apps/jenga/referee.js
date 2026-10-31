@@ -16,6 +16,7 @@
       this.Engine = opts.Engine || null; this.session = opts.session; this.room = opts.room || null; this.life = opts.life || (() => {});
       this.nowMs = 0; this.now = opts.now || (() => this.nowMs);
       this.rules = new Rules({ now: () => this.now(), present: (slot) => this.here().includes(slot) });
+      { const r = this.rules, say = r.say.bind(r); r.say = (x) => { this.life(`jenga: says "${x}"`); return say(x); }; }   // (into the log too)
       if (opts.size) this.rules.s.size = opts.size;
       this.rules.s.place = this.arranged(this.headOf(DEFAULT_PLACE), DEFAULT_PLACE.yaw);
       this.seed = opts.seed === undefined ? 1 : opts.seed;
@@ -102,7 +103,8 @@
           r.setPlace(this.arranged(head, a.yaw)); this.planDeco(); this.makeTower(); return true;
         },
         reroll: () => { if (!['roll', 'pull'].includes(ph) || s.handled) return false; r.reroll('The die is rolled again'); this.tower.resetDie(); return true; },
-        skip: () => { if (!this.replay) return false; this.replay.skip(); return true; },
+        dieback: () => { if (ph !== 'roll') return false; this.tower.resetDie(); r.say('The die is back on the tray'); r._touch(); return true; },
+        skip: () => { if (!['fall', 'replay'].includes(ph)) return false; if (!this.replay) this.freezeFall(this.nowMs); this.replay.skip(); return true; },
         back: () => { if (ph !== 'place') return false; this.tower.bringBack(); return true; },
         // (rehearsals and the scene videos only: JENGA_DEBUG=1 lets a script nudge the tower, as a hand that is hard to aim in a headless browser would)
         // (JENGA_DEBUG only) a game in progress at once: n blocks from the lower levels put on top, scored for the players in turn; for the scene videos
@@ -135,6 +137,8 @@
 
     // ---- one host tick: dt seconds, nowMs, everybody's hands (common frame)
     step(dt, nowMs, hands) {
+      // (a host that cannot keep up runs a little slow rather than taking longer steps, which cost more and fall further behind)
+      dt = Math.min(dt, 0.025);
       const t0 = typeof performance !== 'undefined' ? performance.now() : 0, r = this.rules, ph = r.phase;
       this.t += dt; this.nowMs = nowMs;
       const room = this.realRoom();
@@ -142,7 +146,7 @@
       if (room !== this.arrangedFor && ['lobby', 'round_end', 'match_end'].includes(ph)) { this.rearrange(); this.makeTower(); }
       const tw = this.tower;
       if (room !== tw.realRoom) tw.setRoom(room);
-      tw.frozen = !!this.frozen;
+      tw.frozen = !!this.frozen; tw.awake = ['roll', 'pull', 'place'].includes(ph);
       tw.step(dt, this.t, hands || []);
       while (tw.log.length) this.life(`jenga: ${tw.log.shift()}`);
       if (ph === 'fall' || ph === 'replay') this.playReplay(nowMs);
@@ -152,8 +156,16 @@
         if (['roll', 'pull', 'place'].includes(ph)) this.play(dt, nowMs);
       }
       this.publish();
+      this.logRules();
       this.focusStep(dt, nowMs);
       if (t0) { const ms = performance.now() - t0; this.stats.steps++; this.stats.ms += ms; this.stats.worst = Math.max(this.stats.worst, ms); }
+    }
+    // ---- the log: every change of phase and everything the referee says (the turn, the roll, the score, why a round ended)
+    logRules() {
+      const s = this.rules.s, lg = this.lg || (this.lg = { phase: null, handled: null });
+      if (s.phase !== lg.phase) { this.life(`jenga: phase ${lg.phase} -> ${s.phase} (round ${s.round}, turn ${s.players[s.turn] ? this.rules.name(s.players[s.turn].slot) : '-'}, roll ${s.roll === null ? '-' : S.COLOURS[s.roll].label}, handled ${s.handled === null || s.handled === undefined ? '-' : s.handled})`); lg.phase = s.phase; }
+      const tw = this.tower;
+      if (tw && tw.handled !== lg.handled) { this.life(`jenga: the pulled block is ${tw.handled === null ? 'none' : `${tw.name(tw.handled)}`}`); lg.handled = tw.handled; }
     }
     // ---- the focus: ten times a second the tension is read off the tower, and the room's dim (engine dim.js) is asked for when the look has to change
     dimLevel() { const g = this.session && this.session.game ? this.session.game('dim') : undefined; return g === undefined ? 2 : g; }
@@ -175,7 +187,9 @@
       if (ph === 'roll') {
         const d = tw.dieRead();
         if (d.moved && !d.held && d.rest >= T.dieStill) {
-          if (d.up.tilt > T.cocked) { r.reroll('The die landed cocked: rolled again'); tw.resetDie(); }
+          if (d.inTower) { r.reroll('The die stuck in the tower: it is back on the tray'); tw.resetDie(); }
+          else if (!d.passed) { r.reroll('Drop the die into the tower'); tw.resetDie(); }
+          else if (d.up.tilt > T.cocked) { r.reroll('The die landed cocked: rolled again'); tw.resetDie(); }
           else if (!this.playable(d.up.colour)) { r.reroll(`No ${S.COLOURS[d.up.colour].label} block can be taken: roll again`); tw.resetDie(); }
           else r.rolled(d.up.colour);
         }
@@ -185,7 +199,9 @@
         r.pulled({ i, colour: tw.colourOf(i), level, legal: tw.legalLevel(level) });
       } else if (ph === 'place' && tw.handled !== null) {
         const i = tw.handled, held = tw.heldBy(i) !== null, pl = tw.placed();
-        if (pl) { r.placed(); tw.captureRest(); r.setTower(this.towerInfo()); tw.resetDie(); this.putBackAt = null; this.offAt = null; }
+        // (a block that lies still and is not counted: why, once, in the log)
+        if (!pl && !held && tw.stillFor > 2 && this.whyLogged !== i) { this.whyLogged = i; this.life(`jenga: block ${i} lies still and is not on top: ${tw.placedCheck().why}`); }
+        if (pl) { this.whyLogged = null; r.placed(); tw.captureRest(); r.setTower(this.towerInfo()); tw.resetDie(); this.putBackAt = null; this.offAt = null; }
         else if (!held && tw.away(i).dist < 0.12 * tw.d.L && tw.away(i).dz < 0.3 * tw.d.H) {           // put back where it came from: the move is undone
           this.putBackAt = this.putBackAt === null || this.putBackAt === undefined ? this.t : this.putBackAt;
           if (this.t - this.putBackAt > T.putBack) { tw.handled = null; this.putBackAt = null; r.s.handled = null; r.s.phase = r.s.roll === null ? 'roll' : 'pull'; r.say('The block is back: pull again'); r._touch(); }
@@ -198,22 +214,31 @@
       const tw = this.tower, full = tw.levels().full;
       return tw.blocks.some((b, i) => b.spec.colour === colour && tw.restLevel[i] >= 0 && tw.restLevel[i] < full);
     }
-    // ---- the tower falls: freeze, then the replay
+    // ---- the tower falls: it goes on falling for a moment (TIMBER), then everything freezes and the replay runs
     fall(f, nowMs) {
       const r = this.rules, tw = this.tower;
       if (r.toppled({ i: f.i, level: tw.restLevel[f.i] }) === null) return;
-      this.culprit = f.i;
-      this.frozen = tw.all().map((b) => ({ p: b.p.slice(), q: b.q.slice(), v: b.v.slice(), w: b.w.slice() }));
-      const frames = this.rec.take(nowMs, tw.all(), R.REPLAY.window);
-      this.replay = new R.Replay(frames);
-      r.s.fall.trail = R.trail(frames, f.i, 3);
-      this.lastPlay = nowMs; this.mode = N.MODE.frozen; this.progress = 0;
+      this.culprit = f.i; this.fallAt = nowMs; this.replay = null; this.frozen = null; this.mode = N.MODE.live; this.progress = 0;
       r._touch();
       this.life(`jenga: the tower fell: block ${f.i} (level ${tw.restLevel[f.i]}, ${S.COLOURS[tw.colourOf(f.i)].label}) hit the ground, ${r.name(r.s.fall.by)} toppled it`);
     }
+    freezeFall(nowMs) {
+      const r = this.rules, tw = this.tower;
+      this.frozen = tw.all().map((b) => ({ p: b.p.slice(), q: b.q.slice(), v: b.v.slice(), w: b.w.slice() }));
+      const frames = this.rec.take(nowMs, tw.all(), R.REPLAY.span / 1000);
+      this.replay = new R.Replay(frames, { hitAt: this.fallAt });
+      if (r.s.fall) r.s.fall.trail = R.trail(frames, this.culprit, 3);
+      this.lastPlay = nowMs; this.mode = N.MODE.frozen; this.progress = 0;
+      r._touch();
+    }
     playReplay(nowMs) {
       const r = this.rules, tw = this.tower, dtMs = Math.min(100, Math.max(0, nowMs - (this.lastPlay || nowMs))); this.lastPlay = nowMs;
-      if (!this.replay) return;
+      if (!this.replay) {                                                          // (still falling, recorded, until the freeze)
+        this.rec.push(nowMs, tw.all());
+        this.progress = Math.min(1, (nowMs - this.fallAt) / R.REPLAY.follow);
+        if (nowMs - this.fallAt >= R.REPLAY.follow) this.freezeFall(nowMs);
+        return;
+      }
       const out = this.replay.step(dtMs);
       this.mode = out.mode; this.progress = out.progress;
       if (out.mode >= 2 && r.phase === 'fall') r.setPhase('replay');

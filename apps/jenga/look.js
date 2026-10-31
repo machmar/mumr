@@ -51,11 +51,37 @@ export function createRig({ THREE, renderer, parent }) {
   if (renderer) { renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFShadowMap; }
   const at = (gx, gy, gz) => [gx, gz, -gy];
   // the shadow's box: round the tower and the floor it falls on
+  let box = { r: 0.5, cz: 0.8 }, aimKey = null, softK = 1;
   function fit(L) {
     const r = Math.max(0.42, L.plinth.half * 1.5 + L.d.height * 0.9), cz = L.plinth.top + L.d.height * 0.35;
-    key.position.set(...at(-r * 0.9, -r * 0.55, cz + r * 1.9)); key.target.position.set(...at(0, 0, cz));
+    box = { r, cz }; aimKey = null; place();
     const cam = key.shadow.camera; cam.left = -r; cam.right = r; cam.top = r; cam.bottom = -r; cam.near = 0.05; cam.far = r * 5; cam.updateProjectionMatrix();
     key.shadow.normalBias = 0.004 * Math.sqrt(L.d.k) + 0.006;
+  }
+  // The key light comes from the real room's ceiling light over the game, if there is one (Marek, 2026-10-28: "the shadows don't fall from the mapped
+  // real light, and are harder than they should be"): light { x, y, h, w } in the game frame (w: how big the fitting is), or null for the usual place.
+  // Its shadows are as soft as a light that big at that distance makes them.
+  let from = null;
+  function aim(light) {
+    const k = light ? `${light.x.toFixed(2)}|${light.y.toFixed(2)}|${light.h.toFixed(2)}|${light.w.toFixed(2)}` : 'none';
+    if (k === aimKey) return;
+    aimKey = k; from = light; place();
+  }
+  function place() {
+    const { r, cz } = box;
+    if (from) {
+      const d = [from.x, from.y, from.h - cz], l = Math.hypot(d[0], d[1], d[2]) || 1, far = r * 2.2;
+      key.position.set(...at(d[0] / l * far, d[1] / l * far, cz + d[2] / l * far));
+      key.shadow.radius = Math.max(2, Math.min(12, (2 + 60 * from.w / l) * softK));
+    } else { key.position.set(...at(-r * 0.9, -r * 0.55, cz + r * 1.9)); key.shadow.radius = Math.max(2, 4 * softK); }
+    key.target.position.set(...at(0, 0, cz));
+  }
+  // how dear the shadows are (a page's quality: 2 high, 1 medium, 0 none)
+  function quality(q) {
+    const size = q >= 2 ? 1024 : 512;
+    key.castShadow = q > 0; softK = q >= 2 ? 1 : 0.6;
+    if (key.shadow.mapSize.x !== size) { key.shadow.mapSize.set(size, size); if (key.shadow.map) { key.shadow.map.dispose(); key.shadow.map = null; } }
+    place();
   }
   // t: seconds (the server's); lanternAt: [x, y, z] in the game frame
   function update(t, lanternAt) {
@@ -64,7 +90,7 @@ export function createRig({ THREE, renderer, parent }) {
     lamp.intensity = 1.6 * (1 + f);
     return 1 + f;
   }
-  return { group, hemi, key, lamp, fit, update, lampAt: null };
+  return { group, hemi, key, lamp, fit, aim, quality, update, lampAt: null };
 }
 
 // ---- fewer draw calls: the meshes under `root` that never move on their own are merged, one mesh for each material (and shadow setting). A mesh

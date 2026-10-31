@@ -61,9 +61,11 @@
   function gameZones(size, place) {
     const L = S.layout(size, place), d = L.d, c = L.console, toC = (p) => { const q = S.toCommon(place, [p[0], p[1], 0]); return [q[0], q[1]]; }, geo = G();
     const zones = [
-      geo.rectPoly([0, 0], [1, 0], L.plinth.half + d.height + 0.35, L.plinth.half + d.height + 0.35).map(toC),           // the plinth and where its blocks fall, and room to walk round
+      // the plinth and where its blocks fall, and room to walk round: a circle (a square as wide as the tower is tall took the whole room for a huge or a
+      // giant tower, and the garden went: Marek's run, 2026-10-28; a falling block seldom lands further out than six tenths of the tower's height)
+      Array.from({ length: 20 }, (_, i) => { const a = (i / 20) * Math.PI * 2, r = L.plinth.half + 0.6 * d.height + 0.3; return toC([Math.cos(a) * r, Math.sin(a) * r]); }),
       [[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([a, b]) => c.at(a * (c.half[0] + 0.15), b * (c.half[1] + 0.15) - (b < 0 ? 0.55 : 0))).map(toC),   // the console and the room in front of the board
-      geo.rectPoly(L.score.c, [-Math.sin(L.score.yaw), Math.cos(L.score.yaw)], 0.65, 0.35).map(toC),
+      geo.rectPoly(L.score.c, [-Math.sin(L.score.yaw), Math.cos(L.score.yaw)], 0.75, 0.35).map(toC),                       // (the scroll and the how-to sign on its arm)
       geo.rectPoly(L.lantern, [1, 0], 0.3, 0.3).map(toC),
       geo.rectPoly(L.P, [1, 0], 0.7, 0.7).map(toC),                                                                         // where the player stands
     ];

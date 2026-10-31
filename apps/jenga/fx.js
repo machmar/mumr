@@ -17,7 +17,7 @@ import { FONT } from './look.js';
 
 const S = window.JENGA;
 const toV = (p) => [p[0], p[2], -p[1]];
-const SPAN = 2.0;                                                          // (seconds the replay goes back: replay.js window)
+const SPAN = S.REPLAY.span / 1000;                                         // (seconds the replay goes back: replay.js)
 
 export function createFx({ THREE, overlay, own }) {
   const game = new THREE.Group(); overlay.add(game);                       // in the game frame (moved with the furniture)
@@ -40,6 +40,33 @@ export function createFx({ THREE, overlay, own }) {
     if (!mesh || !mesh.visible) { s.visible = false; return; }
     s.visible = true; s.geometry = mesh.geometry; s.position.copy(mesh.position); s.quaternion.copy(mesh.quaternion); s.scale.setScalar(grow); s.material.uniforms.strength.value = strength;
   };
+
+  // ---- the pinch's aim: a hand closing towards a pinch shows what it will take (Marek, 2026-10-28: "the external pinch isn't really intuitive"):
+  //      a thread of light from between the fingers to the block, a bead where it will be held, the block's edges lit; brighter as the fingers close
+  const aimMat = (c) => own(new THREE.MeshBasicMaterial({ color: c, transparent: true, depthWrite: false, depthTest: false, blending: THREE.AdditiveBlending, opacity: 0 }));
+  const threadGeo = own(new THREE.CylinderGeometry(1, 1, 1, 6, 1, true)), beadGeo = own(new THREE.SphereGeometry(1, 10, 8));
+  const aims = Array.from({ length: 4 }, () => {
+    const thread = new THREE.Mesh(threadGeo, aimMat(0xfff1d6)), bead = new THREE.Mesh(beadGeo, aimMat(0xffe0a8));
+    thread.renderOrder = bead.renderOrder = 7; thread.visible = bead.visible = false; overlay.add(thread, bead);
+    const sh = new THREE.Mesh(new THREE.BufferGeometry(), shellMat(0xfff1d6)); sh.visible = false; sh.renderOrder = 4; overlay.add(sh);
+    return { thread, bead, sh };
+  });
+  const vA = new THREE.Vector3(), vB = new THREE.Vector3(), up = new THREE.Vector3(0, 1, 0);
+  function drawAims(list, blocks, dieMesh, size, k) {
+    aims.forEach((a, n) => {
+      const h = list[n], m = h && (h.i === S.DIE ? dieMesh : blocks[h.i]);
+      a.thread.visible = a.bead.visible = a.sh.visible = !!(h && m && m.visible);
+      if (!a.thread.visible) return;
+      vA.set(...toV(h.at)); vB.set(...toV(h.near));
+      const len = Math.max(1e-4, vA.distanceTo(vB)), r = 0.0009 * Math.sqrt(k);
+      a.thread.position.copy(vA).add(vB).multiplyScalar(0.5); a.thread.scale.set(r, len, r); a.thread.quaternion.setFromUnitVectors(up, vB.clone().sub(vA).normalize());
+      // (warm white: it may be taken there; a dull red: it may not, there: a centre block not poked out, a side another block lies against)
+      const col = h.ok === false ? 0xc0503a : 0xfff1d6;
+      a.thread.material.color.set(col); a.bead.material.color.set(h.ok === false ? 0xd06048 : 0xffe0a8); a.sh.material.uniforms.colour.value.set(col);
+      a.thread.material.opacity = (h.ok === false ? 0.35 : 0.55) * h.s; a.bead.position.copy(vB); a.bead.scale.setScalar(0.0035 * Math.sqrt(k) * (0.7 + 0.3 * h.s)); a.bead.material.opacity = (h.ok === false ? 0.5 : 0.9) * h.s;
+      a.sh.geometry = m.geometry; a.sh.position.copy(m.position); a.sh.quaternion.copy(m.quaternion); a.sh.scale.setScalar(1.06); a.sh.material.uniforms.strength.value = (h.ok === false ? 0.15 : 0.25) + (h.ok === false ? 0.3 : 0.6) * h.s;
+    });
+  }
 
   // ---- the limit: four strips of soft gold light round the tower
   const bandTex = (() => { const c = document.createElement('canvas'); c.width = 4; c.height = 64; const g = c.getContext('2d'), gr = g.createLinearGradient(0, 0, 0, 64); gr.addColorStop(0, 'rgba(255,255,255,0)'); gr.addColorStop(0.42, 'rgba(255,255,255,0.35)'); gr.addColorStop(0.5, 'rgba(255,255,255,1)'); gr.addColorStop(0.58, 'rgba(255,255,255,0.35)'); gr.addColorStop(1, 'rgba(255,255,255,0)'); g.fillStyle = gr; g.fillRect(0, 0, 4, 64); return own(new THREE.CanvasTexture(c)); })();
@@ -99,6 +126,22 @@ export function createFx({ THREE, overlay, own }) {
   const turnRing = new THREE.Mesh(own(new THREE.PlaneGeometry(1, 1)), basic({ map: tRing, opacity: 0 })); turnRing.rotation.x = -Math.PI / 2; turnRing.renderOrder = 2; overlay.add(turnRing);
   const turnPool = new THREE.Mesh(own(new THREE.PlaneGeometry(1, 1)), basic({ map: tGlow, opacity: 0 })); turnPool.rotation.x = -Math.PI / 2; turnPool.renderOrder = 2; overlay.add(turnPool);
   let turnAt = null, turnA = 0, turnSlot = null;
+  // and over that player's head a ring of light in their colour that everybody sees; and when the turn comes, YOUR TURN in letters of light in front of
+  // their eyes for a few seconds (Marek, 2026-10-28: "the player doesn't really notice the ring below them")
+  const halo = new THREE.Mesh(own(new THREE.TorusGeometry(1, 0.06, 6, 48)), basic({ opacity: 0 })); halo.rotation.x = -Math.PI / 2; halo.renderOrder = 6; overlay.add(halo);
+  const haloGlow = new THREE.Mesh(own(new THREE.PlaneGeometry(1, 1)), basic({ map: tRing, opacity: 0 })); haloGlow.rotation.x = -Math.PI / 2; haloGlow.renderOrder = 6; overlay.add(haloGlow);
+  const yourCv = document.createElement('canvas'); yourCv.width = 1024; yourCv.height = 160;
+  const yourTex = own(new THREE.CanvasTexture(yourCv)); yourTex.colorSpace = THREE.SRGBColorSpace;
+  const yourMat = basic({ map: yourTex, opacity: 0, depthTest: false }), yours = new THREE.Mesh(own(new THREE.PlaneGeometry(0.42, 0.42 * 160 / 1024)), yourMat);
+  yours.renderOrder = 8; yours.visible = false; overlay.add(yours);
+  let yourKey = null, yourFonts = null, yourAt = -1e9, yourPos = null, turnStartKey = null;
+  function drawYours(name) {
+    const g = yourCv.getContext('2d'); g.clearRect(0, 0, 1024, 160);
+    g.textAlign = 'center'; g.textBaseline = 'middle'; g.shadowColor = 'rgba(255,190,110,0.95)'; g.shadowBlur = 22; g.fillStyle = '#fff4e2';
+    g.font = `800 92px ${FONT.head}`; g.fillText('YOUR TURN', 512, 66);
+    g.shadowBlur = 10; g.font = `500 38px ${FONT.body}`; g.fillText(name, 512, 134);
+    yourTex.needsUpdate = true;
+  }
 
   // ---- the motes in the air (game frame), on the world's clock
   const NM = 70, mr = rand(4242), mb = Array.from({ length: NM }, () => ({ x: -1.45 + mr() * 1.95, y: -0.45 + mr() * 1.7, z: 0.15 + mr() * 1.55, f: [0.05 + mr() * 0.08, 0.04 + mr() * 0.07, 0.03 + mr() * 0.05], ph: [mr() * 6.3, mr() * 6.3, mr() * 6.3], a: 0.04 + mr() * 0.08, tw: 0.4 + mr() * 1.4, s: mr() }));
@@ -107,16 +150,21 @@ export function createFx({ THREE, overlay, own }) {
   const motes = add(new THREE.Points(mGeo, own(new THREE.PointsMaterial({ size: 0.007, map: tGlow, vertexColors: true, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, sizeAttenuation: true }))));
   motes.frustumCulled = false;
   // the world's clock: the server's, but stopped at the fall, run back with the rewind, slowly with the replay; it catches up after
-  let T0 = null, liveAt = null, offset = 0, worldPrev = 0;
+  // (T0: the world's time when the first block hit the ground; it goes on while the tower falls, until the freeze, TF)
+  let T0 = null, TF = null, fellTs = 0, liveAt = null, offset = 0, worldPrev = 0;
   function worldClock(ts, state, snap, dt) {
     const falling = state.phase === 'fall' || state.phase === 'replay', mode = snap ? snap.mode : 0, pr = snap ? snap.progress : 0;
     let c;
     if (falling) {
-      if (T0 === null) { T0 = worldPrev || ts; liveAt = null; }
-      if (mode === 2) c = T0 - SPAN * (pr * pr * (3 - 2 * pr));
-      else if (mode === 3) c = T0 - SPAN + SPAN * pr;
-      else if (mode === 4) { if (liveAt === null) liveAt = ts; c = T0 + (ts - liveAt); }
-      else c = T0;
+      if (T0 === null) { T0 = worldPrev || ts; TF = null; fellTs = ts; liveAt = null; }
+      if (mode === 0) c = T0 + (ts - fellTs);
+      else {
+        if (TF === null) TF = T0 + Math.min(ts - fellTs, S.REPLAY.follow / 1000);
+        if (mode === 2) c = TF - SPAN * (pr * pr * (3 - 2 * pr));
+        else if (mode === 3) c = TF - SPAN + SPAN * pr;
+        else if (mode === 4) { if (liveAt === null) liveAt = ts; c = TF + (ts - liveAt); }
+        else c = TF;
+      }
     } else {
       if (T0 !== null) { offset = worldPrev - ts; T0 = null; }
       offset *= Math.exp(-dt / 2.5);
@@ -127,7 +175,8 @@ export function createFx({ THREE, overlay, own }) {
   }
 
   let lastPhase = null, phaseAt = 0, lastFallRev = null;
-  function update({ state, snap, t, dt, blocks, dieMesh, L, place, moments, fonts, lampAt, heads = [], colours = [] }) {
+  // hands: everybody's hands this frame, [{ at (between thumb and index, common frame), gap (m), pinch }]
+  function update({ state, snap, t, dt, blocks, dieMesh, L, place, moments, fonts, lampAt, heads = [], colours = [], hands = [], me = null }) {
     const d = L.d, T = L.plinth.top, k = d.k, ph = state.phase, mode = snap ? snap.mode : 0;
     game.position.set(place.x, 0, -place.y); game.rotation.set(0, place.yaw, 0);
     if (ph !== lastPhase) { lastPhase = ph; phaseAt = t; }
@@ -141,9 +190,30 @@ export function createFx({ THREE, overlay, own }) {
     shellOn('held', held && !(handled && handled.i === held.i) ? blocks[held.i] : null, 0.45);
     shellOn('culprit', culprit ? blocks[culprit.i] : null, 0.9 + 0.6 * (0.5 + 0.5 * Math.sin(t * 7)), 1.1);
     shellOn('die', ph === 'roll' && !dieHeld ? dieMesh : null, 0.1 + 0.14 * breathe, 1.05);
+    // -- the pinch's aim: a hand that is closing (thumb and index 2 to 7 cm apart, not pinching yet) and has something within reach
+    const aimList = [];
+    if (snap && ['lobby', 'roll', 'pull', 'place', 'round_end', 'match_end'].includes(ph)) {
+      const items = snap.items, free = (i) => { const it = items.find((q) => q.i === i); return !(it && it.flags & S.F.held); };
+      // (holding: the thread stays, to the block it holds: each held one to the one pinching hand nearest it, within reach. Not to every pinching
+      //  hand near it: the other hand looked as if it held it too, from far off. Marek, 2026-10-31)
+      const pinching = hands.filter((h) => h.pinch), far = (it, h) => Math.hypot(it.p[0] - h.at[0], it.p[1] - h.at[1], it.p[2] - h.at[2]);
+      for (const it of items) {
+        if (!(it.flags & S.F.held)) continue;
+        let h = null, hd = 0.35 * Math.sqrt(k);
+        for (const q of pinching) { const dd = far(it, q); if (dd < hd) { hd = dd; h = q; } }
+        if (h) { const sz = it.i === S.DIE ? [L.die.size, L.die.size, L.die.size] : [d.L, d.W, d.H], g = S.boxGap(it.p, it.q, sz, h.at); aimList.push({ i: it.i, near: g.near, at: h.at, s: 1, ok: true, held: true }); }
+      }
+      for (const h of hands) {
+        if (h.pinch) continue;
+        if (!(h.gap < 0.07)) continue;
+        const a = S.aim(h.at, items, state.size, free, place);
+        if (a) aimList.push(Object.assign(a, { at: h.at, s: Math.max(0, Math.min(1, (0.07 - h.gap) / 0.045)) }));
+      }
+    }
+    drawAims(aimList, blocks, dieMesh, state.size, k);
     // -- the limit
     const full = state.tower ? state.tower.full : 17, ly = T + full * d.H + 0.0012 * k, hx = d.L * 0.6;
-    limit.visible = playing && full >= 0 && full < 22;
+    limit.visible = playing && full >= 0 && full < 60;                    // (as high as tower.js counts levels: at 22 it went out on a tall tower, Marek 2026-10-31)
     if (limit.visible) {
       const bh = d.H * 0.8;
       limit.children.forEach((m) => {
@@ -209,7 +279,7 @@ export function createFx({ THREE, overlay, own }) {
     // the words and the replay's ring
     let text = null;
     if (ph === 'fall') text = 'TIMBER';
-    else if (ph === 'replay') text = mode === 2 ? 'REWIND' : mode === 4 ? 'TIMBER' : 'REPLAY  ·  0.3×';
+    else if (ph === 'replay') text = mode === 2 ? 'REWIND' : mode === 4 ? 'TIMBER' : 'REPLAY';
     else if (ph === 'aftermath') { const who = state.fall ? (state.players.find((p) => p.slot === state.fall.by) || {}).name : ''; text = who ? `${who.toUpperCase()} TOPPLED IT` : 'THE TOWER FELL'; }
     const wantA = text ? 1 : 0;
     wordsA += (wantA - wordsA) * Math.min(1, dt * (wantA ? 3 : 1.5));
@@ -223,7 +293,7 @@ export function createFx({ THREE, overlay, own }) {
       wordsMat.uniforms.colour.value.set(mode === 2 ? 0xbfd8ff : 0xffe2b8);
     }
     let p = 0;
-    if (ph === 'fall') p = Math.min(1, snap && mode === 1 ? snap.progress : 1);
+    if (ph === 'fall') p = Math.min(1, snap ? snap.progress : 1);
     else if (ph === 'replay') p = mode === 2 ? 1 - snap.progress : mode === 3 ? snap.progress : 1;
     arc.visible = words.visible;
     if (arc.visible) { arc.position.set(...at(0, 0, wy - (2 * Math.PI * R) / 16 * 0.75)); arc.scale.setScalar(R); arcMat.uniforms.p.value = p; arcMat.uniforms.a.value = wordsA * (ph === 'aftermath' ? Math.max(0, 1 - since / 3) : 1); arcMat.uniforms.colour.value.set(mode === 2 ? 0xa8ccff : 0xffd08a); }
@@ -251,8 +321,33 @@ export function createFx({ THREE, overlay, own }) {
     turnRing.visible = turnPool.visible = turnA > 0.01 && !!turnAt;
     if (turnRing.visible) {
       const p = toV([turnAt[0], turnAt[1], 0.005]), br = 0.5 + 0.5 * Math.sin(t * 1.8);
-      turnRing.position.set(...p); turnRing.scale.setScalar(0.62 + 0.03 * br); turnRing.material.opacity = turnA * (0.45 + 0.2 * br);
-      turnPool.position.set(p[0], p[1] - 0.001, p[2]); turnPool.scale.setScalar(0.7); turnPool.material.opacity = turnA * 0.12;
+      turnRing.position.set(...p); turnRing.scale.setScalar(0.62 + 0.03 * br); turnRing.material.opacity = turnA * (0.55 + 0.25 * br);
+      turnPool.position.set(p[0], p[1] - 0.001, p[2]); turnPool.scale.setScalar(0.7); turnPool.material.opacity = turnA * 0.18;
+    }
+    // the halo over their head (it follows the head, a little behind)
+    halo.visible = haloGlow.visible = turnA > 0.01 && !!hd;
+    if (halo.visible) {
+      const br = 0.5 + 0.5 * Math.sin(t * 2.4), p = toV([hd.x, hd.y, (hd.z || 1.6) + 0.22 + 0.01 * Math.sin(t * 1.3)]);
+      halo.position.set(...p); halo.scale.setScalar(0.13); halo.rotation.z = t * 0.6; halo.material.opacity = turnA * (0.55 + 0.3 * br);
+      haloGlow.position.set(...p); haloGlow.scale.setScalar(0.42); haloGlow.material.opacity = turnA * 0.35;
+      const col = colours[onTurn % Math.max(1, colours.length)] || 0xffd08a; halo.material.color.set(col); haloGlow.material.color.set(col);
+    }
+    // YOUR TURN: when a turn begins (a new move or a new round), in front of that player's eyes, for four seconds. Only on that player's own headset
+    // (`me`: this page's slot; the PC view has none): a deliberate exception to rule 1, like a wrist card (Marek, 2026-10-29: "it's weird that the
+    // other players see it"). The halo over the head stays shared: that is how the others see whose turn it is.
+    const tk = hd ? `${state.round}|${state.moves}|${onTurn}` : null;
+    if (tk && tk !== turnStartKey) { yourAt = t; yourPos = null; }
+    turnStartKey = tk;
+    const yu = (t - yourAt) / 4, ya = hd && yu >= 0 && yu < 1 ? Math.min(1, yu * 6) * Math.min(1, (1 - yu) * 3) : 0;
+    yours.visible = ya > 0.01 && me !== null && me === onTurn;
+    if (yours.visible) {
+      const name = (state.players[state.turn] || {}).name || '';
+      if (name !== yourKey || fonts !== yourFonts) { yourKey = name; yourFonts = fonts; drawYours(name); }
+      const yaw = hd.yaw || 0, want = [hd.x + Math.cos(yaw) * 0.6, hd.y + Math.sin(yaw) * 0.6, (hd.z || 1.6) - 0.08];
+      if (!yourPos) yourPos = want.slice();
+      for (let j = 0; j < 3; j++) yourPos[j] += (want[j] - yourPos[j]) * Math.min(1, dt * 3);
+      yours.position.set(...toV(yourPos)); yours.rotation.set(0, Math.atan2(hd.x - yourPos[0], -(hd.y - yourPos[1])), 0);
+      yourMat.opacity = ya;
     }
     // the motes
     const lp = lampAt || [-0.9, 0.8, 0.4];
@@ -264,6 +359,7 @@ export function createFx({ THREE, overlay, own }) {
     }
     mGeo.attributes.position.needsUpdate = true; mGeo.attributes.color.needsUpdate = true;
   }
-  function dispose() { trail.geometry.dispose(); overlay.remove(game); for (const s of Object.values(shells)) overlay.remove(s); overlay.remove(trail, turnRing, turnPool); }
-  return { update, dispose, clock: () => worldPrev };
+  function dispose() { trail.geometry.dispose(); overlay.remove(game); for (const s of Object.values(shells)) overlay.remove(s); for (const a of aims) overlay.remove(a.thread, a.bead, a.sh); overlay.remove(trail, turnRing, turnPool, halo, haloGlow, yours); }
+  function quality(q) { motes.visible = q >= 1; }
+  return { update, dispose, quality, clock: () => worldPrev };
 }

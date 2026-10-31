@@ -16,6 +16,16 @@
   .dir .bar { height: 3px; border-radius: 2px; background: rgba(239, 228, 210, 0.1); margin: 3px 0 8px; overflow: hidden; }
   .dir .bar i { display: block; height: 100%; background: linear-gradient(90deg, #8fb79a, #f0c98a, #e0623a); }
   .dir .m { color: #f0d6aa; margin-top: 3px; }
+  #quality { position: fixed; right: 18px; bottom: 40px; z-index: 5; font: 12px "Zen Kaku Gothic New", system-ui, sans-serif; color: #efe4d2; background: rgba(20, 15, 12, 0.7); border: 1px solid rgba(201, 162, 90, 0.3); border-radius: 8px; padding: 3px 6px; }
+  #align { position: fixed; right: 112px; bottom: 16px; z-index: 5; font: 12px "Zen Kaku Gothic New", system-ui, sans-serif; color: #efe4d2; background: rgba(20, 15, 12, 0.7); border: 1px solid rgba(201, 162, 90, 0.3); border-radius: 8px; padding: 4px 10px; cursor: pointer; }
+  #align.on { background: #c9a25a; color: #14100c; }
+  #musicVol { position: fixed; right: 210px; bottom: 16px; z-index: 5; display: flex; align-items: center; gap: 6px; font: 12px "Zen Kaku Gothic New", system-ui, sans-serif; color: #efe4d2; background: rgba(20, 15, 12, 0.7); border: 1px solid rgba(201, 162, 90, 0.3); border-radius: 8px; padding: 3px 8px; }
+  #musicVol input { width: 110px; accent-color: #c9a25a; }
+  #musicVol b { font-weight: 500; min-width: 32px; text-align: right; }
+  #soundNote { position: fixed; left: 50%; bottom: 16px; transform: translateX(-50%); z-index: 5; font: 12px "Zen Kaku Gothic New", system-ui, sans-serif; color: #14100c; background: #c9a25a; border-radius: 8px; padding: 4px 12px; pointer-events: none; }
+  #musicVol { bottom: 40px; right: 112px; }   /* (above the keys line) */
+  /* F: the picture alone */
+  body.bare #hud, body.bare #help, body.bare .dir, body.bare #quality, body.bare #musicVol, body.bare #soundNote, body.bare #align, body.bare #left, body.bare #wcPanel, body.bare #wcPick, body.bare #wcLoupe, body.bare #wcLoupeBar { display: none !important; }
 </style>
 <script type="importmap">
 { "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js", "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/" } }
@@ -24,13 +34,14 @@
 <script src="spec.js"></script>
 <script src="rules.js"></script>
 <script src="net.js"></script>
+<script src="replay.js"></script>
 <script src="logic.js"></script>
 <script src="music.js"></script>
 </head>
 <body>
 <canvas id="view"></canvas>
 <pre id="hud"></pre>
-<p id="help"><b>drag</b> turn &nbsp; <b>wheel</b> zoom &nbsp; <b>right drag</b> move &nbsp; <b>1 2 3 4</b> tower, console, room, player &nbsp; <b>M</b> music</p>
+<p id="help"><b>drag</b> turn &nbsp; <b>wheel</b> zoom &nbsp; <b>right drag</b> move &nbsp; <b>1 2 3 4</b> tower, console, room, player &nbsp; <b>F</b> full screen</p>
 <script type="module" src="view.js"></script>
 </body>
 </html>

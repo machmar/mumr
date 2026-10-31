@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MUMR jenga: webcam</title>
+<style>
+  body { margin: 0; background: #0f0c0a; color: #efe4d2; font: 14px/1.45 "Zen Kaku Gothic New", system-ui, sans-serif; overflow: hidden; }
+  #view { display: block; width: 100vw; height: 100vh; }
+  #hud { position: fixed; left: 18px; bottom: 14px; margin: 0; color: rgba(239, 228, 210, 0.55); font: 12px/1.5 "Zen Kaku Gothic New", system-ui, sans-serif; letter-spacing: 0.04em; white-space: pre-wrap; pointer-events: none; }
+  #help { position: fixed; right: 18px; bottom: 14px; margin: 0; color: rgba(239, 228, 210, 0.38); font: 12px/1.5 "Zen Kaku Gothic New", system-ui, sans-serif; letter-spacing: 0.04em; text-align: right; pointer-events: none; }
+  #help b { color: rgba(239, 228, 210, 0.6); font-weight: 500; }
+  .dir { position: fixed; left: 18px; top: 16px; width: 230px; padding: 12px 14px 10px; border-radius: 10px; background: rgba(20, 15, 12, 0.55); backdrop-filter: blur(6px); border: 1px solid rgba(201, 162, 90, 0.18); pointer-events: none; font: 12px/1.5 "Zen Kaku Gothic New", system-ui, sans-serif; color: rgba(239, 228, 210, 0.75); }
+  .dir .k { font-size: 10px; letter-spacing: 0.18em; text-transform: uppercase; color: rgba(239, 228, 210, 0.45); }
+  .dir .scene { font: 700 20px/1.2 "Shippori Mincho B1", Georgia, serif; color: #f0c98a; margin: 1px 0 8px; }
+  .dir .bar { height: 3px; border-radius: 2px; background: rgba(239, 228, 210, 0.1); margin: 3px 0 8px; overflow: hidden; }
+  .dir .bar i { display: block; height: 100%; background: linear-gradient(90deg, #8fb79a, #f0c98a, #e0623a); }
+  .dir .m { color: #f0d6aa; margin-top: 3px; }
+  /* (the webcam page's panels are along the top: the music box goes to the bottom left, and the keys of the PC view's camera do nothing through a webcam) */
+  .dir { top: auto; bottom: 16px; backdrop-filter: none; background: rgba(20, 15, 12, 0.7); }   /* (a blur over a moving picture costs every frame) */
+  #help { display: none; }
+  #quality { position: fixed; right: 18px; bottom: 40px; z-index: 5; font: 12px "Zen Kaku Gothic New", system-ui, sans-serif; color: #efe4d2; background: rgba(20, 15, 12, 0.7); border: 1px solid rgba(201, 162, 90, 0.3); border-radius: 8px; padding: 3px 6px; }
+  #align { position: fixed; right: 112px; bottom: 16px; z-index: 5; font: 12px "Zen Kaku Gothic New", system-ui, sans-serif; color: #efe4d2; background: rgba(20, 15, 12, 0.7); border: 1px solid rgba(201, 162, 90, 0.3); border-radius: 8px; padding: 4px 10px; cursor: pointer; }
+  #align.on { background: #c9a25a; color: #14100c; }
+  #musicVol { position: fixed; right: 210px; bottom: 16px; z-index: 5; display: flex; align-items: center; gap: 6px; font: 12px "Zen Kaku Gothic New", system-ui, sans-serif; color: #efe4d2; background: rgba(20, 15, 12, 0.7); border: 1px solid rgba(201, 162, 90, 0.3); border-radius: 8px; padding: 3px 8px; }
+  #musicVol input { width: 110px; accent-color: #c9a25a; }
+  #musicVol b { font-weight: 500; min-width: 32px; text-align: right; }
+  #soundNote { position: fixed; left: 50%; bottom: 16px; transform: translateX(-50%); z-index: 5; font: 12px "Zen Kaku Gothic New", system-ui, sans-serif; color: #14100c; background: #c9a25a; border-radius: 8px; padding: 4px 12px; pointer-events: none; }
+  /* F: the picture alone */
+  body.bare #hud, body.bare #help, body.bare .dir, body.bare #quality, body.bare #musicVol, body.bare #soundNote, body.bare #align, body.bare #left, body.bare #wcPanel, body.bare #wcPick, body.bare #wcLoupe, body.bare #wcLoupeBar { display: none !important; }
+  #quality { bottom: 16px; }
+</style>
+<script type="importmap">
+{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js", "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/" } }
+</script>
+<script src="/mumr/all.js"></script>
+<script src="/mumr/webcam/all.js"></script>
+<script src="spec.js"></script>
+<script src="rules.js"></script>
+<script src="net.js"></script>
+<script src="replay.js"></script>
+<script src="logic.js"></script>
+<script src="music.js"></script>
+</head>
+<body>
+<!-- The PC view (view.js) with the webcam page on top (/mumr/webcam/start.js): the camera's picture behind the world, the panels, the calibration mode.
+     Open https://<pc>:8443/webcam.html on the PC the webcam is plugged into. -->
+<canvas id="view"></canvas>
+<pre id="hud"></pre>
+<p id="help"><b>drag</b> turn &nbsp; <b>wheel</b> zoom &nbsp; <b>right drag</b> move &nbsp; <b>1 2 3 4</b> tower, console, room, player</p>
+<script type="module" src="view.js"></script>
+<script type="module" src="/mumr/webcam/start.js"></script>
+</body>
+</html>

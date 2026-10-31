@@ -51,6 +51,19 @@ test('tension: nothing in the lobby; a quiet whole tower is calm; holes, a leani
   assert.ok(shaky.v < before && shaky.v > 0.2 * before, 'it comes down, but not at once');
 });
 
+test('tension: the colour the die chose raises it when that colour has no easy block left (Marek, 2026-10-31)', () => {
+  const order = S.colourOrder(5), c = order[0];
+  const whole = new Mu.Tension(); for (let k = 0; k < 90; k++) whole.update(STATE({ phase: 'pull', roll: c }), towerItems(), 1 / 30);
+  assert.strictEqual(whole.parts.risk, 0, 'a whole tower: easy blocks of every colour');
+  // in each row with a block of that colour, only that colour's blocks are left (and of a middle one and an outer one, only the middle): none easy
+  const keep = (it) => { if (it.i >= 54) return true; const lv = Math.floor(it.i / 3), row = [0, 1, 2].filter((sl) => order[lv * 3 + sl] === c); if (lv >= 17 || !row.length) return true; return order[it.i] === c && !(row.includes(1) && it.i % 3 !== 1); };
+  const hard = towerItems().filter(keep);
+  const risky = new Mu.Tension(); for (let k = 0; k < 90; k++) risky.update(STATE({ phase: 'pull', roll: c }), hard, 1 / 30);
+  assert.strictEqual(risky.parts.risk, 1, 'none easy: the most risk');
+  const other = new Mu.Tension(); for (let k = 0; k < 90; k++) other.update(STATE({ phase: 'pull', roll: null }), hard, 1 / 30);
+  assert.ok(risky.v > other.v + 0.1, `the risk raises it (${risky.v.toFixed(2)} against ${other.v.toFixed(2)})`);
+});
+
 test('scenes: by phase, then by how far the game has got and how tense it is; a scene lasts a while, and is left lower than it is entered', () => {
   assert.strictEqual(Mu.sceneFor(STATE({ phase: 'lobby' }), 0, null, 0), 'calm');
   assert.strictEqual(Mu.sceneFor(STATE({ moves: 1 }), 0.1, null, 0), 'build');
@@ -63,10 +76,10 @@ test('scenes: by phase, then by how far the game has got and how tense it is; a 
   assert.strictEqual(Mu.sceneFor(STATE({ moves: 7 }), 0.1, 'danger', 5, 0), 'tense', 'with no dwell it drops at once');
   assert.strictEqual(Mu.sceneFor(STATE({ moves: 7 }), 0.1, 'danger', 40), 'tense', 'after a while it may come down');
   assert.strictEqual(Mu.sceneFor(STATE({ phase: 'fall' }), 0, 'danger', 1), 'finale', 'a fall changes it at once');
-  assert.strictEqual(Mu.sceneFor(STATE({ moves: 2 }), 0.5, 'danger', 40), 'danger', 'danger is entered above 0.62 and left below 0.45');
-  assert.strictEqual(Mu.sceneFor(STATE({ moves: 2 }), 0.5, 'tense', 40), 'tense', 'but 0.5 is not enough to enter it');
-  assert.strictEqual(Mu.sceneFor(STATE({ moves: 2 }), 0.25, 'tense', 40), 'tense', 'tense is entered above 0.32 and left below 0.22');
-  assert.strictEqual(Mu.sceneFor(STATE({ moves: 2 }), 0.25, 'build', 40), 'build');
+  assert.strictEqual(Mu.sceneFor(STATE({ moves: 2 }), 0.6, 'danger', 40), 'danger', 'danger is entered above 0.72 and left below 0.55');
+  assert.strictEqual(Mu.sceneFor(STATE({ moves: 2 }), 0.6, 'tense', 40), 'tense', 'but 0.6 is not enough to enter it');
+  assert.strictEqual(Mu.sceneFor(STATE({ moves: 2 }), 0.3, 'tense', 40), 'tense', 'tense is entered above 0.36 and left below 0.26');
+  assert.strictEqual(Mu.sceneFor(STATE({ moves: 2 }), 0.3, 'build', 40), 'build');
 });
 
 test('the moments between two states', () => {
@@ -120,7 +133,7 @@ test('a tenser scene comes once the tension has lasted 1.5 s, and in 9 s; a calm
   assert.strictEqual(run(STATE({ moves: 1 }), 1, 0.8).length, 0, 'a knock of a second changes nothing');
   run(STATE({ moves: 1 }), 2, 0.1);
   const up = run(STATE({ moves: 1 }), 2, 0.8); assert.strictEqual(up.length, 1); assert.strictEqual(up[0].scene, 'danger'); assert.strictEqual(up[0].fade, 9);
-  assert.strictEqual(run(STATE({ moves: 1 }), 60, 0.5).length, 0, 'danger holds at 0.5 (it is left below 0.45)');
+  assert.strictEqual(run(STATE({ moves: 1 }), 60, 0.6).length, 0, 'danger holds at 0.6 (it is left below 0.55)');
   const down = run(STATE({ moves: 1 }), 1, 0.1); assert.strictEqual(down.length, 1); assert.strictEqual(down[0].scene, 'build'); assert.strictEqual(down[0].fade, 30, 'down, slowly');
   const fall = run(STATE({ phase: 'fall' }), 0.1, 0.1); assert.strictEqual(fall[0].scene, 'finale'); assert.strictEqual(fall[0].fade, 6, 'the fall: at once, in 6 s');
 });

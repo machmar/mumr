@@ -17,6 +17,23 @@
   const handSpeed = (s) => { const v = ((s && s.points) || []).filter((p) => (p.name === 'thumb' || p.name === 'index') && p.v).map((p) => p.v); return v.length ? [0, 1, 2].map((i) => v.reduce((a, q) => a + q[i], 0) / v.length) : null; };
   const SMOOTH = 0.03;                    // s: the grip's point is low-passed this much (a tracked hand shakes a few millimetres; a block must not)
   const SEEN = 0.06;                      // s of the hand's quiet after letting go (a hand that has just let go pushes nothing)
+  const GRACE = 0.3, OPEN = 0.06;         // a pinch that drops for less than GRACE s keeps its hold (a hand reaching into the tower loses its tracking now
+                                          // and then: Marek's run, 2026-10-28, blocks let go mid-pull), unless the thumb and index are OPEN m apart
+  const owner = (id) => String(id).replace(/-?(left|right)$/, '');          // the player a hand belongs to ('p1-left' -> 'p1')
+  const LOST = 3;                         // s a hold is kept, the body held still, while the hand's packets do not come (bad Wi-Fi: gaps of up to 7 s, 2026-10-29)
+  const PLACED_STILL = 0.5;               // s a block put on top must lie still before it counts (one that is still sliding is not placed)
+  // the turn of a hand from its joints (WebXR: 0 wrist, 6 index and 21 little finger knuckles, 11 the middle one), or null (a controller, the desktop)
+  const MUL = (a, b) => [a[3] * b[0] + a[0] * b[3] + a[1] * b[2] - a[2] * b[1], a[3] * b[1] - a[0] * b[2] + a[1] * b[3] + a[2] * b[0], a[3] * b[2] + a[0] * b[1] - a[1] * b[0] + a[2] * b[3], a[3] * b[3] - a[0] * b[0] - a[1] * b[1] - a[2] * b[2]];
+  function handQ(src) {
+    const j = src && src.joints;
+    if (!j || j.length < 25 || ![0, 6, 11, 21].every((k) => j[k] && j[k].every(Number.isFinite))) return null;
+    const f = sub(j[11], j[0]), fl = len(f); if (fl < 1e-4) return null;
+    const x = f.map((v) => v / fl), a = sub(j[6], j[21]), d = a[0] * x[0] + a[1] * x[1] + a[2] * x[2], y0 = [a[0] - d * x[0], a[1] - d * x[1], a[2] - d * x[2]], yl = len(y0);
+    if (yl < 1e-4) return null;
+    const y = y0.map((v) => v / yl), z = [x[1] * y[2] - x[2] * y[1], x[2] * y[0] - x[0] * y[2], x[0] * y[1] - x[1] * y[0]];
+    return M.align.quatFromBasis(x, y, z);
+  }
+  const gap = (s) => { const a = pt(s, 'thumb'), b = pt(s, 'index'); return a && b ? Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z) : 0; };
 
   class Tower {
     // opts: { Engine (a physics world class: M.physics.JoltWorld on the host), size, seed, place: { x, y, yaw } (common frame), room (real room, common frame), settle (bool, default true) }
@@ -25,13 +42,14 @@
       this.place = Object.assign({ x: 0, y: 0, yaw: 0 }, opts.place || {});
       this.d = S.dims(this.size); this.tun = S.tuning(this.size); this.lay = S.layout(this.size, this.place);
       this.realRoom = opts.room || null;
-      this.world = opts.Engine ? new opts.Engine(this.tun.world) : new M.physics.World({ substep: this.tun.world.substep, maxMove: this.tun.world.maxMove, rounds: 24 });
+      this.world = opts.Engine ? new opts.Engine(Object.assign({ softHands: this.tun.hand }, this.tun.world)) : new M.physics.World({ substep: this.tun.world.substep, maxMove: this.tun.world.maxMove, rounds: 24 });
       this.world.setRoom(S.withFurniture(this.realRoom, this.size, this.place));
+      if (this.world.setFixtures) this.world.setFixtures(S.fixtures(this.size, this.place));          // (the dice tower: turned boxes)
       this.grips = new M.grab.Grips({ fist: true });
       this.holds = new Map();               // grip id -> { i, off, q, kind, f (filtered point), last }
       this.quiet = new Map();               // hand id -> time (s) until which its fingers push nothing
       this.prev = new Map(); this.t = 0;
-      this.frozen = false; this.log = [];
+      this.frozen = false; this.log = []; this.awake = false; this.stillFor = 0;
       this.handled = null; this.fellFirst = null; this.rest = null; this.counts = []; this.restLevel = []; this.out = new Set();
       this.build();
       if (opts.settle !== false) this.settle();
@@ -53,7 +71,7 @@
       const ds = this.lay.die.size;
       const body = M.physics.makeBox({ size: [ds, ds, ds], density: 700, restitution: 0.3, friction: { s: 0.45, k: 0.45 }, angularDamping: 0.08, p: S.toCommon(this.place, this.lay.die.at), sleep: { v: 0.03, w: 0.3, after: 0.4 } });
       this.world.add(body);
-      this.die = { i: S.DIE, body, size: ds, moved: false, still: 0, home: null };
+      this.die = { i: S.DIE, body, size: ds, moved: false, still: 0, home: null, passed: false };
       this.holds.clear(); this.handled = null; this.fellFirst = null; this.out.clear();
     }
     body(i) { return i === S.DIE ? this.die.body : this.blocks[i].body; }
@@ -77,7 +95,7 @@
       this.counts = [];
       this.blocks.forEach((b, i) => { const l = this.restLevel[i]; if (l >= 0) this.counts[l] = (this.counts[l] || 0) + 1; });
       for (let l = 0; l < this.counts.length; l++) this.counts[l] = this.counts[l] || 0;
-      this.handled = null; this.out.clear();
+      this.handled = null; this.out.clear(); this.stillFor = 0;
       return this.levels();
     }
     // the level a point is on (0 is the bottom), or -1 if it is not in the tower's column
@@ -114,22 +132,31 @@
       this.t = t;
       const grips = this.grips.update(sources || []), tun = this.tun, W = this.world;
       const noHold = new Set((sources || []).filter((s) => s.noHold).map((s) => s.id));
-      // hands that let go
+      // hands that let go (a pinch that drops for a moment keeps its hold, unless the fingers have opened)
       for (const [id, h] of [...this.holds]) {
-        const g = grips.find((q) => q.id === id);
-        if (!g || g.kind !== h.kind) { W.release(this.body(h.i)); this.holds.delete(id); this.quiet.set(id, t + SEEN); this.log.push(`${id} let go of ${this.name(h.i)}`); }
+        const g = grips.find((q) => q.id === id), src = (sources || []).find((q) => q.id === id);
+        if (g && g.kind === h.kind) { h.lapse = null; h.lost = null; continue; }
+        if (!src) { if (h.lost === null || h.lost === undefined) h.lost = t; if (t - h.lost < LOST) continue; }
+        else if (h.kind === 'pinch' && !(g && g.kind) && gap(src) < OPEN && (h.lapse === null || t - h.lapse < GRACE)) { h.lost = null; if (h.lapse === null) h.lapse = t; continue; }
+        W.release(this.body(h.i)); this.holds.delete(id); this.quiet.set(id, t + SEEN); this.log.push(`${id} let go of ${this.name(h.i)}`);
       }
       // hands that take hold: a pinch takes the nearest block or the die within reach; a fist takes only the die
       for (const g of grips) {
         if (!g.start || !g.at || !g.kind || noHold.has(g.id) || this.holds.has(g.id)) continue;
+        // (one hand at a time: a player whose other hand holds something takes nothing with this one. Marek, 2026-10-31: "remove two hand grab entirely")
+        if ([...this.holds.keys()].some((id) => owner(id) === owner(g.id))) continue;
         const free = (i) => ![...this.holds.values()].some((h) => h.i === i);
         let best = -1, bd = Infinity;
-        const near = (i, lim) => { const d = this.dist(this.body(i), g.at); if (free(i) && d <= lim && d < bd) { best = i; bd = d; } };
-        if (g.kind === 'pinch') for (let i = 0; i < S.BLOCKS; i++) near(i, tun.grab);
-        near(S.DIE, g.kind === 'fist' ? 0.08 : 0.03);
+        let rule = null;
+        if (g.kind === 'pinch') { const a = this.aimAt(g.at, free); if (a && a.ok) { best = a.i; bd = a.d; rule = a.rule; } else if (a) this.log.push(`${g.id} cannot hold ${this.name(a.i)} by its ${a.rule.face}`); }
+        else if (free(S.DIE) && this.dist(this.die.body, g.at) <= 0.08) { best = S.DIE; bd = this.dist(this.die.body, g.at); }
         if (best >= 0) {
-          const b = this.body(best);
-          this.holds.set(g.id, { i: best, off: sub(b.p, g.at), q: b.q.slice(), kind: g.kind, f: g.at.slice(), last: t });
+          const b = this.body(best), src = (sources || []).find((q) => q.id === g.id), hq = handQ(src);
+          // a block keeps its turn while it is pulled out (the hand's own turns would wrench it in the tower); once it is clear of the tower it
+          // turns with the hand (free). The die always turns with the hand.
+          const free0 = best === S.DIE && !!hq;
+          this.holds.set(g.id, { i: best, off: sub(b.p, g.at), q: b.q.slice(), kind: g.kind, f: g.at.slice(), last: t, lapse: null, free: free0, hq0: free0 ? hq : null, bq0: free0 ? b.q.slice() : null, hoff: free0 ? sub(b.p, g.at) : null,
+            side: rule && rule.face === 'side' ? { base: b.p.slice(), axis: Q.rotate(b.q, [1, 0, 0]) } : null });
           W.wake(b);
           this.log.push(`${g.id} took ${this.name(best)} (${g.kind}, ${(bd * 1000).toFixed(0)} mm away)`);
         }
@@ -137,14 +164,25 @@
       // holding: the point the hand holds, steadied, plus where the body was from it; a block is carried by a grip of limited strength
       for (const [id, h] of [...this.holds]) {
         const g = grips.find((q) => q.id === id), src = (sources || []).find((s) => s.id === id), b = this.body(h.i);
+        const at = (g && g.at) || (src && M.grab.pinchAt(src)) || h.f;
         const k = 1 - Math.exp(-Math.max(0, t - h.last) / SMOOTH); h.last = t;
-        for (let j = 0; j < 3; j++) h.f[j] += (g.at[j] - h.f[j]) * (h.i === S.DIE ? 1 : k);
-        const v = handSpeed(src) || this._vel(`${id}:hold`, g.at, t), target = { p: [h.f[0] + h.off[0], h.f[1] + h.off[1], h.f[2] + h.off[2]], q: h.q, v };
-        const opts = h.i === S.DIE ? { spring: 20, speed: 5, breakAway: 0.5 } : { spring: tun.hold.spring, speed: tun.hold.speed, breakAway: tun.hold.breakAway, force: tun.hold.force, omega: tun.hold.omega };
+        for (let j = 0; j < 3; j++) h.f[j] += (at[j] - h.f[j]) * (h.i === S.DIE ? 1 : k);
+        const hq = handQ(src);
+        if (!h.free && hq && this.clear(h.i)) { h.free = true; h.hq0 = hq; h.bq0 = b.q.slice(); h.hoff = h.off.slice(); this.log.push(`${id}: ${this.name(h.i)} is clear of the tower: it turns with the hand`); }
+        let off = h.off, q = h.q;
+        if (h.free && hq) { const turn = MUL(hq, Q.conj(h.hq0)); q = MUL(turn, h.bq0); off = Q.rotate(turn, h.hoff); }
+        let v = src ? handSpeed(src) || this._vel(`${id}:hold`, at, t) : [0, 0, 0], tp = [h.f[0] + off[0], h.f[1] + off[1], h.f[2] + off[2]];
+        // (held by its side, in the tower: it comes out sideways, never along its length, until it is clear)
+        if (h.side && !h.free) { const ax = h.side.axis, dd = sub(tp, h.side.base), a = dd[0] * ax[0] + dd[1] * ax[1] + dd[2] * ax[2], av = v[0] * ax[0] + v[1] * ax[1] + v[2] * ax[2]; tp = [tp[0] - ax[0] * a, tp[1] - ax[1] * a, tp[2] - ax[2] * a]; v = [v[0] - ax[0] * av, v[1] - ax[1] * av, v[2] - ax[2] * av]; }
+        const target = { p: tp, q, v };
+        const opts = h.i === S.DIE ? { spring: 20, speed: 5, breakAway: 0.5 } : { spring: tun.hold.spring, speed: tun.hold.speed, breakAway: Math.max(tun.hold.breakAway, 0.25), force: tun.hold.force, omega: tun.hold.omega, maxErr: 0.03 * this.d.k };
         if (W.hold(b, target, opts) === 'released') { this.holds.delete(id); this.quiet.set(id, t + 0.3); this.log.push(`${id} lost ${this.name(h.i)} (it came too far from the hand)`); }
       }
       // the fingertips and the palm push; the hand that holds something, or has just let go, pushes nothing
       const hands = [];
+      // (in play the tower never sleeps: a sleeping stack that is woken settles a little, and a hand near it wakes it a hundred times a round; it
+      //  crept until it fell. Marek's run, 2026-10-28)
+      if (this.awake !== this.keptAwake) { this.keptAwake = this.awake; for (const b of this.blocks) if (W.keepAwake) W.keepAwake(b.body, this.awake); else if (this.awake) W.wake(b.body); }
       for (const s of sources || []) {
         if (s.foot) continue;
         const quiet = this.holds.has(s.id) || (this.quiet.get(s.id) || 0) > t;
@@ -153,6 +191,15 @@
       W.setHands(hands, t);
       if (!this.frozen) W.step(dt);
       this._track(dt);
+    }
+    // the block a pinch here takes: the nearest within reach (or the die, nearer still), -1 for none; free(i) false for one another hand holds
+    aim(at, free = () => true) { const a = this.aimAt(at, free); return a && a.ok ? a.i : -1; }
+    aimAt(at, free = () => true) { return S.aim(at, this.all().map((b, i) => ({ i, p: b.p, q: b.q })), this.size, free, this.place); }        // (spec.js: the pages draw the same aim)
+    // is body i clear of the tower (out of its column by more than its own length, or lifted above its top)? The die always is.
+    clear(i) {
+      if (i === S.DIE) return true;
+      const l = this.local(this.blocks[i].body.p), L = this.d.L, lv = this.levels();
+      return Math.hypot(l[0], l[1]) > 0.95 * L || l[2] > this.top() + (lv.top + 1) * this.d.H + 0.5 * this.d.H;
     }
     // how far a point is from a body's surface (0 inside)
     dist(b, p) {
@@ -182,8 +229,12 @@
         const heldOut = this.blocks.findIndex((b, i) => this.heldBy(i) !== null && this.away(i).dist > 0.15 * L);
         if (heldOut >= 0) this.handled = heldOut;
         else if (held !== undefined) this.handled = held;
-        else if (outNow.length === 1 && len(this.blocks[outNow[0]].body.v) < 6 * still) this.handled = outNow[0];
+        else if (outNow.length === 1 && this.legalLevel(this.restLevel[outNow[0]]) && Math.abs(this.away(outNow[0]).dz) < 0.6 * H && this.away(outNow[0]).turn < 50 && len(this.blocks[outNow[0]].body.v) < 6 * still) this.handled = outNow[0];
+        // (pushed out with a finger: only a block that may be taken, slid out on its own level. A block on top that settles, or one that starts to go
+        //  with a falling tower, is not a move: Marek's run, 2026-10-28, a block on top was read as pulled and put on top at once)
       }
+      // the pulled block lying still, not held: how long (placed() wants it still for a while)
+      if (this.handled !== null && this.heldBy(this.handled) === null) { const b = this.blocks[this.handled].body; this.stillFor = len(b.v) < 0.5 * still && len(b.w) < 0.2 ? this.stillFor + dt : 0; } else this.stillFor = 0;
       if (this.fellFirst === null) {
         const top = this.top();
         for (let i = 0; i < S.BLOCKS; i++) {
@@ -198,6 +249,10 @@
       const d = this.die, db = d.body, moving = len(db.v) > 0.05 || len(db.w) > 0.5 || !db.asleep;
       d.still = moving && !(len(db.v) < 0.03 && len(db.w) < 0.3) ? 0 : d.still + dt;       // (seconds)
       if (!d.home && d.still > 0.3) d.home = { p: db.p.slice(), q: db.q.slice() };
+      // it has come down the dice tower once it has been inside it, not held, below the mouth
+      const dl = this.local(db.p);
+      d.inTower = S.inDtower(this.lay, dl);
+      if (d.inTower && this.heldBy(S.DIE) === null && dl[2] < this.lay.dtower.base + this.lay.dtower.H * 0.8) d.passed = true;
       if (d.home && !d.moved) {
         let dq = Q.mul(db.q, Q.conj(d.home.q)); if (dq[3] < 0) dq = dq.map((c) => -c);
         if (this.heldBy(S.DIE) !== null || Math.hypot(db.p[0] - d.home.p[0], db.p[1] - d.home.p[1]) > 0.03 || 2 * Math.acos(Math.min(1, dq[3])) > 0.52) d.moved = true;
@@ -206,16 +261,21 @@
     // the first block on the ground, or null
     fell() { return this.fellFirst; }
     // has the pulled block been put on top and left there? { ok, level } or null
-    placed() {
-      if (this.handled === null || this.heldBy(this.handled) !== null) return null;
+    placed() { const c = this.placedCheck(); return c.ok ? { ok: true, level: c.level } : null; }
+    // why the pulled block is or is not put on top: { ok, level } or { ok: false, why } (the host logs a block that lies still and is not counted)
+    placedCheck() {
+      if (this.handled === null) return { ok: false, why: 'no block is pulled' };
+      if (this.heldBy(this.handled) !== null) return { ok: false, why: 'held' };
       const b = this.blocks[this.handled].body, H = this.d.H, L = this.d.L;
-      if (len(b.v) > this.tun.still * 1.5 || len(b.w) > 0.5) return null;
+      if (this.stillFor < PLACED_STILL) return { ok: false, why: `not still (${(this.stillFor).toFixed(2)} s, ${(len(b.v) * 1000).toFixed(0)} mm/s)` };
       // the tower without it: its top level
       const c = []; this.blocks.forEach((o, i) => { if (i === this.handled) return; const l = this.levelOf(o.body.p); if (l >= 0 && this.restLevel[i] >= 0) c[l] = (c[l] || 0) + 1; });
       let top = -1; c.forEach((n, l) => { if (n > 0) top = l; });
-      const l = this.local(b.p), z = (l[2] - this.top()) / H;
-      if (Math.abs(l[0]) > 0.62 * L || Math.abs(l[1]) > 0.62 * L) return null;
-      if (z < top + 0.15 || z > top + 1.85 || this.tilt(b) > 15) return null;
+      const l = this.local(b.p), z = (l[2] - this.top()) / H, tilt = this.tilt(b);
+      // (anywhere on the top that it rests on: a little off the column still counts; tilted a little, on a block that is a hair higher than its neighbours)
+      if (Math.abs(l[0]) > 0.75 * L || Math.abs(l[1]) > 0.75 * L) return { ok: false, why: `off the top (${(l[0] * 1000).toFixed(0)}, ${(l[1] * 1000).toFixed(0)} mm from the middle)` };
+      if (z < top + 0.15 || z > top + 1.9) return { ok: false, why: `not on the top level (${(z - top).toFixed(2)} levels over level ${top})` };
+      if (tilt > 20) return { ok: false, why: `tilted ${tilt.toFixed(0)} degrees` };
       return { ok: true, level: this.levelOf(b.p) };
     }
     // the colour block i is
@@ -223,14 +283,14 @@
     // the die as the rules read it: { moved (it has been thrown), rest (seconds it has been still), up: { colour, tilt }, onTray, held }
     dieRead() {
       const d = this.die, b = d.body, l = this.local(b.p), t = this.lay.tray;
-      return { moved: d.moved, rest: d.still, up: S.dieUp(b.q), onTray: Math.abs(l[0] - t.c[0]) < t.half && Math.abs(l[1] - t.c[1]) < t.half && l[2] > this.lay.console.top - 0.01, held: this.heldBy(S.DIE) !== null };
+      return { moved: d.moved, rest: d.still, up: S.dieUp(b.q), passed: !!d.passed, inTower: !!d.inTower, onTray: Math.abs(l[0] - t.c[0]) < t.half && Math.abs(l[1] - t.c[1]) < t.half && l[2] > this.lay.console.top - 0.01, held: this.heldBy(S.DIE) !== null };
     }
     // the die back on its tray, from a little above, flat, with no speed
     resetDie() {
       const d = this.die, b = d.body, a = this.lay.die.at;
       this.holds.forEach((h, id) => { if (h.i === S.DIE) { this.world.release(b); this.holds.delete(id); } });
       b.p = S.toCommon(this.place, [a[0], a[1], a[2] + 0.02]); b.q = S.qCommon(this.place, [0, 0, 0, 1]); b.v = [0, 0, 0]; b.w = [0, 0, 0];
-      this.world.wake(b); d.moved = false; d.still = 0; d.home = null;
+      this.world.wake(b); d.moved = false; d.still = 0; d.home = null; d.passed = false;
     }
     // the pulled block back on the plinth beside the tower (it fell off, or was left on the floor)
     bringBack() {
@@ -244,8 +304,8 @@
     // is block i lying below the plinth's top (on the floor, after falling off)?
     offPlinth(i) { return this.low(this.blocks[i].body) < this.top() - 0.5 * this.d.H; }
     // how many blocks are moving
-    moving() { return this.all().filter((b) => !b.asleep).length; }
+    moving() { const st = 0.25 * this.tun.still; return this.all().filter((b) => !b.asleep && (len(b.v) > st || len(b.w) > 0.15)).length; }
   }
 
-  Object.assign(J, { Tower, handSpeed });
+  Object.assign(J, { Tower, handSpeed, handQ });
 })(typeof module !== 'undefined' ? module.exports : (globalThis.JENGA = globalThis.JENGA || {}));

@@ -22,9 +22,10 @@ const drive = (ref, secs, hands = () => []) => { for (let i = 0; i < secs / DT; 
 const hand = (id, at, pinch, v) => ({ id, pinch, points: [{ name: 'thumb', x: at[0] - 0.004, y: at[1], z: at[2], v }, { name: 'index', x: at[0] + 0.004, y: at[1], z: at[2], v }, { name: 'palm', x: at[0], y: at[1], z: at[2] + 0.05 }] });
 const lerp = (a, b, f) => a.map((v, i) => v + (b[i] - v) * f);
 
-// pull block i out along its length, carry it over the tower and put it on top; the hand holds it by its end
+// pull an outer block i out sideways (it may be taken by its outer side: spec.js grabRule), carry it over the tower and put it on top
 function pullAndPlace(ref, i) {
-  const tw = ref.tower, b = tw.blocks[i].body, p0 = b.p.slice(), h = S.qRot(b.q, [1, 0, 0]), beyond = tw.d.L / 2 + 0.012, k = tw.d.k;
+  const tw = ref.tower, b = tw.blocks[i].body, p0 = b.p.slice(), ac = S.qRot(b.q, [0, 1, 0]), c = S.toCommon(tw.place, [0, 0, 0]), sg = (p0[0] - c[0]) * ac[0] + (p0[1] - c[1]) * ac[1] < 0 ? -1 : 1;
+  const h = ac.map((v) => v * sg), beyond = tw.d.W / 2 + 0.008, k = tw.d.k;
   const at = (d) => [p0[0] + h[0] * (d + beyond), p0[1] + h[1] * (d + beyond), p0[2]], sh = (p) => [p[0] + h[0] * beyond, p[1] + h[1] * beyond, p[2]];
   const level = tw.levels().top + 1, top = sh(S.toCommon(tw.place, [0, 0, tw.top() + (level + 0.5) * tw.d.H + 0.006 * k])), out = at(0.12 * k);
   const hi = [out[0], out[1], top[2] + 0.06 * k], over = [top[0], top[1], top[2] + 0.06 * k];
@@ -62,8 +63,15 @@ t('a turn: the die is rolled and read, a block of that colour is pulled and put 
   const ref = referee(); ref.command('start');
   drive(ref, 1);
   const tw = ref.tower, d = tw.die.body;
-  d.p = S.toCommon(tw.place, [tw.lay.tray.c[0], tw.lay.tray.c[1], tw.lay.console.top + 0.2]); d.q = [0.2, 0.4, 0.1, 0.89]; d.v = [0.2, 0, -1]; d.w = [8, 3, 6]; tw.world.wake(d);
-  drive(ref, 4);
+  // thrown on the tray, not down the dice tower: it does not count, the die is put back
+  d.p = S.toCommon(tw.place, [tw.lay.die.at[0], tw.lay.die.at[1], tw.lay.console.top + 0.15]); d.q = [0.2, 0.4, 0.1, 0.89]; d.v = [0, 0, -1]; d.w = [8, 3, 6]; tw.world.wake(d);
+  drive(ref, 3);
+  assert.strictEqual(ref.rules.phase, 'roll', 'a die that did not come down the tower is not read');
+  assert.ok(ref.rules.s.ticker.some((x) => /into the tower/.test(x)), 'the board says so');
+  // let go over the dice tower's mouth: it comes down and out onto the tray, and is read
+  const T = tw.lay.dtower;
+  d.p = S.toCommon(tw.place, [T.c[0], T.c[1], T.base + T.H + T.D]); d.q = [0.2, 0.4, 0.1, 0.89]; d.v = [0, 0, -0.3]; d.w = [8, 3, 6]; tw.world.wake(d);
+  drive(ref, 5);
   assert.strictEqual(ref.rules.phase, 'pull', `the die was read (${ref.rules.phase})`);
   const colour = ref.rules.s.roll;
   assert.strictEqual(colour, tw.dieRead().up.colour);
@@ -170,7 +178,7 @@ t('the room dims with the game: as it is in the lobby, receding for a round, out
     drive(ref, 0.5);
     assert.deepStrictEqual([sess.dims[0].dark, sess.dims[0].mute], [0, 0], 'the first thing the host says: the room as it is (a host that came back must not leave a dark one)');
     ref.command('start'); drive(ref, 1);
-    const roll = sess.dims.at(-1); assert.deepStrictEqual([roll.dark, roll.mute, roll.fade, roll.over], [0.3, 0.2, 2500, true], 'the room recedes for the die');
+    const roll = sess.dims.at(-1); assert.deepStrictEqual([roll.dark, roll.mute, roll.fade, roll.over], [0.4, 0.25, 2500, true], 'the room recedes for the die');
     ref.command('shove', { vx: 3 });
     for (let k = 0; k < 90 * 8 && !['fall', 'replay'].includes(ref.rules.phase); k++) drive(ref, DT);
     assert.ok(['fall', 'replay'].includes(ref.rules.phase)); drive(ref, 0.3);
@@ -178,7 +186,7 @@ t('the room dims with the game: as it is in the lobby, receding for a round, out
     assert.ok(fall.dark >= 0.85 && sess.dims.indexOf(fall) > sess.dims.indexOf(roll));
     ref.command('skip'); drive(ref, 1);
     const after = sess.dims.at(-1); assert.strictEqual(ref.rules.phase, 'aftermath'); assert.ok(after.dark < fall.dark && after.dark > 0 && after.fade >= 3000, 'it comes back slowly');
-    drive(ref, 6); assert.strictEqual(ref.rules.phase, 'round_end'); assert.ok(sess.dims.at(-1).dark <= 0.15);
+    drive(ref, 6); assert.strictEqual(ref.rules.phase, 'round_end'); assert.ok(sess.dims.at(-1).dark <= 0.25);
     assert.ok(sess.dims.length < 14, `a few asks, not a stream (${sess.dims.length})`);
   } finally { delete process.env.JENGA_DEBUG; }
 });
@@ -188,9 +196,9 @@ t('the Room dim setting is read from the shared settings: off keeps the room as 
   ref.command('start'); drive(ref, 1.5);
   assert.ok(sess.dims.length >= 1 && sess.dims.every((d) => d.dark === 0 && d.mute === 0), 'off: the room stays as it is');
   sess.settings.dim = 2; drive(ref, 0.3);
-  assert.deepStrictEqual([sess.dims.at(-1).dark, sess.dims.at(-1).mute], [0.3, 0.2]);
+  assert.deepStrictEqual([sess.dims.at(-1).dark, sess.dims.at(-1).mute], [0.4, 0.25]);
   sess.settings.dim = 1; drive(ref, 0.3);
-  assert.deepStrictEqual([sess.dims.at(-1).dark, sess.dims.at(-1).mute], [0.15, 0.1], 'gentle: half');
+  assert.deepStrictEqual([sess.dims.at(-1).dark, sess.dims.at(-1).mute], [0.2, 0.15], 'gentle: half');
 });
 
 t('a session with no dim (the other tests\' pretend one) is left alone', () => {

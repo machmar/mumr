@@ -107,3 +107,10 @@ t.test('the referee keeps the plan in the document: a jdeco event, only when it 
   const L = require('./logic.js');
   assert.ok(L.KINDS && L.KINDS.jdeco, 'jdeco is a kept kind');
 });
+
+t.test('a huge or a giant tower leaves a garden at the walls (it took the whole room: Marek, 2026-10-28)', () => {
+  for (const [size, room, head] of [['giant', roomOf(4, 4), [2, 1]], ['giant', roomOf(5.5, 4.2), [2.6, 1.6]], ['huge', roomOf(3.5, 5, [box('couch', 0.2, 4.1, 2.4, 4.9, 0.45)]), [1.7, 1.2]]]) {
+    const a = A.arrange({ size, head, yaw: Math.PI / 2, room }), plan = D.decoPlan({ room, size, place: a.place });
+    assert.ok(plan.items.filter((i) => i.kind === 'garden').length >= 2, `${size}: ${plan.items.map((i) => i.kind).join(', ')}`);
+  }
+});

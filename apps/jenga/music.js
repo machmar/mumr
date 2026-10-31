@@ -18,7 +18,7 @@
   const S = need('spec');
   const SCENES = ['calm', 'build', 'tense', 'danger', 'finale', 'win'];
   const CFG = { crossfade: 30, rise: 9, fades: { finale: 6, win: 12 }, volumes: [0, 0.22, 0.45, 0.72, 1], swellMax: 0.32, minScene: 22, sustain: 1.5,     // seconds, gain per volume step, how much louder a tense moment is, s before the scene may drop, s a tenser one must last
-    enter: { tense: 0.32, danger: 0.62 }, leave: { tense: 0.22, danger: 0.45 }, anywhere: ['calm', 'build', 'tense', 'danger'], drift: 2, giveUp: 15 };          // tension thresholds; the scenes whose tracks may be entered half way (or where they were left); s a page may drift; s a track has to start playing
+    enter: { tense: 0.36, danger: 0.72 }, leave: { tense: 0.26, danger: 0.55 }, anywhere: ['calm', 'build', 'tense', 'danger'], drift: 2, giveUp: 15 };          // tension thresholds; the scenes whose tracks may be entered half way (or where they were left); s a page may drift; s a track has to start playing
 
   const clamp01 = (v) => Math.max(0, Math.min(1, v));
   const hash = (s) => { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return h >>> 0; };
@@ -28,15 +28,39 @@
   // How tense the tower is, from the bodies. update(state, snapshotItems, dt) every frame -> 0..1 (smoothed: quick up, slow down).
   //   holes     the share of the lower levels that have a block missing        lean   how far the top of the tower is from over its base
   //   agitation how much the blocks other than the pulled one are moving       height how many levels the tower has grown past 18
+  // How risky the colour the die chose is (Marek, 2026-10-31): 0 when it has easy blocks left, 1 when none. A block is easy in a full row, or as an
+  // outer block beside the middle one; a middle block with one outer, either of two outers without the middle, and a block alone in its row are
+  // not. The top row, and the one under it while the top is not full, may not be taken from (rules.js). loc: the blocks in the column (tower frame).
+  const orders = new Map();
+  function colourRisk(loc, counts, topL, state, d) {
+    if (!orders.has(state.seed)) { if (orders.size > 4) orders.clear(); orders.set(state.seed, S.colourOrder(state.seed)); }
+    const order = orders.get(state.seed), rows = new Map(), last = topL - ((counts[topL] || 0) < 3 ? 1 : 0);
+    for (const q of loc) {
+      const lv = Math.round((q.p[2] - S.layout(state.size).plinth.top - d.H / 2) / d.H);
+      if (lv < 0 || lv >= last) continue;
+      const slot = Math.round((lv % 2 === 0 ? q.p[1] : q.p[0]) / d.W) + 1;
+      if (!rows.has(lv)) rows.set(lv, []);
+      rows.get(lv).push({ i: q.i, slot });
+    }
+    let easy = 0, any = 0;
+    for (const row of rows.values()) {
+      const has = new Set(row.map((b) => b.slot));
+      for (const b of row) { if (order[b.i] !== state.roll) continue; any++; if (has.size >= 3 || (has.size === 2 && has.has(1) && b.slot !== 1)) easy++; }
+    }
+    return !any || !easy ? 1 : easy === 1 ? 0.55 : easy === 2 ? 0.25 : 0;
+  }
+
   class Tension {
     constructor() { this.v = 0; this.prev = null; this.agit = 0; this.lean = 0; this.parts = {}; }
     update(state, items, dt) {
       if (!state || !['roll', 'pull', 'place'].includes(state.phase)) { this.v += (0 - this.v) * (1 - Math.exp(-dt / 2.5)); this.prev = null; return this.v; }
       const tw = state.tower || { top: 17, topCount: 3 }, top = tw.top;
-      let holes = 0, agit = 0, lean = 0;
+      let holes = 0, agit = 0, lean = 0, risk = 0;
       if (items && items.length) {
         const d = S.dims(state.size), L = S.layout(state.size), place = state.place || { x: 0, y: 0, yaw: 0 }, handled = state.handled ? state.handled.i : -1;
-        if (this.prev && dt > 0) for (const it of items) { if (it.i >= S.BLOCKS || it.i === handled) continue; const p = this.prev.get(it.i); if (p) agit += Math.hypot(it.p[0] - p[0], it.p[1] - p[1], it.p[2] - p[2]) / dt; }
+        // (only real motion: a tower kept awake trembles by fractions of a millimetre, and 54 such trembles added up read as danger: Marek, 2026-10-29)
+        const still = 0.02 * Math.sqrt(d.k);
+        if (this.prev && dt > 0) for (const it of items) { if (it.i >= S.BLOCKS || it.i === handled) continue; const p = this.prev.get(it.i); if (p) agit += Math.max(0, Math.hypot(it.p[0] - p[0], it.p[1] - p[1], it.p[2] - p[2]) / dt - still); }
         this.prev = new Map(items.map((it) => [it.i, it.p.slice()]));
         agit = clamp01(agit / (0.35 * Math.sqrt(d.k)));
         // the blocks in the tower's column, level by level (in the tower's own frame): how many are missing below the top, and where the top is
@@ -44,13 +68,14 @@
         for (const q of loc) { if (q.i === handled || Math.abs(q.p[0]) > 0.62 * d.L || Math.abs(q.p[1]) > 0.62 * d.L) continue; const lv = Math.round((q.p[2] - L.plinth.top - d.H / 2) / d.H); if (lv >= 0 && lv < 40) counts[lv] = (counts[lv] || 0) + 1; }
         let topL = -1; counts.forEach((n, l) => { if (n > 0) topL = l; });
         if (topL > 0) { let missing = 0; for (let l = 0; l < topL; l++) missing += 3 - Math.min(3, counts[l] || 0); holes = clamp01((missing / (3 * topL)) * 3); }
+        if (state.phase === 'pull' && state.roll !== null && state.roll !== undefined && !state.handled) risk = colourRisk(loc, counts, topL, state, d);
         const hi = loc.filter((q) => q.i !== handled).sort((a, b2) => b2.p[2] - a.p[2]).slice(0, 6);
         if (hi.length) lean = clamp01((Math.hypot(hi.reduce((a, q) => a + q.p[0], 0) / hi.length, hi.reduce((a, q) => a + q.p[1], 0) / hi.length) / d.W - 0.4) / 1.4);
       }
       this.agit += (agit - this.agit) * (1 - Math.exp(-dt / 0.25)); this.lean += (lean - this.lean) * (1 - Math.exp(-dt / 0.5));
       const height = clamp01((top - 17) / 8), act = state.phase === 'place' ? 1 : state.phase === 'pull' ? 0.7 : 0.35;
-      this.parts = { holes, lean: this.lean, agit: this.agit, height };
-      const target = clamp01(0.08 + 0.38 * holes + 0.25 * this.lean + 0.7 * this.agit + 0.2 * height + 0.18 * act * (0.4 + holes) + (state.handled ? 0.1 : 0));
+      this.parts = { holes, lean: this.lean, agit: this.agit, height, risk };
+      const target = clamp01(0.08 + 0.38 * holes + 0.25 * this.lean + 0.7 * this.agit + 0.2 * height + 0.18 * act * (0.4 + holes) + (state.handled ? 0.1 : 0) + 0.35 * risk);
       this.v += (target - this.v) * (1 - Math.exp(-dt / (target > this.v ? 0.35 : 2.2)));
       return this.v;
     }
@@ -195,7 +220,7 @@
     constructor(io = {}) {
       this.io = io; this.cfg = Object.assign({}, CFG); this.base = io.base || 'music/'; this.now = io.now || (() => Date.now());
       this.manifest = manifestOf(null);
-      this.ctx = null; this.decks = []; this.scene = null; this.track = null; this.recN = null; this.vol = 2; this.tension = 0; this.ducked = false;
+      this.ctx = null; this.decks = []; this.scene = null; this.track = null; this.recN = null; this.vol = 2; this.trim = 1; this.tension = 0; this.ducked = false;
       this.log = io.log || (() => {});
     }
     load(manifest) { this.manifest = manifestOf(manifest); }
@@ -223,7 +248,14 @@
     setVolume(v) {
       this.vol = Math.max(0, Math.min(4, v | 0));
       if (!this.ctx) return;
-      this.master.gain.cancelScheduledValues(this.ctx.currentTime); this.master.gain.setTargetAtTime(this.cfg.volumes[this.vol], this.ctx.currentTime, 0.4);
+      this.master.gain.cancelScheduledValues(this.ctx.currentTime); this.master.gain.setTargetAtTime(this.cfg.volumes[this.vol] * this.trim, this.ctx.currentTime, 0.4);
+    }
+    // a listener's own turn of the music on top of the game's Music setting (the PC and webcam views' slider: 1 is as the headsets hear it); the game's
+    // sounds (the clacks, the bells, the boom) are not touched by either
+    setTrim(k) {
+      k = Math.max(0, Math.min(2, Number(k) || 0));
+      if (k === this.trim) return;
+      this.trim = k; this.setVolume(this.vol);
     }
     // ---- the record from the document (the host's director): play its track from its place, on the server's clock
     follow(rec) {

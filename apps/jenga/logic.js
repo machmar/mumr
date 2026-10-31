@@ -5,9 +5,10 @@
   const S = need('spec'), { scoreboard, banner } = need('rules');
 
   const GAME = { music: 2, dim: 2, garden: 2 };  // the music's volume, 0..4, how far the game dims the real room, 0..2 (focus.js), the room's garden, 0..2 (deco.js): one setting for everybody (it is the room's)
-  const PLAYER = { ghost: true };               // whether this player's ghost fingers are shown (what a player carries)
+  const PLAYER = { ghost: true, quality: null };  // whether this player's ghost fingers are shown (what a player carries); how much their headset draws:
+                                                 // null (auto: medium on a Quest Pro or a Quest 2, high on anything else), 0 low, 1 medium, 2 high (app.js quality)
   const ACTIONS = [];
-  const VOL = ['off', 'low', 'medium', 'high', 'full'], DIM = ['off', 'gentle', 'full'], GARDEN = ['none', 'sparse', 'full'];
+  const VOL = ['off', 'low', 'medium', 'high', 'full'], DIM = ['off', 'gentle', 'full'], GARDEN = ['none', 'sparse', 'full'], QUALITY = ['low', 'medium', 'high'];
   // the settings buttons of the board
   function press(id, st) {
     if (id === 'musicUp') return Object.assign({}, st, { music: Math.min(4, (st.music === undefined ? 2 : st.music) + 1) });
@@ -15,6 +16,7 @@
     if (id === 'dimUp') return Object.assign({}, st, { dim: Math.min(2, (st.dim === undefined ? 2 : st.dim) + 1) });
     if (id === 'dimDown') return Object.assign({}, st, { dim: Math.max(0, (st.dim === undefined ? 2 : st.dim) - 1) });
     if (id === 'ghost') return Object.assign({}, st, { ghost: !st.ghost });
+    if (id === 'quality') { const q = st.quality; return Object.assign({}, st, { quality: q === null || q === undefined ? 0 : q >= 2 ? null : q + 1 }); }      // (auto, low, medium, high, auto ...)
     if (id === 'garden') return Object.assign({}, st, { garden: ((st.garden === undefined ? 2 : st.garden) + 2) % 3 });       // (full, sparse, none, full ...)
     return null;
   }
@@ -27,6 +29,11 @@
   jdeco: {
     keep: () => ({ key: 'jenga:deco' }),
     apply(sess, e) { if (e.d && typeof e.d === 'object' && Array.isArray(e.d.items)) { sess.doc.jdeco = e.d; sess.notify('jdeco', e.d); } },
+  },
+  // the ghost demo of how a block is taken (demo.js): when it started, on the server's clock, and who pressed its button. Every page plays it from this
+  jdemo: {
+    keep: () => ({ key: 'jenga:demo' }),
+    apply(sess, e) { if (Number.isFinite(e.at)) { sess.doc.jdemo = { at: e.at, slot: Number.isInteger(e.slot) ? e.slot : null }; sess.notify('jdemo', sess.doc.jdemo); } },
   },
   // who is marking the room's ceiling lights (the board's Lights; shades.js): one player at a time, everybody sees where they point
   jmark: {
@@ -53,7 +60,8 @@
     let main;
     if (noHost) main = { label: 'Waiting', value: 'for the PC host', off: true };
     else if (ph === 'lobby') main = { id: 'start', label: 'Start game', value: here ? `${here} ${here === 1 ? 'player' : 'players'} here` : 'nobody here', active: true, off: !here };
-    else if (ph === 'roll' || ph === 'pull') main = { id: 'reroll', label: 'Roll again', value: 'the die back on the tray', off: !!s.handled };
+    else if (ph === 'roll') main = { id: 'dieback', label: 'Die back', value: 'on the tray' };
+    else if (ph === 'pull') main = { id: 'reroll', label: 'Roll again', value: 'the die back on the tray', off: !!s.handled };
     else if (ph === 'place') main = { id: 'back', label: 'Block lost?', value: 'back on the plinth' };
     else if (ph === 'fall' || ph === 'replay') main = { id: 'skip', label: 'Skip replay', value: 'let it fall', active: true };
     else if (ph === 'round_end') main = { id: 'round', label: `Round ${s.round + 1}`, value: `of ${s.rounds}: build it again`, active: true };
@@ -73,15 +81,16 @@
       b({ id: 'dimDown', label: '-', off: dim <= 0 }, 380, R2 + 20, 76, 76, 'token'),
       b({ label: 'Room dim', value: DIM[dim], level: dim / 2 }, 464, R2, 128, 118, 'tag'),
       b({ id: 'dimUp', label: '+', off: dim >= 2 }, 600, R2 + 20, 76, 76, 'token'),
-      b({ id: 'garden', label: 'Garden', value: GARDEN[gdn], active: gdn > 0 }, 700, R2, 136, 118, 'ema'),
-      b({ id: 'lights', label: mk.mine ? 'Done' : 'Lights', value: mk.mine ? 'marking' : marking ? `${mk.name} marks` : mk.n ? `${mk.n} shaded` : 'shade them', active: !!mk.mine || mk.n > 0, off: midRound && !mk.mine }, 850, R2, 136, 118, 'ema'),
-      b({ id: 'ghost', label: 'Ghosts', value: mine.ghost === false ? 'fingers hidden' : 'fingers shown', active: mine.ghost !== false }, 1000, R2, 136, 118, 'ema'),
+      b({ id: 'garden', label: 'Garden', value: GARDEN[gdn], active: gdn > 0 }, 690, R2, 118, 118, 'ema'),
+      b({ id: 'lights', label: mk.mine ? 'Done' : 'Lights', value: mk.mine ? 'marking' : marking ? `${mk.name} marks` : mk.n ? `${mk.n} shaded` : 'shade them', active: !!mk.mine || mk.n > 0, off: midRound && !mk.mine }, 816, R2, 118, 118, 'ema'),
+      b({ id: 'ghost', label: 'Ghosts', value: mine.ghost === false ? 'hidden' : 'shown', active: mine.ghost !== false }, 942, R2, 118, 118, 'ema'),
+      b({ id: 'quality', label: 'Quality', value: mine.quality === null || mine.quality === undefined ? `auto · ${QUALITY[info.autoQuality === undefined ? 2 : info.autoQuality]}` : QUALITY[mine.quality], active: true }, 1068, R2, 118, 118, 'ema'),
     ];
     // the paper panel: a headline, a line under it, the die's colour, the round
     let head = banner(s, colourLabel), sub = '';
     if (noHost) { head = 'Waiting for the host'; sub = 'start the server on the PC: node tools/run.js jenga'; }
     else if (ph === 'lobby') { head = 'Jenga'; sub = here ? 'gather round the tower, then press Start game' : 'nobody is here yet'; }
-    else if (ph === 'roll') { head = turnP ? turnP.name : ''; sub = 'roll the die on the tray'; }
+    else if (ph === 'roll') { head = turnP ? turnP.name : ''; sub = 'drop the die into the tower'; }
     else if (ph === 'pull') { const c = colourLabel(s.roll); head = turnP ? turnP.name : ''; sub = `pull ${/^[aeiou]/.test(c) ? 'an' : 'a'} ${c} block from below level ${tw.full + 1}`; }
     else if (ph === 'place') { head = turnP ? turnP.name : ''; sub = 'now put it on top'; }
     else if (ph === 'fall') { head = 'Timber'; sub = s.fall ? `${(s.players.find((p) => p.slot === s.fall.by) || {}).name || ''} toppled it` : ''; }
@@ -97,5 +106,5 @@
   // what a page shows before the host has said anything: the lobby, in the default place
   const waiting = () => ({ v: 1, rev: 0, size: 'normal', seed: 1, place: { x: 1.6, y: 0.6, yaw: 0 }, phase: 'lobby', round: 0, rounds: 3, players: [], turn: 0, roll: null, moves: 0, scores: {}, ticker: [], handled: null, fall: null, winner: null, last: null, tower: { full: 17, top: 17, topCount: 3 } });
 
-  Object.assign(J, { GAME, PLAYER, ACTIONS, VOL, DIM, GARDEN, press, KINDS, BOARD, board, colourLabel, scoreboard, banner, waiting });
+  Object.assign(J, { GAME, PLAYER, ACTIONS, VOL, DIM, GARDEN, QUALITY, press, KINDS, BOARD, board, colourLabel, scoreboard, banner, waiting });
 })(typeof module !== 'undefined' ? module.exports : (globalThis.JENGA = globalThis.JENGA || {}));
