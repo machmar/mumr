@@ -118,7 +118,7 @@ export async function startMixedView(V) {
 
   // ---- the real room hides the virtual world (occluders.js): a depth-only box for each wall, table top and piece of solid furniture, from the same room scan that
   // the physics crashes into. They draw nothing; what is behind one, seen from the webcam, is cut off. Always there while the camera is placed, whatever the Show menu hides
-  // of the room (it is built apart from the view's own room, which the menu switches); people and hands never occlude. Off in the free view (no camera).
+  // of the room (it is built apart from the view's own room, which the menu switches); people are hidden by their own stand-ins (peoplecut.js, below). Off in the free view (no camera).
   const occ = new THREE.Object3D(); occ.name = 'occluders'; occ.visible = false; scene.add(occ);
   // ---- real people hide the world (peoplecut.js): the players' stand-in bodies, depth-only, in the Show menu's People cutout mode; the ML mode's person
   // mask (segmenter.js) is loaded the first time that mode is chosen. ?people=debug draws the stand-ins as wireframes too.

@@ -324,3 +324,13 @@ Kept from the first plan's section 6, plus what came after it:
   everybody sees the aim, worked out by every page from that player's presence). Learnt: the PC view's orbit stops the camera below its target (a shot
   from under a ceiling needs `maxPolarAngle = PI`); `half` is a reserved word in GLSL ES. Rehearsed on the PC view and the desktop page (a mouse poke
   held between the eye and the ceiling); not yet on a headset.
+- **2026-10-31** Real people hide the world on the webcam page (`docs/ARCHITECTURE.md` 6c, "Real people hide the world"): the Show menu's People cutout,
+  None / Crude / ML cutout. The stand-in (bodyproxy.js, every number at the top): head sphere r 0.16 (5 cm behind the eyes), chest r 0.22 from 0.20 m
+  under the eyes to the hips 0.80 m under them, legs r 0.17 to the floor, shoulders 0.25 m down and 0.19 m to the side, arms r 0.07 (an elbow past
+  0.75 m), fingers r 0.035; plus 0.06 in crude mode and 0.10 in ML mode. ML: MediaPipe Tasks Vision 0.10.14 and the selfie segmenter float16 v1, GPU
+  then CPU, a new video frame only, every other frame when one takes longer than 16 ms. Tested: Node (stand-ins, the Show switch, the lens's way back,
+  4 Newton steps within half a pixel at the corners for a1 -0.25); in the browser with a painted picture and a stand-in player: crude cuts the console
+  and the board behind the player, None hides the group (no draw call more), ML loads from the internet on first choice (the first inference 4.3 s on
+  this PC's GPU, the shaders being made), and a mask painted by hand into the top half cuts only the top half of the stand-in (the mask's rows run top
+  down, gl_FragCoord bottom up: v is turned over), also with a lens plan on. Not tested: a real webcam and headsets (who is covered, and how well the
+  outline fits), the frame cost of each mode on the real picture, and the crop to the players' box (`segmenter.js CROP`, off until measured).
