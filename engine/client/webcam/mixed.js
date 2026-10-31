@@ -74,6 +74,16 @@ export async function startMixedView(V) {
     label.appendChild(cb); label.appendChild(document.createTextNode(` ${item.label}`));
     $('showList').appendChild(label); showBoxes[item.id] = cb;
   }
+  // (and the choices of three: how real people hide the world, mixedshow.js MODES)
+  for (const mode of SH.MODES) {
+    const label = document.createElement('label'), sel = document.createElement('select');
+    sel.id = `show_${mode.id}`;
+    for (const o of mode.options) { const op = document.createElement('option'); op.value = o.id; op.textContent = o.label; sel.appendChild(op); }
+    sel.value = show[mode.id];
+    sel.addEventListener('change', () => { show[mode.id] = sel.value; LS.set(SHOW_KEY, show); });
+    label.appendChild(document.createTextNode(`${mode.label} `)); label.appendChild(sel);
+    $('showList').appendChild(label);
+  }
   let showSig = null;
   function applyShow() {                                       // (once a frame, after the view has set what it shows and before it draws)
     const r = SH.apply(V, show), sig = r.missing.join(',');

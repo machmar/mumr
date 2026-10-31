@@ -13,7 +13,7 @@ function makeView() {
 const vis = (xs) => [].concat(xs instanceof Map ? [...xs.values()] : xs).map((x) => x.visible);
 
 test('the defaults: everything on except the grid floor', () => {
-  assert.deepStrictEqual(SH.DEFAULTS, { hands: true, head: true, floor: true, grid: false, marks: true, cameras: true, walls: true, boxes: true, menus: true, occlude: true });
+  assert.deepStrictEqual(SH.DEFAULTS, { hands: true, head: true, floor: true, grid: false, marks: true, cameras: true, walls: true, boxes: true, menus: true, occlude: true, people: 'crude' });
   assert.deepStrictEqual(SH.ITEMS.map((i) => i.id), ['hands', 'head', 'floor', 'grid', 'marks', 'cameras', 'walls', 'boxes', 'menus', 'occlude']);
   assert.strictEqual(SH.ITEMS.find((i) => i.id === 'grid').label, 'Grid floor');
 });
@@ -88,4 +88,16 @@ test('clean: saved settings are merged into the defaults; unknown keys and wrong
   assert.deepStrictEqual(SH.clean({ floor: false, grid: true, hands: false }), Object.assign({}, SH.DEFAULTS, { floor: false, grid: true, hands: false }));
   assert.deepStrictEqual(SH.clean({ floor: 'yes', bogus: true, head: 0 }), SH.DEFAULTS);
   assert.deepStrictEqual(SH.clean('rubbish'), SH.DEFAULTS);
+});
+
+test('the people cutout: a choice of three, crude at first; anything else, or an old save without it, keeps the default', () => {
+  const m = SH.MODES.find((x) => x.id === 'people');
+  assert.strictEqual(m.label, 'People cutout');
+  assert.deepStrictEqual(m.options.map((o) => [o.id, o.label]), [['none', 'None'], ['crude', 'Crude'], ['ml', 'ML cutout']]);
+  assert.ok(!SH.ITEMS.some((i) => i.id === 'people'), 'not a check box');
+  for (const v of ['none', 'crude', 'ml']) assert.strictEqual(SH.clean({ people: v }).people, v);
+  for (const v of ['ML', true, 1, null, 'debug', undefined]) assert.strictEqual(SH.clean({ people: v }).people, 'crude', String(v));
+  const old = SH.clean({ hands: false, grid: true });
+  assert.deepStrictEqual([old.hands, old.grid, old.people], [false, true, 'crude'], 'an old save without the key');
+  assert.strictEqual(SH.clean({ occlude: 'ml' }).occlude, true, 'a check box takes no option');
 });

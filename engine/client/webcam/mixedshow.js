@@ -12,6 +12,9 @@
 //   walls                          the room's walls, fences and tables   boxes   the marked boxes    marks   the calibration marks: the spot discs, the line
 //   between them, the check discs  cameras   the real cameras (xr/cammark3d.js)
 //   occlude                        not handled here: the page switches the depth-only boxes of the room's real things (occluders.js) with it
+// and one choice of three that is not a check box (MODES):
+//   people  'none' | 'crude' | 'ml'  how real people hide the world (peoplecut.js): not at all, by stand-in bodies (bodyproxy.js), or by those bodies
+//                                    trimmed to the person's outline in the picture (segmenter.js). Not handled here either: the page draws it
 (function (M) {
   const ITEMS = [
     { id: 'hands', label: 'Hands' },
@@ -25,13 +28,18 @@
     { id: 'menus', label: 'Menus' },
     { id: 'occlude', label: 'Hide things behind the room' },
   ];
-  const DEFAULTS = { hands: true, head: true, floor: true, grid: false, marks: true, cameras: true, walls: true, boxes: true, menus: true, occlude: true };
+  const MODES = [{ id: 'people', label: 'People cutout', options: [{ id: 'none', label: 'None' }, { id: 'crude', label: 'Crude' }, { id: 'ml', label: 'ML cutout' }] }];
+  const DEFAULTS = { hands: true, head: true, floor: true, grid: false, marks: true, cameras: true, walls: true, boxes: true, menus: true, occlude: true, people: 'crude' };
   const PARTS = ITEMS.map((i) => i.id).filter((id) => id !== 'occlude');       // the switches that work through view.parts
 
-  // saved settings merged into the defaults (anything that is not a true or false for a known switch is dropped)
+  // saved settings merged into the defaults (anything that is not a true or false for a known switch, or one of a choice's options, is dropped)
   function clean(saved) {
     const out = Object.assign({}, DEFAULTS);
-    if (saved && typeof saved === 'object') for (const k of Object.keys(DEFAULTS)) if (typeof saved[k] === 'boolean') out[k] = saved[k];
+    if (!saved || typeof saved !== 'object') return out;
+    for (const k of Object.keys(DEFAULTS)) {
+      const mode = MODES.find((m) => m.id === k);
+      if (mode ? mode.options.some((o) => o.id === saved[k]) : typeof saved[k] === 'boolean') out[k] = saved[k];
+    }
     return out;
   }
 
@@ -60,5 +68,5 @@
     return { ok: missing.length === 0, missing };
   }
 
-  M.mixedshow = { ITEMS, DEFAULTS, PARTS, clean, apply, objects };
+  M.mixedshow = { ITEMS, MODES, DEFAULTS, PARTS, clean, apply, objects };
 })(typeof module !== 'undefined' ? (module.exports = require('../ns.js')) : (globalThis.MUMR = globalThis.MUMR || {}));
