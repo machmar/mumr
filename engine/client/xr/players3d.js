@@ -88,7 +88,7 @@ export function createPlayers({ THREE, world, scene, GhostHand }) {
   const ring = new THREE.Mesh(new THREE.RingGeometry(0.07, 0.085, 48, 1, 0, 0.01), new THREE.MeshBasicMaterial({ color: 0xf2c14e, side: THREE.DoubleSide, depthTest: false }));
   ring.rotation.x = -Math.PI / 2; ring.renderOrder = 6; ring.visible = false; group.add(ring);
   let ringAt = -1;
-  const KNOB_COL = { along: 0xff6b6b, across: 0x7bd88f, up: 0x4ea1ff };
+  const KNOB_COL = { along: 0xff6b6b, across: 0x7bd88f, up: 0x4ea1ff, body: 0xffffff };
   const makeKnob = (radius) => {
     const ball = new THREE.Mesh(new THREE.SphereGeometry(radius, 16, 12), new THREE.MeshBasicMaterial({ color: 0xffffff, depthTest: false }));
     ball.renderOrder = 6; ball.visible = false; group.add(ball);
@@ -98,10 +98,10 @@ export function createPlayers({ THREE, world, scene, GhostHand }) {
     return { ball, stalk };
   };
   const knobs = [0, 1, 2, 3, 4, 5, 6, 7, 8].map(() => makeKnob(0.014));      // (three at each of the three spots)
-  const camKnobs = [0, 1, 2, 3, 4, 5].map(() => makeKnob(0.02));        // (room for two cameras: the knobs are bigger, they hang half a metre in front of a camera)
+  const camKnobs = [0, 1, 2, 3, 4, 5, 6, 7].map(() => makeKnob(0.02));  // (room for two cameras: the knobs are bigger, they hang half a metre in front of a camera; a hand-placed one has a fourth on itself)
   // m: { show, slot, points: [[x, y, z] | null, [x, y, z] | null], knobs (align.js: Aligner.knobs()), held (0, 1 or -1),
   //      (points has the check mark as a third entry while lining up, so that its knobs have a spot to hang from),
-  //      progress (0..1), at: [x, y, z] | null, checks: [{ slot, x, y, z }], camKnobs (camknobs.js: CamKnobs.knobs(), up to six) }, all in our own
+  //      progress (0..1), at: [x, y, z] | null, checks: [{ slot, x, y, z }], camKnobs (camknobs.js: CamKnobs.knobs(), up to eight) }, all in our own
   //      frame (lineup.js LineUp.marks()).
   function marks(m) {
     group.visible = !!(m && m.show);

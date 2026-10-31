@@ -25,7 +25,9 @@
     if (!(typeof e.yaw === 'number' && Number.isFinite(e.yaw))) return null;
     if (!num(e.pitch, -1.58, 1.58) || !num(e.hfov, 0.1, 3.0) || !num(e.aspect, 0.2, 6)) return null;
     const name = typeof e.name === 'string' ? e.name.trim().replace(/\s+/g, ' ').slice(0, NAME_MAX).trim() : '';
-    return { id: e.id, name: name || 'Webcam', x: r4(e.x), y: r4(e.y), z: r4(e.z), yaw: r4(wrap(e.yaw)), pitch: r4(e.pitch), hfov: r4(e.hfov), aspect: r4(e.aspect) };
+    const c = { id: e.id, name: name || 'Webcam', x: r4(e.x), y: r4(e.y), z: r4(e.z), yaw: r4(wrap(e.yaw)), pitch: r4(e.pitch), hfov: r4(e.hfov), aspect: r4(e.aspect) };
+    if (e.hand === true) c.hand = true;                   // (placed by hand from a headset, not by the clicked spots: webcam/handcam.js)
+    return c;
   }
   // the event a page sends for a camera, or null
   function event(c) { const k = clean(c); return k ? Object.assign({ k: 'cam+' }, k) : null; }
@@ -35,13 +37,13 @@
   function toOwn(frame, c) {
     if (!frame || !c) return null;
     const AL = M.align, p = AL.fromCommon(frame, c.x, c.y);
-    return { id: c.id, name: c.name, x: p[0], y: p[1], z: c.z + (frame.z || 0), yaw: AL.yawFromCommon(frame, c.yaw), pitch: c.pitch, hfov: c.hfov, aspect: c.aspect };
+    return Object.assign({ id: c.id, name: c.name, x: p[0], y: p[1], z: c.z + (frame.z || 0), yaw: AL.yawFromCommon(frame, c.yaw), pitch: c.pitch, hfov: c.hfov, aspect: c.aspect }, c.hand ? { hand: true } : {});
   }
   // every camera of a document but one (a page does not draw the camera it looks through)
   function others(doc, exceptId) { return doc && doc.cameras ? Object.values(doc.cameras).filter((c) => c.id !== exceptId) : []; }
   // is this the camera that is already known, to a millimetre and a few hundredths of a degree?
   function same(a, b) {
-    if (!a || !b || a.id !== b.id || a.name !== b.name) return false;
+    if (!a || !b || a.id !== b.id || a.name !== b.name || !!a.hand !== !!b.hand) return false;
     return Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z) < 0.001 && Math.abs(wrap(a.yaw - b.yaw)) < 0.0005 && Math.abs(a.pitch - b.pitch) < 0.0005 && Math.abs(a.hfov - b.hfov) < 0.0005 && Math.abs(a.aspect - b.aspect) < 0.001;
   }
 

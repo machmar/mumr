@@ -158,6 +158,8 @@ const HTML = `
   <div class="row">Click in the picture:
     <button id="wcSpot0">Spot 1</button><button id="wcSpot1">Spot 2</button><button id="wcSpot2">Check spot</button>
     <button id="wcClear">Clear clicks</button><button id="wcAlt" disabled>Other fit</button></div>
+  <div class="row" title="For a close-up, where the spots are not all in the picture: a camera put into the room, carried by hand in a headset (the white knob on it, while lining up) to where the real camera stands, then turned by one click on a spot it sees">Or by hand:
+    <button id="wcHand">Place by hand</button><span id="wcAims" hidden> then aim at <button id="wcAim0">Spot 1</button><button id="wcAim1">Spot 2</button><button id="wcAim2">Check spot</button></span></div>
   <div class="row"><label>Profile <select id="wcFovSel" title="The camera profile this camera uses (field of view, lens, latency). They are made, filled in and deleted in the camera calibration"></select></label></div>
 <div class="row"><button id="wcCalOpen" title="A full-screen mode that measures the field of view, the lens distortion and the latency of this camera">Camera calibration...</button></div>
   <p id="wcStatus"></p>

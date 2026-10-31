@@ -119,13 +119,14 @@ export async function startMixedView(V) {
   const KEEP = new M.camadjust.PoseKeeper(ADJ, LS);
   const r1 = (v) => (Number.isFinite(v) ? +v.toFixed(1) : v);
   const camSig = () => JSON.stringify([calib.clicks.map((c) => (c ? c.map(r1) : null)), calib.choice, +calib.fovDeg.toFixed(2), calib.a1, calib.a2, calib.W, calib.H]);
-  const poseNow = () => KEEP.pose(WCV.running, calib.key, camSig(), WCV.pose(), performance.now());
+  // (a camera placed by hand, handcam.js, is its own: the headset's moves are its place, the aim click its turn)
+  const poseNow = () => (WCV.hand.on ? WCV.pose() : KEEP.pose(WCV.running, calib.key, camSig(), WCV.pose(), performance.now()));
   const myCam = { id: `cam-${Math.random().toString(36).slice(2, 8)}${Date.now().toString(36).slice(-3)}`, last: null, sentAt: 0, announced: false };
   // (a headset asks, through the server, for this camera to be moved: session.moveCamera / resetCamera; only the owner hears it)
-  feed.on('ask', (key, m) => { if (key === `cam:${myCam.id}` && m && typeof m === 'object') ADJ.ask(m); });
+  feed.on('ask', (key, m) => { if (key === `cam:${myCam.id}` && m && typeof m === 'object') { if (WCV.hand.on) WCV.hand.ask(m); else ADJ.ask(m); } });
   function publishCamera(now, P) {
     if (!P) { if (myCam.announced) { feed.withdrawCamera(myCam.id); myCam.announced = false; myCam.last = null; } return; }
-    const c = CAMS.clean({ id: myCam.id, name: calib.fovName || 'Webcam', x: P.x, y: P.y, z: P.z, yaw: P.yaw, pitch: P.pitch, hfov: P.hfov, aspect: P.aspect });
+    const c = CAMS.clean({ id: myCam.id, name: calib.fovName || 'Webcam', x: P.x, y: P.y, z: P.z, yaw: P.yaw, pitch: P.pitch, hfov: P.hfov, aspect: P.aspect, hand: !!P.hand });
     if (!c) return;
     const known = !!feed.doc.cameras[myCam.id];
     if (known && myCam.last && CAMS.same(myCam.last, c)) return;                    // nothing new, and the world has it

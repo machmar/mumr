@@ -354,7 +354,7 @@ export async function createApp(o) {
     windowsFrame(now, dt, head, handsXR);
     modelFrame(now, own);
     players.update(presence.others(now).map((q) => ({ slot: q.slot, head: q.head, sources: q.sources })), dt);
-    players.marks(Object.assign(lineup.marks(), { camKnobs: lineup.active ? camKnobs.knobs(camsOwn).slice(0, 6) : [] }));
+    players.marks(Object.assign(lineup.marks(), { camKnobs: lineup.active ? camKnobs.knobs(camsOwn).slice(0, 8) : [] }));
     world.position.y = space.floorY;
     room3d.set(room.local()); room3d.group.visible = !xr || lineup.active;
     if (handWall) handWall.update(room.local(), wallHands(), now, viewerPreview || viewerSpot());
