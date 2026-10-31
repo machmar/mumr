@@ -22,10 +22,16 @@ test('the camera menu: the chosen camera, the next one, Place in front of me and
   sys.press('camHere'); sys.press('camReset');
   assert.deepStrictEqual(done, ['here cam-b', 'reset cam-b']);
   sys.press('camNext'); assert.strictEqual(sys.camId(), 'cam-a', 'round again');
+  assert.ok(btn('camRough') && !btn('camRough').active, 'Rough move, off at first, for a camera its clicks placed');
+  sys.press('camRough'); assert.ok(sys.camRough && btn('camRough').active, 'on');
+  const K = new M.camknobs.CamKnobs(), c = Object.assign({ yaw: 0, pitch: -0.2 }, list[0]);
+  assert.ok(K.knobs([Object.assign({}, c, { grab: true })]).some((k) => k.axis === 'body') && !K.knobs([c]).some((k) => k.axis === 'body'), 'Rough move gives it the body knob');
+  sys.press('camRough'); assert.strictEqual(sys.camRough, false);
   list = [list[1]];
   assert.strictEqual(sys.camId(), 'cam-b', 'the chosen one went: the first that is left');
   assert.ok(!btn('camNext'), 'one camera: nothing to go on to');
   sys.press('camBack'); assert.ok(btn('spot1'), 'Back: the line-up menu again');
   sys.press('camMenu'); sys.press('lineUp');
   assert.strictEqual(sys.info().camOpen, false, 'Done closes it with lining up');
+  assert.strictEqual(sys.camRough, false, 'and Rough move');
 });
