@@ -15,7 +15,9 @@
 //   gridLines(lens, nx, ny, steps)   the lines of a straight grid (nx x ny cells over the ideal picture) as they appear in the camera's picture: [{ kind: 'v' | 'h', i, pts: [[u, v], ...] }]
 //   cornerBend(lens)        { px, percent }: how far the corner of the picture is from the corner of the ideal picture, in pixels and as a part of the half diagonal
 //   glsl()                  the shader function `vec2 lensIdeal(vec2 uv, float a1, float a2, vec2 size)` (uv: the picture's own 0..1, y either way; the result is the ideal 0..1 point,
-//                           outside 0..1 when the ideal picture is wider than the real one)
+//                           outside 0..1 when the ideal picture is wider than the real one) and its way back, `vec2 lensPicture(vec2 ideal, float a1, float a2, vec2 size)`: the picture's
+//                           0..1 point of an ideal 0..1 point, by PICTURE_STEPS Newton steps from the ideal point (the people cutout reads the person mask there, peoplecut.js)
+//   pictureUV(a1, a2, size, u, v)   [u, v]: the same steps as lensPicture, in JS, on 0..1 points (size: [aspect, 1]), so that tests can check the shader's sums
 (function (M) {
   const LIMIT = 0.5;
   const half = (lens) => 0.5 * Math.hypot(lens.W, lens.H);
@@ -68,6 +70,17 @@
     return { px, percent: px / half(lens) * 100 };
   }
 
+  // lensPicture's steps, in JS (the shader does exactly this)
+  const PICTURE_STEPS = 4;
+  function pictureUV(a1, a2, size, u, v) {
+    const R = 0.5 * Math.hypot(size[0], size[1]), px = (u - 0.5) * size[0] / R, py = (v - 0.5) * size[1] / R, ri = Math.hypot(px, py);
+    if (ri < 1e-6) return [u, v];
+    let r = ri;
+    for (let k = 0; k < PICTURE_STEPS; k++) { const r2 = r * r; r -= (r * (1 + a1 * r2 + a2 * r2 * r2) - ri) / Math.max(1e-6, 1 + 3 * a1 * r2 + 5 * a2 * r2 * r2); }
+    const k = r / ri;
+    return [0.5 + px * k * R / size[0], 0.5 + py * k * R / size[1]];
+  }
+
   const GLSL = [
     'vec2 lensIdeal(vec2 uv, float a1, float a2, vec2 size) {',
     '  float R = 0.5 * length(size);',
@@ -76,8 +89,17 @@
     '  float s = 1.0 + a1 * r2 + a2 * r2 * r2;',
     '  return 0.5 + p * s * R / size;',
     '}',
+    'vec2 lensPicture(vec2 ideal, float a1, float a2, vec2 size) {',
+    '  float R = 0.5 * length(size);',
+    '  vec2 p = (ideal - 0.5) * size / R;',
+    '  float ri = length(p);',
+    '  if (ri < 1e-6) return ideal;',
+    '  float r = ri;',
+    `  for (int k = 0; k < ${PICTURE_STEPS}; k++) { float r2 = r * r; r -= (r * (1.0 + a1 * r2 + a2 * r2 * r2) - ri) / max(1e-6, 1.0 + 3.0 * a1 * r2 + 5.0 * a2 * r2 * r2); }`,
+    '  return 0.5 + p * (r / ri) * R / size;',
+    '}',
   ].join(String.fromCharCode(10));
   const glsl = () => GLSL;
 
-  M.lens = { toIdeal, toPicture, isNone, valid, bounds, glsl, gridLines, cornerBend, LIMIT };
+  M.lens = { toIdeal, toPicture, pictureUV, PICTURE_STEPS, isNone, valid, bounds, glsl, gridLines, cornerBend, LIMIT };
 })(typeof module !== 'undefined' ? (module.exports = require('../ns.js')) : (globalThis.MUMR = globalThis.MUMR || {}));

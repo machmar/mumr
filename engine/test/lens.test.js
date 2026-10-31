@@ -79,3 +79,17 @@ test('cornerBend: nothing for no lens, and how far the corner moves for one', ()
   assert.ok(Math.abs(b.px - 0.25 * R) < 1e-9, `${b.px}`); assert.ok(Math.abs(b.percent - 25) < 1e-9);
   assert.ok(LN.cornerBend(L(0.1, 0.05)).px > 0);
 });
+
+test("the way back from the ideal picture: toPicture(toIdeal(p)) is p, and the shader's steps (pictureUV, lensPicture) land on the same point, to the edges", () => {
+  const W = 1280, H = 720;
+  for (const [a1, a2] of [[-0.25, 0.03], [-0.12, 0.01], [0.15, -0.02]]) {
+    const lens = { a1, a2, W, H };
+    for (const [u, v] of [[640, 360], [100, 80], [1270, 10], [5, 715], [900, 500], [1280, 720]]) {
+      const id = LN.toIdeal(lens, u, v), back = LN.toPicture(lens, id[0], id[1]);
+      assert.ok(back && Math.hypot(back[0] - u, back[1] - v) < 0.01, `toPicture(toIdeal) a1 ${a1} at ${u}, ${v}`);
+      const q = LN.pictureUV(a1, a2, [W / H, 1], id[0] / W, id[1] / H);
+      assert.ok(Math.hypot(q[0] * W - u, q[1] * H - v) < 0.5, `pictureUV (${LN.PICTURE_STEPS} steps) within half a pixel: a1 ${a1} at ${u}, ${v}: ${(q[0] * W).toFixed(2)}, ${(q[1] * H).toFixed(2)}`);
+    }
+  }
+  assert.ok(LN.glsl().includes('vec2 lensPicture(') && LN.glsl().includes(`k < ${LN.PICTURE_STEPS}`), 'the shader has the same number of steps');
+});
