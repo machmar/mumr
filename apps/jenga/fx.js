@@ -213,7 +213,7 @@ export function createFx({ THREE, overlay, own }) {
     drawAims(aimList, blocks, dieMesh, state.size, k);
     // -- the limit
     const full = state.tower ? state.tower.full : 17, ly = T + full * d.H + 0.0012 * k, hx = d.L * 0.6;
-    limit.visible = playing && full >= 0 && full < 22;
+    limit.visible = playing && full >= 0 && full < 60;                    // (as high as tower.js counts levels: at 22 it went out on a tall tower, Marek 2026-10-31)
     if (limit.visible) {
       const bh = d.H * 0.8;
       limit.children.forEach((m) => {
