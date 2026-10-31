@@ -48,7 +48,7 @@ export function createDim3d({ THREE, scene, cutouts = true }) {
   const ld = Array.from({ length: MAXL }, () => new THREE.Vector4(0, -1, 0, -2)), dw = Array.from({ length: MAXL }, () => new THREE.Vector3(0, -1, 0));          // (the way it shines and its cone's cosine; -2: every way; dw: the way in the world)
   const bc = Array.from({ length: MAXB }, () => new THREE.Vector4()), bh = Array.from({ length: MAXB }, () => new THREE.Vector4()), bm = new Array(MAXL).fill(0);
   const ru = { lp: { value: lp }, lc: { value: lc }, lr: { value: lr }, ld: { value: ld }, n: { value: 0 }, bc: { value: bc }, bh: { value: bh }, nb: { value: 0 }, bm: { value: bm },
-    tint: { value: 0.2 }, lin: { value: 0 }, a: { value: 0 }, c: { value: 0 } };
+    tint: { value: 0.2 }, warm: { value: 0.35 }, lin: { value: 0 }, a: { value: 0 }, c: { value: 0 } };
   const f = (v) => v.toFixed(6);
   const rmat = new THREE.ShaderMaterial({
     uniforms: ru, depthWrite: true, depthFunc: THREE.LessDepth, toneMapped: false, side: THREE.DoubleSide,
@@ -59,7 +59,7 @@ export function createDim3d({ THREE, scene, cutouts = true }) {
       void main() { vP = position; vN = normal; vLit = lit; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); gl_Position.z = (${f(Z0)} + rk * ${ZSTEP.toExponential()}) * gl_Position.w; }`,
     // (dim.js reach for each light, less what the boxes keep from it (dim.js block), then relit; in a linear target the numbers are turned as the layer's are)
     fragmentShader: `uniform vec3 lp[${MAXL}]; uniform vec3 lc[${MAXL}]; uniform vec3 lr[${MAXL}]; uniform vec4 ld[${MAXL}]; uniform int n; uniform vec4 bc[${MAXB}]; uniform vec4 bh[${MAXB}]; uniform int nb; uniform int bm[${MAXL}];
-      uniform float tint; uniform float lin; uniform float a; uniform float c; varying vec3 vP; varying vec3 vN; varying float vLit;
+      uniform float tint; uniform float warm; uniform float lin; uniform float a; uniform float c; varying vec3 vP; varying vec3 vN; varying float vLit;
       vec3 toLin(vec3 v) { return mix(v / 12.92, pow((v + 0.055) / 1.055, vec3(2.4)), step(vec3(0.04045), v)); }
       // dim.js block in THREE's axes: a box's own axes are (along, up, across), its half sizes h; C (centre, cos), H (half along, half across, half up, sin)
       float block(vec3 p, vec3 l, vec4 C, vec4 H, float size) {
@@ -92,6 +92,10 @@ export function createDim3d({ THREE, scene, cutouts = true }) {
         s *= vLit; col *= vLit;
         float keep = 1.0 - min(s, ${D.RELIT_MAX.toFixed(2)});
         float a2 = a * keep; vec3 c2 = vec3(c * keep) + col * tint;
+        // (a warm veil: near a light part of what is behind takes that light's colour, so a white real room turns amber round a lamp instead of only
+        //  having a little warm light laid on it: Marek, 2026-10-29)
+        float wv = warm * min(1.0, s); vec3 hue = col / max(s, 1e-4);
+        c2 += hue * 0.62 * wv * (1.0 - a2); a2 += wv * (1.0 - a2);
         if (lin > 0.5) { float through = pow(1.0 - a2, 2.2); vec3 g2 = a2 > 0.0 ? toLin(vec3(c * keep) / a2) * (1.0 - through) : vec3(0.0); c2 = g2 + toLin(col * tint); a2 = 1.0 - through; }
         gl_FragColor = vec4(c2, a2);
       }`,
@@ -191,6 +195,8 @@ export function createDim3d({ THREE, scene, cutouts = true }) {
     mesh, relight: surf, linear: false, surfaces, lights,
     // how much the relight costs (a page's quality): at most `lights` lights, and whether the room's furniture shades them (the dearest part)
     quality({ lights = MAXL, shadows = true } = {}) { maxLights = Math.max(0, Math.min(MAXL, lights | 0)); boxShadows = !!shadows; },
+    // how much a light turns the real surfaces round it to its own colour (0: it only adds light; 1: right by it, the surface is the light's colour)
+    warmth(v) { ru.warm.value = Math.max(0, Math.min(1, v)); },
     update(level) {
       const l = D.layer(level);
       if (this.linear) { const through = Math.pow(1 - l.a, 2.2); u.a.value = 1 - through; u.c.value = l.a > 0 ? toLin(l.c / l.a) * (1 - through) : 0; }
