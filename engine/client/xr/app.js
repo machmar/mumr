@@ -297,7 +297,7 @@ export async function createApp(o) {
   const app = { THREE, scene, world, camera, renderer, S, space, presence, menus, lineup, sys, room, grips, handMask, feet: FEET, life, say, bodies, ownerText,
     head: () => head, xr: () => xr, gestures: [], everyone: [],
     dim: (want) => S.dim(want), dimLevel: () => M.dim.level(S.doc.dim, S.serverNow()),
-    boardTouches: (id) => boardTouching.get(`board:${id}`) || [], lights: { hemi, sun }, relight: (list) => dim.lights(list) };
+    boardTouches: (id) => boardTouching.get(`board:${id}`) || [], lights: { hemi, sun }, relight: (list) => dim.lights(list), relightQuality: (o) => dim.quality(o) };
   // the hands on the hand wall: everybody's, with their gestures (this page's first, then the others by slot)
   const hex = (c) => `#${(c >>> 0).toString(16).padStart(6, '0')}`;
   function wallHands() {

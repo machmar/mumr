@@ -98,7 +98,7 @@ export function createDim3d({ THREE, scene, cutouts = true }) {
   });
   const surf = new THREE.Mesh(new THREE.BufferGeometry(), rmat);
   surf.frustumCulled = false; surf.renderOrder = -99.5; surf.visible = false; surf.name = 'relight';
-  let surfRoom, surfParent = null, lightN = 0, levelA = 0;
+  let surfRoom, surfParent = null, lightN = 0, levelA = 0, boxShadows = true, maxLights = MAXL;
   let planes = [], boxes = [], order = '';      // planes: { tier, first, count, lo, hi } (the parent's axes); boxes: room.js boxes in the parent's axes
   // a plane of the scan as triangles (a fan: the scan's outlines are convex), with its normal
   function planeTris(q, out, nrm) {
@@ -153,7 +153,7 @@ export function createDim3d({ THREE, scene, cutouts = true }) {
   const boxLocal = (b, p) => { const x = p.x - b.c.x, y = p.y - b.c.y, z = p.z - b.c.z; return [x * b.co - z * b.si, y, -x * b.si - z * b.co]; };
   const boxGap = (b, q) => Math.hypot(Math.max(0, Math.abs(q[0]) - b.h[0]), Math.max(0, Math.abs(q[1]) - b.h[2]), Math.max(0, Math.abs(q[2]) - b.h[1]));
   function lights(list) {
-    const L = (list || []).filter((q) => q && q.at && q.range > 0 && q.power > 0).sort((p, q) => q.power - p.power).slice(0, MAXL);
+    const L = (list || []).filter((q) => q && q.at && q.range > 0 && q.power > 0).sort((p, q) => q.power - p.power).slice(0, maxLights);
     L.forEach((q, i) => {
       lw[i].copy(q.at); lc[i].set(q.colour === undefined ? 0xffb066 : q.colour); lr[i].set(q.range, Math.min(1, q.power), q.size > 0 ? q.size : SH.SIZE);
       if (q.dir && Number.isFinite(q.cone)) { dw[i].copy(q.dir); ld[i].w = Math.max(-1, Math.min(0.99, q.cone)); } else ld[i].w = -2;
@@ -180,7 +180,7 @@ export function createDim3d({ THREE, scene, cutouts = true }) {
       bc[j].set(t.b.c.x, t.b.c.y, t.b.c.z, t.b.co); bh[j].set(t.b.h[0], t.b.h[1], t.b.h[2], t.b.si);
       for (let i = 0; i < lightN; i++) if (t.mask & (1 << i)) bm[i] |= 1 << j;
     });
-    ru.nb.value = take.length;
+    ru.nb.value = boxShadows ? take.length : 0;
     sortPlanes(camera.getWorldPosition(eye).applyMatrix4(inv));
   };
   surfaces(null, null);
@@ -189,6 +189,8 @@ export function createDim3d({ THREE, scene, cutouts = true }) {
   const toLin = (v) => (v <= 0.04045 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4));
   return {
     mesh, relight: surf, linear: false, surfaces, lights,
+    // how much the relight costs (a page's quality): at most `lights` lights, and whether the room's furniture shades them (the dearest part)
+    quality({ lights = MAXL, shadows = true } = {}) { maxLights = Math.max(0, Math.min(MAXL, lights | 0)); boxShadows = !!shadows; },
     update(level) {
       const l = D.layer(level);
       if (this.linear) { const through = Math.pow(1 - l.a, 2.2); u.a.value = 1 - through; u.c.value = l.a > 0 ? toLin(l.c / l.a) * (1 - through) : 0; }

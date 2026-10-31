@@ -142,8 +142,8 @@ async function load() {
       this._statics.push(id);
     }
     _buildRoom(room, force) {
-      const walls = room ? M.room.walls(room) : [], blocks = room ? M.room.blocks(room) : [], mm = (v) => Math.round(v * 1000);
-      const sig = JSON.stringify([this.floor, walls.map((w) => [w.x0, w.y0, w.x1, w.y1, w.lo, w.hi].map(mm)), blocks.map((k) => [k.lo, k.hi, k.pts.map((q) => [mm(q[0]), mm(q[1])])])]);
+      const walls = room ? M.room.walls(room) : [], blocks = room ? M.room.blocks(room) : [], mm = (v) => Math.round(v * 1000), fx = this.fixtures || [];
+      const sig = JSON.stringify([this.floor, walls.map((w) => [w.x0, w.y0, w.x1, w.y1, w.lo, w.hi].map(mm)), blocks.map((k) => [k.lo, k.hi, k.pts.map((q) => [mm(q[0]), mm(q[1])])]), fx.map((f) => f.size.concat(f.p).map(mm).concat(f.q.map((v) => Math.round(v * 1e4))))]);
       if (!force && sig === this._roomSig) return false;
       this._roomSig = sig;
       for (const id of this._statics) this._kill(id, true);
@@ -162,8 +162,11 @@ async function load() {
         this._static(shape, [0, 0, 0], [0, 0, 0, 1]);
         shape.Release();
       }
+      for (const f of fx) this._static(this._box(f.size[0] / 2, f.size[1] / 2, f.size[2] / 2), f.p, f.q);
       return true;
     }
+    // static boxes of the app's own (turned any way; the room planes are only level tops and upright walls): [{ size, p, q }]
+    setFixtures(list) { this.fixtures = (list || []).filter((f) => f && fin(f.size) && fin(f.p) && fin(f.q)); if (this._buildRoom(this.room, false)) for (const b of this.bodies) this.wake(b); }
     setRoom(room) {
       this.room = room || null;
       if (this._buildRoom(this.room, false)) for (const b of this.bodies) this.wake(b);
