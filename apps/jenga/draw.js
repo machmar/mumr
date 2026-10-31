@@ -201,7 +201,7 @@ export function createScene({ THREE, parent, renderer, playerColours = [0xf2c14e
     //    mouth, a small roof of black lacquer edged in vermilion
     const DT = L.dtower, dq = new THREE.Quaternion(), fr = 0.012;
     for (const b of S.dtowerParts(L)) {
-      const g = new THREE.Group(); g.position.set(...at(b.p[0], b.p[1], b.p[2])); g.quaternion.set(b.q[0], b.q[2], -b.q[1], b.q[3]); dq.copy(g.quaternion); furniture.add(g);
+      const g = new THREE.Group(); g.position.set(...at(b.p[0], b.p[1], b.p[2])); g.quaternion.set(b.q[0], b.q[2], -b.q[1], b.q[3]); dq.copy(g.quaternion); g.userData.own = true; furniture.add(g);      // (own: a rebuild takes it away, or the old tower's glass stayed behind)
       const lx = b.size[0], ly = b.size[2], lz = b.size[1];
       if (b.part !== 'wall') { box(lx, ly, lz, b.part === 'post' ? mats.walnut : mats.lacquer, 0, 0, 0, g, b.part === 'plank' ? 0 : 0.002); }
       if (b.part === 'roof') box(lx + 0.006, 0.005, lz + 0.006, mats.shu, 0, -0.0075, 0, g, 0.002);
@@ -281,7 +281,7 @@ export function createScene({ THREE, parent, renderer, playerColours = [0xf2c14e
     // the button: a cord from the sign's foot, a walnut ring round a vermilion face with the sign of play on it (both sides)
     const cordTop = top - H - 0.01, cordLen = cordTop - (by + R + 0.008);
     add(new THREE.CylinderGeometry(0.0013, 0.0013, cordLen, 5), mats.cord, cx, cordTop - cordLen / 2, 0, sg, false);
-    const bg = new THREE.Group(); bg.position.set(cx, by, 0); sg.add(bg);
+    const bg = new THREE.Group(); bg.position.set(cx, by, 0); bg.userData.own = true; sg.add(bg);
     for (const m of [
       add(new THREE.CylinderGeometry(R + 0.008, R + 0.008, 0.016, 40).rotateX(Math.PI / 2), mats.walnut, 0, 0, 0, bg),
       add(new THREE.CircleGeometry(R, 40), howto.bmat, 0, 0, 0.0085, bg, false),
